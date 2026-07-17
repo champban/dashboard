@@ -1,7 +1,19 @@
 # PROJECT_STATUS — Engineering Digital Twin Platform
 
 **Single source of truth.** Updated at the close of every AWP.
-Version 3 · Last updated: 2026-07-17 (ABP-001 — commercial platform architecture)
+Version 4 · Last updated: 2026-07-17 (AWP-G0 — Product Experience Blueprint)
+
+## Experience readiness (AWP-G0 — the Product Experience Constitution)
+
+| Deliverable | Status |
+|---|---|
+| PRODUCT_EXPERIENCE_SYSTEM.md (philosophy, Ten UX Laws, 13 personas, AI/learning/community experience, brand identity — "No black boxes") | ✅ **awaiting founder approval — gates AWP-004** |
+| USER_JOURNEY.md (first-launch → first-success minute-by-minute; 14-step engineering workflow) | ✅ |
+| SCREEN_FLOW.md (15 screens w/ purpose·KPI·actions·time; panel/dock layout system; command palette spine — no ribbon; simulation transport spec 0.1×–256×+MAX; CalcDrill pattern; Mission Control) | ✅ |
+| DESIGN_SYSTEM.md (tokens, type, state-color language, accessibility AA, motion principles) | ✅ |
+| Demo-004 interactive prototype (journey, palette, mode lenses, CalcDrill, transport bar) | ✅ delivered |
+| CC-003 ui-design-standard · CC-004 engineering-ux-standard (skills) | ✅ created |
+| KA-003 Product Experience Playbook | ✅ created |
 
 ## Business readiness (ABP-001 — runs parallel to all AWPs)
 
@@ -90,6 +102,7 @@ Version 3 · Last updated: 2026-07-17 (ABP-001 — commercial platform architect
 | Demo-001 (AWP-002) | architecture walkthrough | ✅ |
 | Demo-002 (AWP-003) | **real kernel live in Worker**: line with oven+wrapper, random failures, live OEE with formulas, event feed, bottleneck detection | ✅ delivered & committed |
 | Demo-003 (ABP-001) | commercial platform mockup: sign-in, license (signed doc + registry view), team/org, subscription tiers, marketplace, data-ownership settings | ✅ delivered & committed |
+| Demo-004 (AWP-G0) | **interactive experience prototype**: first-five-minutes journey (find → read math → fix → share), working ⌘K command palette, D/S/A mode lenses, CalcDrill on OEE, transport bar + speed ladder, Mission Control pane | ✅ delivered & committed |
 
 ## Risks (live)
 

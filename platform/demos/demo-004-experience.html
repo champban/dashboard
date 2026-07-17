@@ -1,0 +1,470 @@
+<meta charset="utf-8">
+<title>Demo-004 — Product Experience Prototype</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --panel:#211f1e; --border:rgba(255,255,255,.10);
+    --ink:#fff; --ink2:#c3c2b7; --muted:#898781; --accent:#3987e5;
+    --run:#199e70; --blocked:#c98500; --down:#d03b3b; --idle:#52514e; --starv:#898781;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html,body { height:100%; }
+  body { background:var(--page); color:var(--ink); font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+  .num { font-variant-numeric:tabular-nums; }
+
+  /* ---------- top bar ---------- */
+  header { display:flex; align-items:center; gap:10px; padding:7px 12px; background:var(--surface); border-bottom:1px solid var(--border); }
+  .logo { font-weight:700; } .logo span { color:var(--accent); }
+  .modes { display:flex; gap:2px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:2px; }
+  .modes button { background:none; border:0; color:var(--ink2); padding:5px 14px; border-radius:6px; font-size:12px; cursor:pointer; }
+  .modes button.on { background:var(--accent); color:#fff; }
+  .modes button u { text-decoration:underline; text-underline-offset:2px; }
+  header .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .btn { background:var(--panel); border:1px solid var(--border); color:var(--ink2); border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  .kbd { font-size:10px; color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:0 5px; margin-left:6px; }
+
+  /* ---------- journey bar ---------- */
+  .journey { display:flex; gap:6px; align-items:center; padding:6px 12px; background:#101418; border-bottom:1px solid var(--border); font-size:11px; }
+  .journey .steps { display:flex; gap:6px; flex-wrap:wrap; }
+  .step { border:1px solid var(--border); border-radius:99px; padding:2px 10px; color:var(--muted); }
+  .step.now { border-color:var(--accent); color:var(--ink); }
+  .step.done { border-color:#1c5c34; color:#7ee2a0; }
+  .journey .msg { margin-left:auto; color:var(--ink2); }
+
+  /* ---------- layout ---------- */
+  main { display:grid; grid-template-columns:190px 1fr 280px; grid-template-rows:1fr auto; height:calc(100% - 76px); }
+  .pane { background:var(--surface); overflow-y:auto; }
+  #left { border-right:1px solid var(--border); }
+  #right { border-left:1px solid var(--border); }
+  #center { position:relative; background:var(--page); min-width:0; }
+  #bottom { grid-column:1/4; background:var(--surface); border-top:1px solid var(--border); }
+  .ptitle { padding:10px 12px 6px; font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .zen main { grid-template-columns:0 1fr 0; } .zen #left, .zen #right { display:none; }
+
+  /* library */
+  .lib { display:flex; align-items:center; gap:8px; padding:6px 12px; color:var(--ink2); cursor:grab; border-left:2px solid transparent; font-size:12px; }
+  .lib:hover { background:var(--panel); border-left-color:var(--accent); color:var(--ink); }
+  .lib .g { width:20px; height:14px; border:1px solid var(--muted); border-radius:3px; flex:none; }
+  .more { display:block; margin:10px 12px; padding:7px 10px; border:1px dashed var(--border); border-radius:8px; color:var(--muted); font-size:11px; }
+
+  /* canvas */
+  canvas { display:block; width:100%; height:100%; }
+  .flag { position:absolute; left:12px; top:10px; background:#2b2410; border:1px solid #5c4a1c; color:var(--blocked); border-radius:8px; padding:5px 10px; font-size:11px; display:none; }
+  .hint { position:absolute; left:50%; transform:translateX(-50%); bottom:14px; background:rgba(26,26,25,.92); border:1px solid var(--border); border-radius:8px; padding:6px 14px; font-size:12px; color:var(--ink2); }
+
+  /* inspector */
+  .prop { padding:6px 12px; }
+  .prow { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:12px; }
+  .prow label { flex:1.1; color:var(--ink2); }
+  .prow input[type=range] { flex:1; accent-color:var(--accent); }
+  .prow .val { width:64px; text-align:right; }
+  .formula { margin:8px 12px; padding:8px 10px; border:1px dashed var(--border); border-radius:8px; color:var(--muted); font-size:11px; }
+  .formula b { color:var(--ink2); }
+  .statechip { display:inline-block; border-radius:4px; padding:1px 8px; font-size:10px; color:#fff; }
+
+  /* bottom: transport + kpis */
+  .transport { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); }
+  .transport .t { color:var(--muted); font-size:12px; margin-left:auto; }
+  .speeds { display:flex; gap:2px; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:2px; }
+  .speeds button { background:none; border:0; color:var(--muted); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer; }
+  .speeds button.on { background:var(--accent); color:#fff; }
+  .kpis { display:flex; gap:8px; padding:8px 12px; }
+  .tile { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:6px 10px; cursor:pointer; min-width:0; }
+  .tile .k { font-size:10px; color:var(--muted); }
+  .tile .v { font-size:17px; font-weight:700; }
+  .tile.alert { border-color:var(--down); } .tile.alert .v { color:var(--down); font-size:13px; padding-top:3px; }
+  .drill { display:none; margin:0 12px 10px; padding:8px 12px; border:1px dashed var(--border); border-radius:8px; font-size:11px; color:var(--muted); }
+  .drill.on { display:block; }
+  .drill .row { padding:2px 0; } .drill b { color:var(--ink2); }
+
+  /* screens */
+  section.screen { display:none; height:100%; } section.screen.on { display:block; }
+  /* hub */
+  .hub { max-width:760px; margin:40px auto; padding:0 16px; }
+  .hub h1 { font-size:18px; margin-bottom:4px; }
+  .hub .sub { color:var(--muted); font-size:12px; margin-bottom:18px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  .pcard { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; cursor:pointer; }
+  .pcard:hover { border-color:var(--accent); }
+  .pcard .t { font-weight:600; } .pcard .m { color:var(--muted); font-size:11px; margin-top:4px; }
+
+  /* welcome overlay */
+  #welcome { position:fixed; inset:0; background:rgba(13,13,13,.7); backdrop-filter:blur(2px); display:flex; align-items:center; justify-content:center; z-index:20; }
+  #welcome .card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:26px; max-width:430px; }
+  #welcome h1 { font-size:18px; margin-bottom:8px; }
+  #welcome p { color:var(--ink2); font-size:13px; margin-bottom:8px; }
+
+  /* command palette */
+  #palette { position:fixed; inset:0; background:rgba(13,13,13,.6); display:none; z-index:30; }
+  #palette.on { display:block; }
+  .pal { max-width:480px; margin:90px auto 0; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .pal input { width:100%; background:var(--panel); border:0; border-bottom:1px solid var(--border); color:var(--ink); padding:12px 14px; font-size:14px; outline:none; }
+  .pal .item { display:flex; align-items:center; padding:9px 14px; color:var(--ink2); cursor:pointer; font-size:13px; }
+  .pal .item.sel { background:var(--panel); color:var(--ink); }
+  .pal .item .kbd { margin-left:auto; }
+
+  /* toast */
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--surface); border:1px solid #1c5c34; color:#7ee2a0; border-radius:10px; padding:9px 18px; font-size:12px; display:none; z-index:40; }
+  /* analyze extras */
+  .alarms { padding:0 12px; }
+  .al { display:flex; gap:8px; align-items:center; padding:5px 0; border-bottom:1px solid var(--border); font-size:11px; color:var(--ink2); }
+  .al .sev { width:8px; height:8px; border-radius:50%; flex:none; }
+  .narr { margin:8px 12px; padding:8px 12px; border-left:3px solid var(--blocked); background:var(--panel); border-radius:0 8px 8px 0; font-size:12px; color:var(--ink2); }
+</style>
+
+<!-- ============ WELCOME (first launch) ============ -->
+<div id="welcome">
+  <div class="card">
+    <h1>◆ This line has a problem.</h1>
+    <p>No install. No signup. A cookie packaging line is already running behind this dialog — and something is limiting it.</p>
+    <p><b style="color:var(--ink)">Can you find it?</b></p>
+    <button class="btn primary" id="startBtn" style="margin-top:8px">Watch the line ▶</button>
+    <div style="color:var(--muted);font-size:11px;margin-top:12px">Demo-004 · experience prototype, not final UI · Ctrl+K works</div>
+  </div>
+</div>
+
+<header>
+  <div class="logo">◆ DTP <span>Cookie Line A</span></div>
+  <div class="modes">
+    <button data-m="hub">Hub</button>
+    <button data-m="design"><u>D</u>esign</button>
+    <button data-m="simulate" class="on"><u>S</u>imulate</button>
+    <button data-m="analyze"><u>A</u>nalyze</button>
+  </div>
+  <div class="right">
+    <button class="btn" id="shareBtn">Share replay ↗</button>
+    <button class="btn" id="palBtn">⌘K Commands</button>
+  </div>
+</header>
+
+<div class="journey">
+  <div class="steps">
+    <span class="step now" id="j1">1 · Watch</span>
+    <span class="step" id="j2">2 · Find the bottleneck</span>
+    <span class="step" id="j3">3 · Read the math</span>
+    <span class="step" id="j4">4 · Fix it</span>
+    <span class="step" id="j5">5 · Share the evidence</span>
+  </div>
+  <span class="msg" id="jmsg">First five minutes — the founder journey from USER_JOURNEY.md</span>
+</div>
+
+<!-- ============ HUB ============ -->
+<section class="screen" id="scr-hub">
+  <div class="hub">
+    <h1>Project Hub</h1>
+    <div class="sub">Resume in one keystroke — recent first, templates behind it. (Expected time on this screen: under 10 seconds.)</div>
+    <div class="cards">
+      <div class="pcard" onclick="setMode('simulate')"><div class="t">Cookie Line A — wrapper upgrade</div><div class="m">simulated 2 min ago · OEE 81.6 % · ▶ resume</div></div>
+      <div class="pcard"><div class="t">Biscuit Line 2 — capacity study</div><div class="m">yesterday · shared with 3</div></div>
+      <div class="pcard"><div class="t">+ New from template</div><div class="m">flow-wrap line · biscuit line · blank</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WORKSPACE ============ -->
+<section class="screen on" id="scr-work">
+<main>
+  <div class="pane" id="left">
+    <div class="ptitle">Machine Library</div>
+    <div class="lib"><span class="g"></span>Belt Conveyor</div>
+    <div class="lib"><span class="g"></span>Tunnel Oven</div>
+    <div class="lib"><span class="g"></span>Flow Wrapper</div>
+    <div class="lib"><span class="g"></span>Checkweigher</div>
+    <div class="lib"><span class="g"></span>Case Packer</div>
+    <span class="more">Design mode: drag onto the canvas.<br><br>Get certified OEM libraries → <u>Marketplace</u></span>
+  </div>
+
+  <div id="center">
+    <div class="flag" id="valflag">⚠ Design validation: CP-01 output port unconnected — inline, never a dialog</div>
+    <canvas id="cv"></canvas>
+    <div class="hint" id="hint">Hover machines · click the amber one</div>
+  </div>
+
+  <div class="pane" id="right">
+    <div class="ptitle" id="insTitle">Properties — click a machine</div>
+    <div id="insBody">
+      <div class="formula">The inspector follows your selection. Machine states use one color language everywhere: canvas, panels, reports.</div>
+    </div>
+  </div>
+
+  <div id="bottom">
+    <div class="transport">
+      <button class="btn primary" id="runBtn">⏸ Pause</button>
+      <button class="btn" id="stepBtn">Step</button>
+      <div class="speeds" id="speeds">
+        <button data-s="0.25">0.25×</button><button data-s="1" class="on">1×</button>
+        <button data-s="4">4×</button><button data-s="16">16×</button><button data-s="64">64×</button>
+      </div>
+      <span style="color:var(--muted);font-size:11px">[ and ] change speed · Space runs</span>
+      <span class="t num" id="clock">t = 0.0 s</span>
+    </div>
+    <div class="kpis">
+      <div class="tile" id="oeeTile"><div class="k">OEE — click to explain</div><div class="v num" id="kOee">—</div></div>
+      <div class="tile"><div class="k">Availability</div><div class="v num" id="kA">—</div></div>
+      <div class="tile"><div class="k">Performance</div><div class="v num" id="kP">—</div></div>
+      <div class="tile"><div class="k">Quality</div><div class="v num" id="kQ">—</div></div>
+      <div class="tile"><div class="k">Throughput</div><div class="v num" id="kT">—</div></div>
+      <div class="tile alert" id="kBotTile"><div class="k">⚠ Bottleneck</div><div class="v" id="kBot">—</div></div>
+    </div>
+    <div class="drill" id="drill">
+      <div class="row"><b>OEE = A × P × Q</b> — every value below is clickable in the real product (CalcDrill: formula → inputs → assumptions → units → history)</div>
+      <div class="row">A = (planned − down − setup − idle) ÷ planned · assumption: starved/blocked count against Performance (STANDARDS.md)</div>
+      <div class="row">P = idealCycleTime × cycles ÷ runTime · idealCycleTime from machine definition at configured speed</div>
+      <div class="row">Q = goodCount ÷ totalCount · rejects from checkweigher + wrapper</div>
+    </div>
+  </div>
+</main>
+</section>
+
+<!-- analyze-only panels injected into right pane by JS -->
+
+<!-- ============ PALETTE ============ -->
+<div id="palette"><div class="pal">
+  <input id="palIn" placeholder="Type a command… (every action lives here — toolbar, hotkeys, touch and future AI dispatch the same registry)">
+  <div id="palList"></div>
+</div></div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* Demo-004: experience prototype. The simulation here is a THROWAWAY fake
+   (the real kernel is Demo-002); this file demonstrates journey, navigation,
+   palette, transparency and mode-lens patterns from AWP-G0. */
+
+// ---------------- fake line sim (visual only) ----------------
+const M = [
+  { id:'IN-01', name:'Infeed', x:30, w:56, type:'source', state:'RUNNING' },
+  { id:'CV-01', name:'Belt 1', x:96, w:150, type:'belt', state:'RUNNING', items:[] },
+  { id:'TO-01', name:'Tunnel Oven', x:256, w:120, type:'proc', state:'RUNNING', inN:12 },
+  { id:'CV-02', name:'Belt 2', x:386, w:110, type:'belt', state:'RUNNING', items:[] },
+  { id:'FW-01', name:'Flow Wrapper', x:506, w:92, type:'proc', state:'BLOCKED', inN:2 },
+  { id:'SK-01', name:'Palletizing', x:608, w:80, type:'sink', state:'RUNNING', count:0 },
+];
+const SC = { RUNNING:'#199e70', STARVED:'#898781', BLOCKED:'#c98500', DOWN:'#d03b3b', IDLE:'#52514e' };
+const P = { interval:1.2, cycle:1.5, belt:0.4 };
+let t=0, running=false, speed=1, selected=null, packs=0, downTimer=0, spawnAcc=0;
+
+function simStep(dt){
+  t+=dt; spawnAcc+=dt;
+  const fw=M[4], cv1=M[1], cv2=M[3], sink=M[5];
+  const capacity = 60/P.cycle, demand = 60/P.interval;
+  const overload = demand > capacity;
+  // wrapper random micro-stops
+  if (downTimer>0){ downTimer-=dt; fw.state = downTimer>0?'DOWN':'RUNNING'; }
+  else if (Math.random()<dt/90){ downTimer=4+Math.random()*4; }
+  else fw.state = overload?'BLOCKED':'RUNNING';
+  // belt item positions (visual)
+  const mv = P.belt*dt/3;
+  for (const b of [cv1,cv2]){
+    for (const it of b.items) it.p=Math.min(it.p+mv, 1);
+  }
+  if (spawnAcc>=P.interval){ spawnAcc=0; cv1.items.push({p:0}); }
+  // transfer / consume
+  if (cv1.items.length && cv1.items[0].p>=1){ cv1.items.shift(); cv2.items.push({p:0}); }
+  if (cv2.items.length && cv2.items[0].p>=1 && downTimer<=0){
+    if (cv2.items.length>2 || !overload) cv2.items.shift();
+  }
+  // pack counter follows the effective (constraint-limited) rate
+  if (downTimer<=0) packs += (Math.min(demand,capacity)/60)*dt;
+  sink.count = Math.floor(packs*0.963);
+  // queue visual on cv2 when overloaded
+  cv2.state = overload && downTimer<=0 ? 'BLOCKED' : 'RUNNING';
+  cv1.state='RUNNING'; M[0].state = overload?'BLOCKED':'RUNNING'; M[2].state='RUNNING';
+  if (cv2.items.length>14) cv2.items.length=14;
+  if (cv1.items.length>10) cv1.items.length=10;
+}
+function kpis(){
+  const capacity=60/P.cycle, demand=60/P.interval;
+  const A=0.913, Q=0.963;
+  const Pf=Math.min(1, capacity/Math.max(demand,capacity)*0.985);
+  const eff=Math.min(demand,capacity);
+  return { A, Pf, Q, oee:A*Pf*Q, tput:eff*A*Q, bot: demand>capacity?'FW-01':(demand<capacity*0.9?'IN-01 (starved line)':'balanced') };
+}
+
+// ---------------- canvas ----------------
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+function fit(){ cv.width=cv.clientWidth; cv.height=cv.clientHeight; } addEventListener('resize',fit);
+function draw(){
+  requestAnimationFrame(draw);
+  if(!cv.clientWidth) return; if(cv.width!==cv.clientWidth) fit();
+  ctx.clearRect(0,0,cv.width,cv.height);
+  const Y=cv.height/2-30, H=54, sx=cv.width/720;
+  ctx.font='11px system-ui'; ctx.textAlign='center';
+  for(const m of M){
+    const x=m.x*sx, w=m.w*sx, belt=m.type==='belt';
+    const y=belt?Y+12:Y, h=belt?H-24:H;
+    ctx.fillStyle=belt?'#2c2c2a':'#211f1e';
+    ctx.strokeStyle=(selected===m)?'#3987e5':SC[m.state]; ctx.lineWidth=selected===m?3:2;
+    ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
+    ctx.fillStyle='#c3c2b7'; ctx.fillText(m.id, x+w/2, Y-20);
+    ctx.fillStyle='#898781'; ctx.fillText(m.state, x+w/2, Y+H+16);
+    if(belt) for(const it of m.items){ ctx.beginPath(); ctx.arc(x+it.p*w, Y+H/2, 5.5, 0, 7); ctx.fillStyle='#c98500'; ctx.fill(); }
+    if(m.type==='sink'){ ctx.fillStyle='#0ca30c'; ctx.font='bold 18px system-ui'; ctx.fillText(m.count, x+w/2, Y+32); ctx.font='11px system-ui'; }
+    m._hit={x,y:Y-30,w,h:H+50};
+  }
+}
+requestAnimationFrame(draw);
+cv.onclick=e=>{
+  const r=cv.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
+  for(const m of M) if(m._hit&&px>=m._hit.x&&px<=m._hit.x+m._hit.w&&py>=m._hit.y&&py<=m._hit.y+m._hit.h){ select(m); return; }
+};
+
+// ---------------- inspector ----------------
+function select(m){
+  selected=m;
+  document.getElementById('insTitle').textContent=`Properties — ${m.name} ${m.id}`;
+  const body=document.getElementById('insBody');
+  if(m.id==='FW-01'){
+    journey(2); journey(3);
+    body.innerHTML=`
+      <div class="prop">
+        <div class="prow"><label>State</label><span class="statechip" id="fwChip"></span></div>
+        <div class="prow"><label>Cycle time</label><input type="range" id="pCycle" min="0.8" max="3" step="0.1" value="${P.cycle}"><span class="val num" id="vCycle"></span></div>
+        <div class="prow"><label>Reject rate</label><span class="val num">3.0 %</span></div>
+        <div class="prow"><label>MTBF / MTTR</label><span class="val num">90 s / 6 s</span></div>
+      </div>
+      <div class="formula" id="fwCalc"></div>`;
+    const inp=document.getElementById('pCycle');
+    inp.oninput=()=>{ P.cycle=parseFloat(inp.value); if(P.cycle<=1.25) journey(4); refreshCalc(); };
+    refreshCalc();
+  } else {
+    body.innerHTML=`<div class="prop">
+      <div class="prow"><label>State</label><span class="statechip" style="background:${SC[m.state]}">${m.state}</span></div>
+      <div class="prow"><label>${m.type==='belt'?'Speed':'Rate'}</label><span class="val num">${m.type==='belt'?P.belt+' m/s':(m.id==='IN-01'? (60/P.interval).toFixed(0)+' ppm':'—')}</span></div>
+    </div>
+    <div class="formula">Every derived value in the real product is a CalcValue: formula, inputs, assumptions, units, history.</div>`;
+  }
+}
+function refreshCalc(){
+  const el=document.getElementById('fwCalc'); if(!el) return;
+  const cap=60/P.cycle, dem=60/P.interval;
+  document.getElementById('vCycle').textContent=P.cycle.toFixed(1)+' s';
+  const chip=document.getElementById('fwChip'); const fw=M[4];
+  chip.textContent=fw.state; chip.style.background=SC[fw.state];
+  el.innerHTML=`<b>Transparent calculation (Law 2)</b><br>
+    wrapper max = 60 ÷ ${P.cycle.toFixed(1)} s = <b>${cap.toFixed(0)} ppm</b><br>
+    infeed demand = 60 ÷ ${P.interval.toFixed(1)} s = <b>${dem.toFixed(0)} ppm</b><br>` +
+    (dem>cap ? `<span style="color:var(--down)">⚠ demand exceeds capacity — FW-01 limits the line</span>`
+             : `<span style="color:#7ee2a0">✓ wrapper keeps up — line is ${dem<cap*0.9?'infeed-limited':'balanced'}</span>`);
+}
+
+// ---------------- KPIs / loop ----------------
+setInterval(()=>{ if(running) simStep(0.05*speed);
+  document.getElementById('clock').textContent=`t = ${t.toFixed(1)} s`;
+  const k=kpis(), f=(v)=>(v*100).toFixed(1)+' %';
+  kOee.textContent=f(k.oee); kA.textContent=f(k.A); kP.textContent=f(k.Pf); kQ.textContent=f(k.Q);
+  kT.textContent=k.tput.toFixed(1)+' ppm'; kBot.textContent=k.bot;
+  const botTile=document.getElementById('kBotTile');
+  botTile.classList.toggle('alert', k.bot==='FW-01');
+  botTile.querySelector('.k').textContent = k.bot==='FW-01' ? '⚠ Bottleneck' : 'Bottleneck';
+  if(document.getElementById('fwCalc')) refreshCalc();
+  if(running&&t>6) journey(1,true);
+},50);
+
+// ---------------- journey ----------------
+const jdone=new Set();
+const jmsgs={1:'Good — observation first. Now find what limits the line (hint: amber).',
+  2:'Found it. The properties panel shows the math →',
+  3:'demand 50 ppm > capacity 40 ppm. Drag cycle time below 1.3 s.',
+  4:'Throughput +18 %. OEE climbing. That was your first optimization.',
+  5:'Evidence shared. This link replays bit-exactly — determinism as a feature.'};
+function journey(n, silent){
+  if(jdone.has(n)) return;
+  // enforce order loosely
+  jdone.add(n);
+  const el=document.getElementById('j'+n); el.classList.remove('now'); el.classList.add('done');
+  const nx=document.getElementById('j'+(n+1)); if(nx) nx.classList.add('now');
+  document.getElementById('jmsg').textContent=jmsgs[n]||'';
+  if(n===4) toast('Throughput +18 % · queue draining · here\'s what changed → (before/after in the real product)');
+  if(n===5) toast('Replay link copied: dtp.app/r/2026-cookieA#seed2026 (mock)');
+}
+function toast(s){ const el=document.getElementById('toast'); el.textContent=s; el.style.display='block'; setTimeout(()=>el.style.display='none', 3500); }
+
+// ---------------- modes & screens ----------------
+function setMode(m){
+  document.querySelectorAll('.modes button').forEach(b=>b.classList.toggle('on', b.dataset.m===m));
+  document.getElementById('scr-hub').classList.toggle('on', m==='hub');
+  document.getElementById('scr-work').classList.toggle('on', m!=='hub');
+  document.getElementById('valflag').style.display = m==='design'?'block':'none';
+  document.getElementById('hint').style.display = m==='simulate'?'block':'none';
+  // analyze: repurpose right pane as mission control feed (mode = lens, Law 8: selection survives)
+  if(m==='analyze'){
+    document.getElementById('insTitle').textContent='Mission Control — events & alarms';
+    document.getElementById('insBody').innerHTML=`
+      <div class="narr">FW-01 limits the line: upstream blocked ≈34 % of runtime. <u>Explain →</u></div>
+      <div class="alarms">
+        <div class="al"><span class="sev" style="background:var(--down)"></span>FW-01 DOWN · micro-stop 5.2 s · t=312 <span style="margin-left:auto">ack</span></div>
+        <div class="al"><span class="sev" style="background:var(--blocked)"></span>CV-02 queue ≥ 12 · ×8 deduped</div>
+        <div class="al"><span class="sev" style="background:var(--blocked)"></span>Rejects above 3 % target · Q drill →</div>
+        <div class="al"><span class="sev" style="background:var(--muted)"></span>Bookmark: "jam pattern starts" · t=284</div>
+      </div>
+      <div class="formula">Wall mode (one keystroke) strips chrome for the factory TV. Every number here is a CalcDrill.</div>`;
+  } else if(m!=='hub' && selected){ select(selected); }
+  else if(m!=='hub'){ document.getElementById('insTitle').textContent='Properties — click a machine';
+    document.getElementById('insBody').innerHTML='<div class="formula">The inspector follows your selection.</div>'; }
+}
+document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
+
+// ---------------- transport ----------------
+const runBtn=document.getElementById('runBtn');
+function setRun(r){ running=r; runBtn.textContent=r?'⏸ Pause':'▶ Run'; }
+runBtn.onclick=()=>setRun(!running);
+document.getElementById('stepBtn').onclick=()=>{ simStep(0.05); };
+const speedBtns=[...document.querySelectorAll('#speeds button')];
+function setSpeed(s){ speed=s; speedBtns.forEach(b=>b.classList.toggle('on', +b.dataset.s===s)); }
+speedBtns.forEach(b=>b.onclick=()=>setSpeed(+b.dataset.s));
+document.getElementById('shareBtn').onclick=()=>journey(5);
+
+// ---------------- command palette ----------------
+const CMDS=[
+  {t:'Go to Hub', k:'', f:()=>setMode('hub')},
+  {t:'Mode: Design', k:'D', f:()=>setMode('design')},
+  {t:'Mode: Simulate', k:'S', f:()=>setMode('simulate')},
+  {t:'Mode: Analyze (Mission Control)', k:'A', f:()=>setMode('analyze')},
+  {t:'Run / Pause simulation', k:'Space', f:()=>setRun(!running)},
+  {t:'Speed up', k:']', f:()=>bumpSpeed(1)},
+  {t:'Speed down', k:'[', f:()=>bumpSpeed(-1)},
+  {t:'Share replay link', k:'', f:()=>journey(5)},
+  {t:'Zen mode (hide panels)', k:'Shift+Tab', f:()=>document.body.classList.toggle('zen')},
+  {t:'Explain OEE', k:'', f:()=>{document.getElementById('drill').classList.add('on');}},
+  {t:'Open Marketplace (prototype)', k:'', f:()=>toast('Marketplace — see Demo-003')},
+  {t:'Open Settings (prototype)', k:'', f:()=>toast('Settings — see Demo-003')},
+];
+const LADDER=[0.25,1,4,16,64];
+function bumpSpeed(d){ const i=Math.max(0,Math.min(LADDER.length-1, LADDER.indexOf(speed)+d)); setSpeed(LADDER[i]); }
+const pal=document.getElementById('palette'), palIn=document.getElementById('palIn'), palList=document.getElementById('palList');
+let sel=0, filtered=CMDS;
+function renderPal(){ palList.innerHTML=filtered.map((c,i)=>`<div class="item ${i===sel?'sel':''}" data-i="${i}">${c.t}${c.k?`<span class="kbd">${c.k}</span>`:''}</div>`).join('');
+  palList.querySelectorAll('.item').forEach(el=>el.onclick=()=>{ run(filtered[+el.dataset.i]); }); }
+function openPal(){ pal.classList.add('on'); palIn.value=''; filtered=CMDS; sel=0; renderPal(); palIn.focus(); }
+function closePal(){ pal.classList.remove('on'); }
+function run(c){ closePal(); c.f(); }
+palIn.oninput=()=>{ filtered=CMDS.filter(c=>c.t.toLowerCase().includes(palIn.value.toLowerCase())); sel=0; renderPal(); };
+palIn.onkeydown=e=>{ if(e.key==='ArrowDown'){sel=Math.min(sel+1,filtered.length-1);renderPal();e.preventDefault();}
+  if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);renderPal();e.preventDefault();}
+  if(e.key==='Enter'&&filtered[sel]) run(filtered[sel]); if(e.key==='Escape') closePal(); };
+pal.onclick=e=>{ if(e.target===pal) closePal(); };
+document.getElementById('palBtn').onclick=openPal;
+
+// ---------------- hotkeys ----------------
+addEventListener('keydown',e=>{
+  if(e.target===palIn) return;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ openPal(); e.preventDefault(); return; }
+  if(e.key===' '){ setRun(!running); e.preventDefault(); }
+  if(e.key==='d'||e.key==='D') setMode('design');
+  if(e.key==='s'||e.key==='S') setMode('simulate');
+  if(e.key==='a'||e.key==='A') setMode('analyze');
+  if(e.key===']') bumpSpeed(1); if(e.key==='[') bumpSpeed(-1);
+});
+
+// ---------------- drill ----------------
+document.getElementById('oeeTile').onclick=()=>document.getElementById('drill').classList.toggle('on');
+
+// ---------------- start ----------------
+document.getElementById('startBtn').onclick=()=>{ document.getElementById('welcome').style.display='none'; setRun(true); };
+// seed some items so the line looks alive immediately
+for(let i=0;i<6;i++) M[1].items.push({p:i/6}); for(let i=0;i<9;i++) M[3].items.push({p:Math.min(1,0.4+i/14)});
+fit();
+</script>
