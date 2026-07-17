@@ -1,0 +1,92 @@
+<meta charset="utf-8">
+<title>DTP Simulator v0.1</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --panel:#211f1e; --border:rgba(255,255,255,.10);
+    --ink:#fff; --ink2:#c3c2b7; --muted:#898781; --accent:#3987e5;
+    --good:#199e70; --warn:#c98500; --crit:#d03b3b;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html,body,#root,.app { height:100%; }
+  body { background:var(--page); color:var(--ink); font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+  .app { display:flex; flex-direction:column; }
+  .num, .v, .clock, input[type=number] { font-variant-numeric:tabular-nums; }
+
+  header { display:flex; align-items:center; gap:12px; padding:7px 12px; background:var(--surface); border-bottom:1px solid var(--border); }
+  .logo b { color:var(--accent); font-weight:700; }
+  .modes { display:flex; gap:2px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:2px; }
+  .modes button { background:none; border:0; color:var(--ink2); padding:5px 14px; border-radius:6px; font-size:12px; cursor:pointer; text-transform:capitalize; }
+  .modes button.on { background:var(--accent); color:#fff; }
+  .modes u { text-underline-offset:2px; }
+  .spacer { flex:1; }
+  .btn { background:var(--panel); border:1px solid var(--border); color:var(--ink2); border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  .btn.tiny { padding:3px 9px; font-size:11px; }
+  .btn.danger { color:var(--crit); }
+  .btn:disabled { opacity:.5; }
+
+  .flags { background:#2b2410; color:var(--warn); font-size:11px; padding:4px 12px; display:flex; gap:16px; border-bottom:1px solid var(--border); }
+
+  main { flex:1; display:flex; min-height:0; }
+  aside { width:230px; background:var(--surface); overflow-y:auto; flex:none; }
+  aside.left { border-right:1px solid var(--border); width:210px; }
+  aside.right { border-left:1px solid var(--border); width:300px; }
+  .center { flex:1; min-width:0; position:relative; }
+  canvas { width:100%; height:100%; display:block; }
+  .ptitle { padding:10px 12px 6px; font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .lib { display:flex; align-items:center; gap:8px; padding:6px 12px; color:var(--ink2); cursor:pointer; border-left:2px solid transparent; font-size:12px; }
+  .lib:hover { background:var(--panel); border-left-color:var(--accent); color:var(--ink); }
+  .lib .g { width:20px; height:14px; border:1px solid var(--muted); border-radius:3px; flex:none; }
+  .lib .code { margin-left:auto; color:var(--muted); font-size:10px; }
+  .note { margin:10px 12px; padding:8px 10px; border:1px dashed var(--border); border-radius:8px; color:var(--muted); font-size:11px; }
+
+  .prow { display:flex; align-items:center; gap:8px; padding:0 12px; margin-bottom:8px; font-size:12px; }
+  .prow label { flex:1; color:var(--ink2); }
+  .prow input { width:76px; background:var(--panel); border:1px solid var(--border); color:var(--ink); border-radius:6px; padding:4px 7px; font-size:12px; text-align:right; }
+  .prow .unit { width:38px; color:var(--muted); font-size:11px; }
+  .chip { border-radius:4px; padding:1px 8px; font-size:10px; color:#fff; }
+  .formula { margin:8px 12px; padding:8px 10px; border:1px dashed var(--border); border-radius:8px; color:var(--muted); font-size:11px; }
+  .formula b { color:var(--ink2); }
+  .rowbtns { display:flex; gap:6px; padding:4px 12px; }
+
+  .story { padding:0 12px 6px; font-size:12px; }
+  .story .lead { font-weight:600; margin:6px 0 3px; }
+  .story .why { color:var(--ink2); margin:2px 0; }
+  .advisor { padding:0 12px 14px; }
+  .basel { color:var(--muted); font-size:11px; margin:8px 0 6px; }
+  .cand { border:1px solid var(--border); border-radius:8px; padding:7px 9px; margin-bottom:7px; background:var(--panel); }
+  .cand .cl { font-size:12px; color:var(--ink); margin-bottom:4px; }
+  .cand .cm { display:flex; gap:10px; align-items:center; font-size:11px; flex-wrap:wrap; }
+  .up { color:#7ee2a0; } .dn { color:var(--crit); } .nb { color:var(--muted); }
+  .cand .btn { margin-left:auto; }
+
+  footer { background:var(--surface); border-top:1px solid var(--border); }
+  .transport { display:flex; align-items:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); }
+  .speeds { display:flex; gap:2px; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:2px; }
+  .speeds button { background:none; border:0; color:var(--muted); font-size:11px; padding:3px 8px; border-radius:4px; cursor:pointer; }
+  .speeds button.on { background:var(--accent); color:#fff; }
+  .hinttext { color:var(--muted); font-size:11px; }
+  .clock { margin-left:auto; color:var(--muted); font-size:12px; }
+  .kpis { display:flex; gap:8px; padding:8px 12px; }
+  .tile { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:6px 10px; min-width:0; }
+  .tile.click { cursor:pointer; }
+  .tile .k { font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tile .v { font-size:17px; font-weight:700; }
+  .tile .v.small { font-size:13px; padding-top:3px; }
+  .tile.alert { border-color:var(--crit); } .tile.alert .v { color:var(--crit); }
+  .drill { margin:0 12px 10px; padding:8px 12px; border:1px dashed var(--border); border-radius:8px; font-size:11px; color:var(--muted); }
+  .drill b { color:var(--ink2); }
+  .drill div { padding:2px 0; }
+
+  .pal-bg { position:fixed; inset:0; background:rgba(13,13,13,.6); z-index:30; }
+  .pal { max-width:480px; margin:90px auto 0; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .pal input { width:100%; background:var(--panel); border:0; border-bottom:1px solid var(--border); color:var(--ink); padding:12px 14px; font-size:14px; outline:none; }
+  .pal .item { display:flex; align-items:center; padding:9px 14px; color:var(--ink2); cursor:pointer; font-size:13px; }
+  .pal .item.sel { background:var(--panel); color:var(--ink); }
+  .kbd { font-size:10px; color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:0 5px; margin-left:auto; }
+
+  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--surface); border:1px solid #1c5c34; color:#7ee2a0; border-radius:10px; padding:9px 18px; font-size:12px; z-index:40; }
+</style>
+<div id="root"></div>
+<!--MAIN_SCRIPT-->

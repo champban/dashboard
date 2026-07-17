@@ -44,6 +44,16 @@ re-verified against vendor sites before any marketing claim.
 - Data-defined machines instead of scripting (AnyLogic's power, without
   handing users a programming language as the entry bar).
 
+## AWP-004 feature benchmarks (leader · differentiator · reason)
+
+| Our feature | Leader today | Our differentiator | Reason it wins |
+|---|---|---|---|
+| Line builder | FlexSim / Plant Simulation (rich 3D editors) | zero-install, template-first, validation inline; v0.1 linear (honest scope) | time-to-first-line minutes vs days of training |
+| Story Engine (WOW-01) | none — incumbents show dashboards, not causality | causal chain with cited measurements + "ruled out" list | answers the engineer's actual question ("why?"), builds trust via exclusions |
+| Measured advisor (WOW-02) | AnyLogic/FlexSim experimenters (manual setup, expert feature) | one click; candidates auto-generated at the steady-state constraint; deltas are simulated results, undoable apply | determinism + 400× speed make verification cheaper than guessing — structural advantage incumbents can't copy cheaply |
+| One-click report (WOW-03) | incumbents export data; consultants format it | report IS the evidence: formulas, assumptions, seed for bit-exact replay | turns every user into a credible internal salesperson |
+| OEE CalcDrill | none (black boxes industry-wide) | every component expandable to formula+inputs | the brand promise, rendered |
+
 ## Innovation ideas harvested this AWP
 
 - "Explain this number" drill-down from any KPI to its CalcValue tree (no

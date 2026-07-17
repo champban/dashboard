@@ -1,7 +1,34 @@
 # PROJECT_STATUS — Engineering Digital Twin Platform
 
 **Single source of truth.** Updated at the close of every AWP.
-Version 4 · Last updated: 2026-07-17 (AWP-G0 — Product Experience Blueprint)
+Version 5 · Last updated: 2026-07-17 (AWP-004 — the product exists)
+
+## Founder Value Dashboard (per Executive Board directive)
+
+| Dimension | State after AWP-004 |
+|---|---|
+| **Value created** | A working product: DTP Simulator v0.1 (single 234 kB file, zero-install) delivering the full loop — create line → run → identify bottleneck → improve (measured) → see OEE gain → export report → share — verified end-to-end in-browser; loop takes **minutes**, not 30 |
+| **Skills created** | 5 total: CC-001 sim-kernel-standard, CC-002 transparent-calc, CC-003 ui-design-standard, CC-004 engineering-ux-standard, **CC-005 measured-improvement (new)** |
+| **Knowledge assets** | 4 playbooks (simulation dev, machine design, product experience, **customer validation (new)**) + 12 docs |
+| **Reusable components** | kernel (7 archetypes) · calc/CalcValue · worker protocol + what-if service · machine definition library (9 machines) · story engine · report generator · command palette · design tokens |
+| **Platform value increase** | what-if service = the future AI/experiments backbone; definition library = first marketplace SKUs; report = first sales artifact |
+| **Customer value increase** | ROI model documented and demonstrable live: advisor measured +3.4 ppm from one parameter; report prints defendable evidence with seed |
+
+## Product readiness (AWP-004)
+
+| Loop step | Status | Evidence |
+|---|---|---|
+| Create line | ✅ | library click-add, reorder/remove, inline validation, undo (v0.1 linear lines; free 2D + split/merge with 3D in AWP-005) |
+| Run simulation | ✅ | real kernel in Worker; speed 0.25×–256× + MAX (1 h headless sprint verified: t=3624 s) |
+| Identify bottleneck | ✅ | recorder + **Story Engine (WOW-01)**: causal chain with cited measurements + ruled-out list |
+| Improve | ✅ | **Measured Advisor (WOW-02)**: two-phase (baseline at horizon → candidates at ITS constraint), simulated deltas, undoable apply |
+| See OEE improvement | ✅ | live KPI bar + CalcDrill; verified 35.9→38.6 ppm, OEE 90.7 % after applied fix |
+| Export report (WOW-03) | ✅ | one-click HTML report (print→PDF) + Word .doc download; **PPTX deferred v2** (needs pptx writer — honest gap) |
+| Share | ✅ | project JSON download + seed-pinned replay link (link is mock until hosting exists) |
+
+Defects found & fixed by verification this AWP: advisor targeting transient
+bottleneck (two-phase fix); `String.replace` `$`-injection bug in BOTH build
+scripts (latent since AWP-003).
 
 ## Experience readiness (AWP-G0 — the Product Experience Constitution)
 
