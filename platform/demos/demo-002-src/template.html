@@ -1,0 +1,89 @@
+<meta charset="utf-8">
+<title>Demo-002 — Kernel v0.1 Live</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --panel:#211f1e; --border:rgba(255,255,255,.10);
+    --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+    --accent:#3987e5; --good:#0ca30c; --warn:#c98500; --crit:#d03b3b;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--page); color:var(--ink); font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; padding:16px; }
+  h1 { font-size:15px; }
+  .sub { color:var(--muted); font-size:11px; margin:2px 0 12px; max-width:90ch; }
+  .layout { display:grid; grid-template-columns:1fr 300px; gap:12px; max-width:1150px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px; }
+  canvas { width:100%; background:var(--page); border:1px solid var(--border); border-radius:8px; display:block; }
+  .toolbar { display:flex; gap:8px; margin-bottom:10px; align-items:center; }
+  button, select { background:var(--panel); border:1px solid var(--border); color:var(--ink2); border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  .t { color:var(--muted); font-size:12px; margin-left:auto; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:12px 0 8px; }
+  h2:first-child { margin-top:0; }
+  .prop { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .prop label { flex:1.2; color:var(--ink2); font-size:12px; }
+  .prop input[type=range] { flex:1; accent-color:var(--accent); }
+  .prop .val { width:66px; text-align:right; font-variant-numeric:tabular-nums; font-size:12px; }
+  .tiles { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .tile { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:7px 10px; }
+  .tile .k { font-size:10px; color:var(--muted); }
+  .tile .v { font-size:16px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .calc { margin-top:10px; padding:8px 10px; border:1px dashed var(--border); border-radius:8px; color:var(--muted); font-size:11px; }
+  .calc b { color:var(--ink2); }
+  .ev { color:var(--muted); font-size:11px; padding:2px 0; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+  .ev.bad { color:var(--crit); }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:10px; margin-top:8px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+</style>
+
+<h1>Demo-002 — Simulation Kernel v0.1, live in a Web Worker</h1>
+<div class="sub">
+  This is the real <b>@dtp/engine</b> kernel (11/11 unit tests passing, 408× real-time on 60 machines) —
+  not a mockup. The page renders read-only snapshots; all logic runs in a separate Worker thread (EDR-001).
+  The flow wrapper has random micro-stops (MTBF 90 s) and 3 % rejects — watch OEE react. Same seed ⇒ identical run, every time.
+</div>
+
+<div class="layout">
+  <div class="card">
+    <div class="toolbar">
+      <button id="btnRun" class="primary">▶ Run</button>
+      <button id="btnReset">↺ Reset</button>
+      <select id="speed">
+        <option value="1">×1</option><option value="4" selected>×4</option>
+        <option value="16">×16</option><option value="64">×64</option>
+      </select>
+      <span class="t" id="clock">t = 0.0 s</span>
+    </div>
+    <canvas id="view" width="780" height="185"></canvas>
+    <div class="legend">
+      <span><i style="background:#199e70"></i>RUNNING</span>
+      <span><i style="background:#898781"></i>STARVED</span>
+      <span><i style="background:#c98500"></i>BLOCKED / SETUP</span>
+      <span><i style="background:#d03b3b"></i>DOWN</span>
+      <span><i style="background:#52514e"></i>IDLE / OFF</span>
+    </div>
+    <div class="calc" id="calc"><b>Transparent calculations</b><br>run the simulation to see live OEE formulas…</div>
+  </div>
+
+  <div class="card">
+    <h2>Machine Parameters (live)</h2>
+    <div class="prop"><label>Infeed interval</label><input type="range" id="pInterval" min="0.6" max="3" step="0.1" value="1.2"><span class="val" id="vInterval"></span></div>
+    <div class="prop"><label>Wrapper cycle time</label><input type="range" id="pCycle" min="0.5" max="4" step="0.1" value="1.5"><span class="val" id="vCycle"></span></div>
+    <div class="prop"><label>Belt 1 speed</label><input type="range" id="pBelt" min="0.1" max="0.8" step="0.05" value="0.4"><span class="val" id="vBelt"></span></div>
+
+    <h2>Flow Wrapper OEE (from kernel recorder)</h2>
+    <div class="tiles">
+      <div class="tile" style="grid-column:span 3"><div class="k">OEE</div><div class="v" id="kOee">—</div></div>
+      <div class="tile"><div class="k">Availability</div><div class="v" id="kA">—</div></div>
+      <div class="tile"><div class="k">Performance</div><div class="v" id="kP">—</div></div>
+      <div class="tile"><div class="k">Quality</div><div class="v" id="kQ">—</div></div>
+      <div class="tile" style="grid-column:span 2"><div class="k">Line throughput</div><div class="v" id="kTput">—</div></div>
+      <div class="tile"><div class="k">Bottleneck</div><div class="v" id="kBottleneck" style="font-size:13px;padding-top:3px">—</div></div>
+    </div>
+
+    <h2>Event Feed</h2>
+    <div id="events"><div class="ev">no events yet</div></div>
+  </div>
+</div>
+
+<!--MAIN_SCRIPT-->

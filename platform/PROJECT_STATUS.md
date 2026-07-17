@@ -1,84 +1,100 @@
 # PROJECT_STATUS — Engineering Digital Twin Platform
 
 **Single source of truth.** Updated at the close of every AWP.
-Version 1.1 · Last updated: 2026-07-17 (Global Principles v1.0 adopted)
+Version 2 · Last updated: 2026-07-17 (AWP-003)
 
 ## Snapshot
 
 | | |
 |---|---|
-| Current AWP | **002 — Architecture Foundation (COMPLETE)** |
-| Overall completion | **15 %** |
-| Current milestone | Architecture approved → begin simulation kernel |
-| Project status | 🟡 (healthy, blocked only on founder decisions) |
+| Current AWP | **003 — Engineering Company Foundation (COMPLETE)** |
+| Overall completion | **30 %** |
+| Current milestone | Kernel v0.1 shipped & tested → next: 2D line builder + machine library UI |
+| Project status | 🟢 (engineering on track; founder decisions still open but no longer blocking day-to-day) |
 | Timeline | Day 7 → v0.1 demonstrator · Day ~28 → v1 (pending founder confirmation) |
-| Repo | temporary home `champban/dashboard` → `platform/` folder, branch `claude/first-time-user-guide-lupsqy` |
+| Repo | temporary home `champban/dashboard` → `platform/`, branch `claude/first-time-user-guide-lupsqy` |
+
+## Working software (evidence, not claims)
+
+| Asset | Evidence |
+|---|---|
+| `@dtp/engine` v0.1 — deterministic kernel, 7 archetypes | **11/11 tests passing**, `tsc --noEmit` clean |
+| Determinism | same seed ⇒ bit-identical fingerprint incl. failures/rejects; reset reproduces run |
+| Engineering validation | hand-calculated tests: transit time, throughput (74±1 in 120 s), 6:1 batch, conservation |
+| Performance | 60 machines, 1 h simulated in ≈9 s ⇒ **~400× real time** (logged by test) |
+| Physical honesty | blocked machines stop (no infinite buffers); backpressure chain verified visually in Demo-002 |
+| `@dtp/calc` — CalcValue + SI units | OEE A/P/Q ship with formulas + inputs; asserted by test |
+| Demo-002 | real kernel in a Web Worker, live params, OEE, event feed, bottleneck — browser-verified, 0 errors |
 
 ## Timeline
 
 | Day | Phase | Status |
 |---|---|---|
-| 1 | AWP-001 Understanding + PoC · AWP-002 Architecture + standards | ✅ done |
-| 2–3 | AWP-003 Simulation kernel + unit tests | ⬜ next |
-| 4 | AWP-004 Machine library v0 + 2D line builder | ⬜ |
-| 5 | AWP-005 3D view | ⬜ |
-| 6 | AWP-006 OEE dashboard + timeline | ⬜ |
-| 7 | AWP-007 Save/load + PWA + hardening → **v0.1 demo** | ⬜ |
-| 8–28 | v1 scope per AWP-000 (machine editor, richer library, polish) | ⬜ |
+| 1 | AWP-001 understanding + PoC · AWP-002 architecture + standards | ✅ |
+| 2–3 | AWP-003 kernel + archetypes + tests + company assets | ✅ (completed Day 1 — ahead of plan) |
+| 4 | AWP-004 2D line builder + machine library UI (proposed) | ⬜ next |
+| 5 | 3D view | ⬜ |
+| 6 | OEE dashboard + timeline panel | ⬜ |
+| 7 | Save/load + PWA + hardening → **v0.1 demo** | ⬜ |
+| 8–28 | v1 scope per AWP-000 | ⬜ |
 
-## Decisions
+## Decision registry
 
 | ID | Decision | Status |
 |---|---|---|
-| EDR-001 | Simulation physically separated from rendering (Worker) | ✅ decided |
-| EDR-002 | Machines = data-defined instances of 7 archetypes | ✅ decided |
-| EDR-003 | Transparent `CalcValue` for every derived number | ✅ decided |
-| EDR-004 | Deterministic hybrid kernel, seeded PRNG | ✅ decided |
-| EDR-005 | Item-level + flow-level simulation behind entity budget | ✅ decided |
-| EDR-006 | Declarative edition gating (Free/Pro/Enterprise registry) from day one | ✅ decided |
-| GP-1.0 | Global Engineering Principles v1.0 adopted (docs/GLOBAL_PRINCIPLES.md); benchmark note required in every major-feature AWP | ✅ adopted |
-| T1–T11 | Technology stack (see TDR.md): TS, Vite, React, Three.js, Worker, Zod, Vitest, PWA | ✅ decided |
+| EDR-001…006 | sim/render separation · data-defined machines · CalcValue · deterministic kernel · item/flow hybrid · edition gating | ✅ EDR-001..004 now **implemented & test-proven** |
+| T1–T11 | Tech stack (TDR.md) | ✅ in use (TS strict, Vitest, esbuild, Worker) |
+| GP-1.0 | Global Engineering Principles adopted | ✅ |
+| NEW (AWP-003) | Bottleneck = upstream-blockage heuristic, utilization fallback (documented in recorder) | ✅ implemented |
 
-## Open Questions (founder decisions needed)
+## Capability registry (company assets — real, loadable skills)
 
-1. **Platform repository** — create private repo (proposed name `engineering-digital-twin`)? Docs currently parked in `dashboard` repo.
-2. **Timeline framing** — confirm Day 7 = v0.1 demonstrator, Day ~28 = v1.
-3. **AI scope v1** — recommended: architecture hooks only, copilot post-v1.
-4. **Mobile scope v1** — recommended: view/simulate on phones, full editing desktop/tablet.
-5. **Reference data** — any real machine rates / line OEE figures to validate against?
-
-## Risks (top, live)
-
-| Risk | Rank | Mitigation |
+| ID | Capability | Status |
 |---|---|---|
-| No reference data for engineering validation | Critical | Founder to supply even 3–4 real numbers; until then, hand-calculated acceptance tests |
-| Knowledge parked in dashboard repo, platform repo not approved | High | Decision #1; migration is a folder move |
-| Archetype behavior design (AWP-003) is the hardest reusable-IP step | High | Design configs before coding; review against 3 domains (bakery, pharma, warehouse) on paper |
-| Scope creep vs Day-7 target | Medium | AWP discipline; PROJECT_STATUS is the scope gate |
+| CC-001 | `sim-kernel-standard` (.claude/skills/) | ✅ **created** v1.0 |
+| CC-002 | `transparent-calc` (.claude/skills/) | ✅ **created** v1.0 |
+| — | hexagonal-platform-architecture, edr-practice, awp-workflow, machine-definition-standard, engineering-units-standard | proposed; create when next used in anger |
 
-## Capabilities (company assets)
+## Knowledge assets
 
-| Proposal | Status | Priority |
+| ID | Asset | Status |
 |---|---|---|
-| sim-kernel-standard | proposed (AWP-001) — create as skill in AWP-003 alongside the real kernel | Critical |
-| machine-definition-standard | proposed (AWP-001) — draft exists as ARCHITECTURE.md §D | High |
-| transparent-calc-pattern | proposed (AWP-001) — draft exists as EDR-003 | High |
-| hexagonal-platform-architecture | **new (AWP-002)** — pure core + adapters + message protocol as reusable pattern | High |
-| edr-practice | **new (AWP-002)** — decision-record format now in use | Medium |
-| awp-workflow | proposed (AWP-001) | Medium |
-| engineering-units-standard | drafted as STANDARDS.md §Units | Medium |
+| KA-001 | Simulation Development Playbook | ✅ created |
+| KA-002 | Machine Design Playbook (incl. domain-entry recipe + certification gate) | ✅ created |
 
-## Demo Status
+## Commercial assets
+
+| Asset | Status |
+|---|---|
+| COMMERCIAL.md (market, segments, editions, SaaS/marketplace/plugin strategy) | ✅ created — **needs founder review** |
+| WORLD_BENCHMARK.md (9 products; gaps, adoptions, differentiators, innovations) | ✅ created v1 — update every AWP |
+
+## Demo status
 
 | Demo | Content | Status |
 |---|---|---|
-| PoC (AWP-001) | Conveyor → 10 cookies → flow wrapper → counter; live bottleneck | ✅ delivered, browser-verified |
-| Demo-001 (AWP-002) | Architecture walkthrough: system/module diagrams, data flow, navigation concept | ✅ delivered (`platform/demos/demo-001-architecture.html`) |
+| PoC (AWP-001) | throwaway architecture proof | ✅ superseded |
+| Demo-001 (AWP-002) | architecture walkthrough | ✅ |
+| Demo-002 (AWP-003) | **real kernel live in Worker**: line with oven+wrapper, random failures, live OEE with formulas, event feed, bottleneck detection | ✅ delivered & committed |
+
+## Risks (live)
+
+| Risk | Rank | Change |
+|---|---|---|
+| No reference engineering data for validation | Critical | unchanged — hand calcs mitigate, real data still needed |
+| Founder decisions open (repo, timeline, AI, mobile) | High | ↓ no longer blocking, but repo move gets costlier every AWP |
+| UI layer (AWP-004+) is where scope creep historically starts | Medium | new — mitigate: build only panels shown in Demo-001 concept |
+| Benchmark facts from training knowledge, not verified | Low | re-verify before external marketing use |
+
+## Open questions (founder)
+
+Unchanged from v1.1: (1) platform repo, (2) timeline framing, (3) AI-in-app
+scope, (4) mobile scope, (5) reference data. Plus new: (6) COMMERCIAL.md
+placeholder pricing — review when convenient.
 
 ## Next AWP (recommendation)
 
-**AWP-003 — Simulation Kernel.** Scaffold the monorepo (needs repo decision),
-implement `@dtp/engine` + `@dtp/calc` per EDR-001/003/004, archetype behavior
-configs per EDR-002, unit tests vs hand calculations, and create the first two
-company capability skills (sim-kernel-standard, transparent-calc-pattern).
-Estimated token: **High** (this is the deepest engineering step).
+**AWP-004 — Line Builder + Machine Library UI:** Vite+React app shell
+(Design mode from Demo-001 concept), drag-drop 2D layout editor producing
+`LineConfig`, machine library panel with parameter forms auto-generated from
+definitions, live kernel behind it. Estimated token: High.
