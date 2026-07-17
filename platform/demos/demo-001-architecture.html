@@ -1,0 +1,158 @@
+<meta charset="utf-8">
+<title>Demo-001 — Platform Architecture</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --panel:#211f1e; --border:rgba(255,255,255,.10);
+    --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+    --blue:#3987e5; --green:#199e70; --orange:#d95926; --violet:#9085e9; --yellow:#c98500; --crit:#d03b3b;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--page); color:var(--ink); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  nav {
+    position:sticky; top:0; z-index:9; display:flex; gap:4px; align-items:center;
+    background:var(--surface); border-bottom:1px solid var(--border); padding:10px 18px;
+  }
+  nav .logo { font-weight:700; margin-right:14px; } nav .logo span { color:var(--blue); }
+  nav a { color:var(--ink2); text-decoration:none; padding:6px 12px; border-radius:6px; font-size:13px; }
+  nav a:hover { background:var(--panel); color:var(--ink); }
+  main { max-width:1000px; margin:0 auto; padding:26px 18px 80px; }
+  section { margin-bottom:44px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:26px; }
+  h2 { font-size:15px; margin-bottom:4px; color:var(--ink); }
+  .lead { color:var(--ink2); font-size:13px; margin-bottom:14px; max-width:70ch; }
+  .diagram { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; }
+  .box { border-radius:8px; padding:10px 12px; border:1px solid var(--border); background:var(--panel); }
+  .box .t { font-weight:600; font-size:13px; }
+  .box .d { color:var(--muted); font-size:11px; margin-top:2px; }
+  .tag { display:inline-block; font-size:10px; border-radius:4px; padding:1px 7px; margin-left:6px; vertical-align:2px; }
+  .row { display:grid; gap:10px; margin-bottom:10px; }
+  .arrow { text-align:center; color:var(--muted); font-size:12px; padding:2px 0; }
+  .layer-label { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:2px 0 6px; }
+  .hl-blue { border-color:var(--blue); } .hl-green { border-color:var(--green); }
+  .hl-orange { border-color:var(--orange); } .hl-violet { border-color:var(--violet); }
+  .callout { border-left:3px solid var(--blue); background:var(--panel); border-radius:0 8px 8px 0; padding:10px 14px; color:var(--ink2); font-size:13px; margin-top:14px; }
+  .flow { display:flex; flex-direction:column; align-items:center; }
+  .flow .box { width:min(560px,100%); text-align:center; }
+  .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; }
+  .shell { border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--page); }
+  .shell .bar { display:flex; gap:8px; padding:7px 10px; background:var(--panel); border-bottom:1px solid var(--border); font-size:11px; color:var(--ink2); }
+  .shell .bar b { color:var(--ink); }
+  .shell .grid { display:grid; grid-template-columns:130px 1fr 150px; height:230px; }
+  .shell .pane { border-right:1px solid var(--border); padding:8px; font-size:10px; color:var(--muted); }
+  .shell .pane:last-child { border-right:0; }
+  .shell .foot { border-top:1px solid var(--border); padding:8px 10px; font-size:10px; color:var(--muted); display:flex; gap:8px; }
+  .chip { background:var(--panel); border:1px solid var(--border); border-radius:5px; padding:3px 8px; }
+  .ghost { background:var(--surface); border:1px dashed var(--border); border-radius:6px; height:34px; margin-top:6px; }
+</style>
+
+<nav>
+  <span class="logo">◆ DTP <span>Demo-001</span></span>
+  <a href="#system">System</a><a href="#modules">Modules</a><a href="#dataflow">Data Flow</a><a href="#nav">Navigation</a>
+</nav>
+
+<main>
+  <h1>Platform Architecture — Founder Walkthrough</h1>
+  <div class="sub">AWP-002 · concept demo, not production UI · full detail in <code>platform/docs/</code></div>
+
+  <!-- ======================= SYSTEM ======================= -->
+  <section id="system">
+    <h2>1 · Overall System Architecture</h2>
+    <p class="lead">A pure engineering core in the middle; everything environment-specific
+    (rendering, storage, cloud, AI) is a replaceable adapter at the edge. New targets add
+    adapters — the core is never redesigned. That is how one codebase covers browser,
+    desktop, tablet, offline, cloud and AI.</p>
+    <div class="diagram">
+      <div class="layer-label">Application shell — what the engineer sees</div>
+      <div class="row cols">
+        <div class="box hl-blue"><div class="t">2D Layout Editor</div><div class="d">design the line</div></div>
+        <div class="box hl-blue"><div class="t">3D View</div><div class="d">watch the twin run</div></div>
+        <div class="box hl-blue"><div class="t">Dashboard</div><div class="d">OEE · bottleneck · timeline</div></div>
+        <div class="box hl-blue"><div class="t">Properties</div><div class="d">parameters + visible formulas</div></div>
+      </div>
+      <div class="arrow">▲ read-only snapshots · commands ▼ &nbsp;&nbsp;——&nbsp; Worker boundary (physical separation)</div>
+      <div class="layer-label">Simulation core — pure logic, the company IP</div>
+      <div class="row cols">
+        <div class="box hl-orange"><div class="t">@dtp/engine</div><div class="d">deterministic kernel</div></div>
+        <div class="box hl-orange"><div class="t">@dtp/machines</div><div class="d">machine library (data)</div></div>
+        <div class="box hl-orange"><div class="t">@dtp/calc</div><div class="d">transparent calculations</div></div>
+        <div class="box hl-orange"><div class="t">@dtp/project</div><div class="d">versioned project files</div></div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="layer-label">Adapters — swappable, added over time</div>
+      <div class="row cols">
+        <div class="box hl-green"><div class="t">Local files <span class="tag" style="background:#123a20;color:#7ee2a0">v1</span></div><div class="d">offline, no install</div></div>
+        <div class="box"><div class="t">Cloud sync <span class="tag" style="background:#2b2410;color:var(--yellow)">v2</span></div><div class="d">same file format</div></div>
+        <div class="box"><div class="t">AI copilot <span class="tag" style="background:#2b2410;color:var(--yellow)">v2</span></div><div class="d">speaks the command protocol</div></div>
+        <div class="box"><div class="t">Hardware twin link <span class="tag" style="background:#2c1a33;color:var(--violet)">future</span></div><div class="d">OPC-UA / PLC data</div></div>
+      </div>
+      <div class="callout"><b>Why it matters:</b> the simulation would produce identical results with
+      every screen deleted. Rendering watches the engine; it can never distort it. This one rule
+      protects the engineering correctness — and the IP — permanently.</div>
+    </div>
+  </section>
+
+  <!-- ======================= MODULES ======================= -->
+  <section id="modules">
+    <h2>2 · Module Architecture</h2>
+    <p class="lead">Dependencies point strictly downward. The two bottom packages are the
+    long-lived intellectual property and never import from anything above them.</p>
+    <div class="diagram flow">
+      <div class="box hl-blue"><div class="t">apps/simulator</div><div class="d">React shell · panels · worker host · PWA · render adapters (Canvas 2D, Three.js)</div></div>
+      <div class="arrow">▼ depends on</div>
+      <div class="box"><div class="t">@dtp/project</div><div class="d">project model · zod schema · save/load · migrations</div></div>
+      <div class="arrow">▼</div>
+      <div class="box"><div class="t">@dtp/machines</div><div class="d">7 archetypes (source · transport · processor · buffer · splitter · combiner · sink) — real machines are <b>data definitions</b>, not code</div></div>
+      <div class="arrow">▼</div>
+      <div class="box hl-orange"><div class="t">@dtp/engine</div><div class="d">clock · event queue · state machines · movement · recorder — zero dependencies</div></div>
+      <div class="arrow">side-by-side ▼</div>
+      <div class="box hl-orange"><div class="t">@dtp/calc</div><div class="d">SI units · conversions · CalcValue { value, unit, formula, inputs } — every number can show its work</div></div>
+      <div class="callout"><b>New machine</b> = one definition object. <b>New industry</b> (pharma,
+      beverage, warehouse) = one definition set. Zero engine changes either way.</div>
+    </div>
+  </section>
+
+  <!-- ======================= DATA FLOW ======================= -->
+  <section id="dataflow">
+    <h2>3 · Data Flow</h2>
+    <p class="lead">One-way flow; the only way anything writes into the simulation is an explicit
+    command. A saved project plus its random seed reproduces any result exactly — simulation
+    output becomes evidence, not animation.</p>
+    <div class="diagram flow">
+      <div class="box hl-blue"><div class="t">USER</div><div class="d">builds layout · sets parameters · presses Run</div></div>
+      <div class="arrow">▼ SimCommand (start · pause · setParameter · …)</div>
+      <div class="box hl-orange"><div class="t">SIMULATION</div><div class="d">deterministic kernel in a Web Worker · seeded randomness</div></div>
+      <div class="arrow">▼ SimulationSnapshot ~30 Hz (immutable)</div>
+      <div class="box"><div class="t">VISUALIZATION</div><div class="d">2D editor and 3D view draw the same snapshot</div></div>
+      <div class="arrow">▼ RecorderReport (time-in-state · counts · events)</div>
+      <div class="box"><div class="t">DASHBOARD</div><div class="d">OEE = A × P × Q · throughput · bottleneck · timeline — computed by the recorder, never by the UI</div></div>
+      <div class="arrow">▼ versioned JSON (layout + parameters + seed)</div>
+      <div class="box hl-green"><div class="t">STORAGE</div><div class="d">v1: local file, fully offline · v2: cloud sync — same format, different transport</div></div>
+    </div>
+  </section>
+
+  <!-- ======================= NAVIGATION ======================= -->
+  <section id="nav">
+    <h2>4 · Navigation Concept</h2>
+    <p class="lead">One workspace, four modes sharing the same project: <b>Design</b> (2D layout),
+    <b>Simulate</b> (3D + live line), <b>Analyze</b> (dashboards &amp; reports), <b>Library</b>
+    (machine definitions). Left panel and right panel adapt to the mode; the timeline is global.</p>
+    <div class="shell">
+      <div class="bar">
+        <b>◆ DTP</b><span>Cookie Line A</span>
+        <span class="chip" style="border-color:var(--blue);color:var(--ink)">Design</span>
+        <span class="chip">Simulate</span><span class="chip">Analyze</span><span class="chip">Library</span>
+        <span style="margin-left:auto">▶ Run · ×4 · t 00:42</span>
+      </div>
+      <div class="grid">
+        <div class="pane">MACHINE LIBRARY<div class="ghost"></div><div class="ghost"></div><div class="ghost"></div></div>
+        <div class="pane">CANVAS — 2D in Design · 3D in Simulate<div class="ghost" style="height:150px; margin-top:10px"></div></div>
+        <div class="pane">PROPERTIES<div class="ghost"></div><div class="ghost"></div>TRANSPARENT CALCS<div class="ghost"></div></div>
+      </div>
+      <div class="foot"><span>KPI: OEE 78.4%</span><span>Throughput 409 ppm</span><span style="color:var(--crit)">Bottleneck FW-01</span><span style="margin-left:auto">timeline ————●——</span></div>
+    </div>
+    <div class="callout"><b>Design principle:</b> engineers never lose context — switching mode
+    changes the lens on the project, not the place they are standing.</div>
+  </section>
+</main>
