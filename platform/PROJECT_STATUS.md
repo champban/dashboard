@@ -1,7 +1,7 @@
 # PROJECT_STATUS — Engineering Digital Twin Platform
 
 **Single source of truth.** Updated at the close of every AWP.
-Version 1 · Last updated: 2026-07-17 (AWP-002)
+Version 1.1 · Last updated: 2026-07-17 (Global Principles v1.0 adopted)
 
 ## Snapshot
 
@@ -35,6 +35,8 @@ Version 1 · Last updated: 2026-07-17 (AWP-002)
 | EDR-003 | Transparent `CalcValue` for every derived number | ✅ decided |
 | EDR-004 | Deterministic hybrid kernel, seeded PRNG | ✅ decided |
 | EDR-005 | Item-level + flow-level simulation behind entity budget | ✅ decided |
+| EDR-006 | Declarative edition gating (Free/Pro/Enterprise registry) from day one | ✅ decided |
+| GP-1.0 | Global Engineering Principles v1.0 adopted (docs/GLOBAL_PRINCIPLES.md); benchmark note required in every major-feature AWP | ✅ adopted |
 | T1–T11 | Technology stack (see TDR.md): TS, Vite, React, Three.js, Worker, Zod, Vitest, PWA | ✅ decided |
 
 ## Open Questions (founder decisions needed)

@@ -109,3 +109,26 @@ AWP-000 forbids).
 **Impact.** v1 ships item-level (well within budget); the product/location
 standard is already flow-compatible, so scaling later is an optimization, not a
 redesign.
+
+---
+
+## EDR-006 — Edition gating is declarative from day one
+
+**Decision.** Commercial tiers (Free / Professional / Enterprise, per Global
+Engineering Principles v1.0) are enforced through a single capability
+registry: each gated feature declares `requiredTier` in one place, and UI/
+engine consult the registry. No tier conditionals scattered through feature
+code. v1 ships with every feature marked Free and the registry inert.
+
+**Reason.** Editions are a founder-mandated commercial requirement.
+Retrofitting licensing into an ungated codebase is one of the classic
+expensive rewrites; declaring the seam now costs near zero.
+
+**Alternative.** Add licensing when monetization starts. Rejected: by then
+every panel and command would need auditing and touching — weeks of risky
+work versus one registry today.
+
+**Impact.** Monetization becomes configuration plus a license-check adapter
+(cloud, v2) rather than a rewrite. The registry also doubles as the future
+plugin permission surface. Cost: one small module and the discipline to route
+gates through it.
