@@ -132,3 +132,31 @@ work versus one registry today.
 (cloud, v2) rather than a rewrite. The registry also doubles as the future
 plugin permission surface. Cost: one small module and the discipline to route
 gates through it.
+
+---
+
+## EDR-007 — Licenses are signed, offline-verifiable capability documents
+
+**Decision.** A license is an Ed25519-signed JSON document (edition, feature
+flags, seats, validity, grace, binding) verified client-side with an embedded
+public key. All license types (subscription, perpetual-with-version-pin,
+floating lease, node-locked, trial, OEM) are the same document with different
+fields. Online and offline activation share one code path; only transport
+differs.
+
+**Reason.** Our customers include factories with locked-down or air-gapped
+networks — the segment incumbent SaaS licensing serves worst. Phone-home
+licensing would contradict local-first (Part H) and the installation
+pain-point principle. Signature verification needs no server and no trust in
+the client's clock beyond grace handling.
+
+**Alternative.** Server-validated licenses (rejected: kills offline, adds a
+hard runtime dependency on our uptime); DRM/obfuscation arms race (rejected:
+punishes honest customers, free tier already absorbs casual use); per-type
+bespoke mechanisms (rejected: seven mechanisms to test instead of one
+document schema).
+
+**Impact.** Enterprise procurement can be served by a human with a signing
+CLI on day one; revocation = stop reissuing short-lived docs; air-gapped
+sales become possible at all. Cost: key management becomes a crown-jewel
+operational duty (signing key in HSM/offline storage, rotation plan).

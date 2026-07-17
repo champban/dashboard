@@ -1,7 +1,20 @@
 # PROJECT_STATUS — Engineering Digital Twin Platform
 
 **Single source of truth.** Updated at the close of every AWP.
-Version 2 · Last updated: 2026-07-17 (AWP-003)
+Version 3 · Last updated: 2026-07-17 (ABP-001 — commercial platform architecture)
+
+## Business readiness (ABP-001 — runs parallel to all AWPs)
+
+| Dimension | Readiness | Evidence / gap |
+|---|---|---|
+| Commercial architecture | **90 % designed / 5 % implemented** | COMMERCIAL_PLATFORM_ARCHITECTURE.md (Parts A–L); implementation deliberately deferred — v1 needs only the inert registry |
+| License readiness | designed | EDR-007: signed offline-verifiable capability documents (all license types = one schema); implementation v2 |
+| Feature-gate readiness | designed, seam exists | EDR-006 registry spec extended (surfaces: ui/api/mobile/ai/plugin; teaser visibility) |
+| Marketplace readiness | seams ready | SKU format = MachineDefinition data files (already exists); store is v3 |
+| Passive income readiness | strategy set | 7 streams sequenced; content-is-data means partners author it |
+| Payment readiness | strategy set | Merchant-of-Record first (VAT/tax outsourced); PaymentProvider adapter interface |
+| Owner KPI frame | defined | cost < $10/customer/mo — structurally supported (static PWA, local compute, MoR, support deflection) |
+| Demo | ✅ Demo-003 | commercial platform mockup (login/license/team/billing/marketplace/settings), browser-verified |
 
 ## Snapshot
 
@@ -76,6 +89,7 @@ Version 2 · Last updated: 2026-07-17 (AWP-003)
 | PoC (AWP-001) | throwaway architecture proof | ✅ superseded |
 | Demo-001 (AWP-002) | architecture walkthrough | ✅ |
 | Demo-002 (AWP-003) | **real kernel live in Worker**: line with oven+wrapper, random failures, live OEE with formulas, event feed, bottleneck detection | ✅ delivered & committed |
+| Demo-003 (ABP-001) | commercial platform mockup: sign-in, license (signed doc + registry view), team/org, subscription tiers, marketplace, data-ownership settings | ✅ delivered & committed |
 
 ## Risks (live)
 

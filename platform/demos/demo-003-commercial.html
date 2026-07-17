@@ -1,0 +1,249 @@
+<meta charset="utf-8">
+<title>Demo-003 — Commercial Platform Mockup</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --panel:#211f1e; --border:rgba(255,255,255,.10);
+    --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+    --blue:#3987e5; --green:#199e70; --orange:#d95926; --violet:#9085e9; --gold:#c98500; --crit:#d03b3b;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--page); color:var(--ink); font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .banner { background:#2b2410; color:var(--gold); padding:4px 12px; font-size:11px; border-bottom:1px solid var(--border); }
+  nav { position:sticky; top:0; z-index:9; display:flex; gap:4px; align-items:center; background:var(--surface); border-bottom:1px solid var(--border); padding:8px 14px; flex-wrap:wrap; }
+  nav .logo { font-weight:700; margin-right:10px; } nav .logo span { color:var(--blue); }
+  nav button { background:none; border:1px solid transparent; color:var(--ink2); padding:6px 12px; border-radius:6px; font-size:13px; cursor:pointer; }
+  nav button.on { background:var(--panel); border-color:var(--border); color:var(--ink); }
+  main { max-width:1000px; margin:0 auto; padding:22px 16px 70px; }
+  section { display:none; } section.on { display:block; }
+  h1 { font-size:17px; margin-bottom:2px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:18px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:13px; margin-bottom:10px; }
+  .note { border-left:3px solid var(--blue); background:var(--panel); border-radius:0 8px 8px 0; padding:8px 12px; color:var(--ink2); font-size:12px; margin-top:12px; }
+  .note b { color:var(--ink); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  input[type=text], input[type=email] { width:100%; background:var(--panel); border:1px solid var(--border); color:var(--ink); border-radius:7px; padding:9px 12px; font-size:13px; margin-bottom:10px; }
+  .btn { display:inline-block; background:var(--panel); border:1px solid var(--border); color:var(--ink2); border-radius:7px; padding:8px 16px; font-size:12px; cursor:pointer; }
+  .btn.primary { background:var(--blue); color:#fff; border-color:transparent; }
+  .btn.block { display:block; width:100%; text-align:center; margin-bottom:8px; }
+  .pill { display:inline-block; font-size:10px; border-radius:99px; padding:2px 9px; border:1px solid var(--border); color:var(--ink2); }
+  .pill.green { color:#7ee2a0; border-color:#1c5c34; background:#123a20; }
+  .pill.gold { color:var(--gold); border-color:#5c4a1c; background:#2b2410; }
+  .pill.violet { color:var(--violet); border-color:#4a3a7c; background:#221a3a; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { text-align:left; color:var(--muted); font-weight:600; font-size:11px; padding:6px 8px; border-bottom:1px solid var(--border); }
+  td { padding:7px 8px; border-bottom:1px solid var(--border); color:var(--ink2); }
+  td b { color:var(--ink); }
+  .tier { border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--panel); }
+  .tier.hot { border-color:var(--blue); }
+  .tier .name { font-weight:700; }
+  .tier .price { font-size:22px; font-weight:700; margin:6px 0 2px; }
+  .tier .per { color:var(--muted); font-size:11px; margin-bottom:10px; }
+  .tier ul { margin:0 0 12px 16px; color:var(--ink2); font-size:12px; }
+  .kv { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .kv span:first-child { color:var(--muted); }
+  .mk { border:1px solid var(--border); border-radius:10px; padding:12px; background:var(--panel); }
+  .mk .t { font-weight:600; font-size:13px; }
+  .mk .a { color:var(--muted); font-size:11px; margin:2px 0 8px; }
+  .toggle { width:34px; height:18px; border-radius:99px; background:var(--panel); border:1px solid var(--border); position:relative; display:inline-block; vertical-align:middle; }
+  .toggle.on { background:var(--blue); border-color:transparent; }
+  .toggle i { position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#fff; }
+  .toggle.on i { left:auto; right:2px; }
+  .center { max-width:360px; margin:30px auto; }
+</style>
+
+<div class="banner">DEMO-003 · COMMERCIAL PLATFORM MOCKUP — architecture visualization only; no backend, nothing here is functional</div>
+<nav>
+  <span class="logo">◆ DTP <span>Platform</span></span>
+  <button data-s="login" class="on">Sign in</button>
+  <button data-s="workspace">Workspace</button>
+  <button data-s="license">License</button>
+  <button data-s="team">Team</button>
+  <button data-s="billing">Subscription</button>
+  <button data-s="market">Marketplace</button>
+  <button data-s="settings">Settings</button>
+</nav>
+
+<main>
+  <!-- ============ LOGIN ============ -->
+  <section id="login" class="on">
+    <div class="center card">
+      <h1 style="text-align:center">◆ Sign in</h1>
+      <div class="sub" style="text-align:center">Engineering Digital Twin Platform</div>
+      <input type="email" placeholder="work email">
+      <span class="btn primary block">Continue with email</span>
+      <span class="btn block">Continue with Google</span>
+      <span class="btn block">Continue with Microsoft</span>
+      <div style="text-align:center; color:var(--muted); font-size:11px; margin-top:10px">
+        or <u>continue without an account</u> — full product, local files only
+      </div>
+    </div>
+    <div class="note"><b>Architecture (Part D):</b> identity is an optional adapter. "Continue
+    without an account" is the v1 product — sign-in only adds sync, teams, and licenses on top.
+    Enterprise: SSO/SAML + SCIM replace this screen without touching the product.</div>
+  </section>
+
+  <!-- ============ WORKSPACE ============ -->
+  <section id="workspace">
+    <h1>Bakery Engineering — Workspace</h1>
+    <div class="sub">Organization: Siam Foods Co. · Workspace: Line Upgrades 2027</div>
+    <div class="card">
+      <h2>Projects</h2>
+      <table>
+        <tr><th>Project</th><th>Last simulated</th><th>OEE</th><th>Shared</th></tr>
+        <tr><td><b>Cookie Line A — wrapper upgrade</b></td><td>today</td><td>81.6 %</td><td>3 members</td></tr>
+        <tr><td><b>Biscuit Line 2 — capacity study</b></td><td>yesterday</td><td>74.2 %</td><td>replay link ↗</td></tr>
+        <tr><td><b>New plant concept — 4000 pph</b></td><td>Jul 12</td><td>—</td><td>private</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>Architecture (Parts D+H):</b> projects are local-first files owned by the
+    customer; a workspace is a sync + sharing overlay. "Replay link ↗" is the seed-pinned URL —
+    deterministic kernel makes a shared simulation reproduce bit-exactly (growth loop, Figma-style).</div>
+  </section>
+
+  <!-- ============ LICENSE ============ -->
+  <section id="license">
+    <h1>License</h1>
+    <div class="sub">Signed capability document — verified locally, works offline (EDR-007)</div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Active license <span class="pill green">VALID · OFFLINE-CAPABLE</span></h2>
+        <div class="kv"><span>License ID</span><span>L-2027-000123</span></div>
+        <div class="kv"><span>Edition</span><span><b>Professional</b></span></div>
+        <div class="kv"><span>Type</span><span>Subscription (perpetual fallback: v1.8)</span></div>
+        <div class="kv"><span>Seats</span><span>4 of 5 in use</span></div>
+        <div class="kv"><span>Valid until</span><span>2027-08-17 (+14 days grace)</span></div>
+        <div class="kv"><span>Binding</span><span>User · borrowable 30 days</span></div>
+        <div class="kv"><span>Signature</span><span class="pill green">ed25519 ✓ verified locally</span></div>
+        <div style="margin-top:12px"><span class="btn">Borrow seat for travel</span> <span class="btn">Offline activation file…</span></div>
+      </div>
+      <div class="card">
+        <h2>Feature access (from capability registry)</h2>
+        <table>
+          <tr><th>Feature</th><th>Gate</th><th>Status</th></tr>
+          <tr><td>Line builder · simulation · OEE</td><td>free</td><td><span class="pill green">enabled</span></td></tr>
+          <tr><td>Unlimited project size</td><td>professional</td><td><span class="pill green">enabled</span></td></tr>
+          <tr><td>Experiment sweeps</td><td>professional</td><td><span class="pill green">enabled</span></td></tr>
+          <tr><td>Cloud sync & teams</td><td>professional</td><td><span class="pill green">enabled</span></td></tr>
+          <tr><td>SSO / SCIM / audit log</td><td>enterprise</td><td><span class="pill gold">teaser — upgrade</span></td></tr>
+          <tr><td>Floating license pool</td><td>enterprise</td><td><span class="pill gold">teaser — upgrade</span></td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="note"><b>Architecture (Parts B+C):</b> one signed JSON document expresses every
+    license type; the feature table is rendered straight from the EDR-006 registry — no code
+    anywhere asks "is this Pro?" except the single evaluator. "Teaser" rows are the upsell surface.</div>
+  </section>
+
+  <!-- ============ TEAM ============ -->
+  <section id="team">
+    <h1>Organization &amp; Team</h1>
+    <div class="sub">Siam Foods Co. · 2 workspaces · 5 seats</div>
+    <div class="card">
+      <h2>Members</h2>
+      <table>
+        <tr><th>User</th><th>Role</th><th>Workspaces</th><th>Devices</th><th>Seat</th></tr>
+        <tr><td><b>P. Chaiyasit</b></td><td>Owner</td><td>all</td><td>2 (1 node-locked)</td><td>✓</td></tr>
+        <tr><td><b>N. Wongsuwan</b></td><td>Admin</td><td>Line Upgrades</td><td>1</td><td>✓</td></tr>
+        <tr><td><b>K. Srisuk</b></td><td>Engineer</td><td>Line Upgrades</td><td>1</td><td>✓</td></tr>
+        <tr><td><b>J. Meyer (consultant)</b></td><td>Engineer</td><td>New plant</td><td>1 · borrowed until Aug 2</td><td>✓</td></tr>
+        <tr><td><b>Plant viewers (8)</b></td><td>Viewer</td><td>read-only replay links</td><td>—</td><td>free</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>Architecture (Part D):</b> Organization → Workspace → User(Role) → Device.
+    Roles are entries in the same feature registry (permission = feature), so RBAC and edition
+    gating are one evaluator. Viewers cost no seats — read-only replays are free by design (growth).</div>
+  </section>
+
+  <!-- ============ BILLING ============ -->
+  <section id="billing">
+    <h1>Subscription</h1>
+    <div class="sub">Handled by Merchant of Record — VAT/tax, invoices, local payment methods included (Part E)</div>
+    <div class="grid3">
+      <div class="tier">
+        <div class="name">Free</div>
+        <div class="price">$0</div><div class="per">forever</div>
+        <ul><li>Full kernel + transparency</li><li>2 lines · 15 machines</li><li>Local files · community library</li></ul>
+        <span class="btn">Current plan for viewers</span>
+      </div>
+      <div class="tier hot">
+        <div class="name">Professional <span class="pill green">active</span></div>
+        <div class="price">$79<span style="font-size:12px">*</span></div><div class="per">per seat / month · *placeholder pricing</div>
+        <ul><li>Unlimited projects</li><li>Experiments · reports</li><li>Cloud sync · teams</li><li>Perpetual fallback</li></ul>
+        <span class="btn primary">Manage · renews Aug 17</span>
+      </div>
+      <div class="tier">
+        <div class="name">Enterprise</div>
+        <div class="price">Custom</div><div class="per">annual · PO / invoice / bank transfer</div>
+        <ul><li>SSO · SCIM · audit</li><li>Floating pool · offline sites</li><li>Custom libraries · SLA</li></ul>
+        <span class="btn">Talk to us</span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Invoices</h2>
+      <table>
+        <tr><th>Date</th><th>Description</th><th>Amount</th><th>VAT</th><th></th></tr>
+        <tr><td>Jul 17</td><td>Professional × 5 seats</td><td>$395</td><td>handled by MoR</td><td>PDF ↓</td></tr>
+        <tr><td>Jun 17</td><td>Professional × 5 seats</td><td>$395</td><td>handled by MoR</td><td>PDF ↓</td></tr>
+      </table>
+    </div>
+    <div class="note"><b>Architecture (Part E):</b> provider (Paddle/Lemon Squeezy/Stripe) is a
+    swappable adapter behind one PaymentProvider interface; a renewal webhook simply reissues the
+    signed license document. Education & OEM editions are the same machinery with different documents.</div>
+  </section>
+
+  <!-- ============ MARKETPLACE ============ -->
+  <section id="market">
+    <h1>Marketplace</h1>
+    <div class="sub">Certified machine libraries, industry packs, templates — content is data (EDR-002), so partners author it</div>
+    <div class="grid3">
+      <div class="mk"><div class="t">GEA Flow Wrappers — official</div><div class="a">by GEA (OEM certified) · real datasheet parameters</div><span class="pill violet">OEM library</span> <span class="pill">free</span></div>
+      <div class="mk"><div class="t">Bakery Industry Pack</div><div class="a">28 machines · 6 reference lines · OEE conventions</div><span class="pill gold">$299 one-time*</span></div>
+      <div class="mk"><div class="t">Biscuit Line 4000 pph template</div><div class="a">by K. Anders, Certified Engineer · 4.8 ★</div><span class="pill gold">$49*</span></div>
+      <div class="mk"><div class="t">Conveyor Power Calc Pack</div><div class="a">CalcValue formulas with sources · auditable</div><span class="pill gold">$29*</span></div>
+      <div class="mk"><div class="t">Pharma Pack</div><div class="a">coming v3 · batch records · audit trail focus</div><span class="pill">roadmap</span></div>
+      <div class="mk"><div class="t">Publish your library</div><div class="a">requires Certified Publisher status · 70/30 revenue share</div><span class="pill green">apply</span></div>
+    </div>
+    <div class="note"><b>Architecture (Part I):</b> a marketplace SKU <i>is</i> a MachineDefinition/
+    template data file — installing one adds data, never code, so third-party content can't corrupt
+    kernel results. Certification gates publishing (quality moat + training revenue). *Placeholder prices.</div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="settings">
+    <h1>Settings</h1>
+    <div class="grid2">
+      <div class="card">
+        <h2>Data ownership (Part H)</h2>
+        <div class="kv"><span>Storage</span><span><b>Local-first</b> · open JSON format</span></div>
+        <div class="kv"><span>Cloud sync</span><span><span class="toggle on"><i></i></span> end-to-end encrypted</span></div>
+        <div class="kv"><span>Export everything</span><span class="btn">Download archive</span></div>
+        <div class="kv"><span>Telemetry</span><span><span class="toggle"><i></i></span> off (opt-in, anonymous)</span></div>
+        <div class="kv"><span>Data region</span><span>EU (Enterprise option)</span></div>
+      </div>
+      <div class="card">
+        <h2>Updates (Part F)</h2>
+        <div class="kv"><span>Channel</span><span>stable · <span class="pill">beta opt-in</span></span></div>
+        <div class="kv"><span>Current version</span><span>2.3.1 · kernel 0.9.2</span></div>
+        <div class="kv"><span>Update ready</span><span class="pill green">2.3.2 — applies on next launch</span></div>
+        <div class="kv"><span>Rollback</span><span class="btn">Revert to 2.3.0</span></div>
+        <div class="kv"><span>Project schema</span><span>v4 · migrations are explicit, never silent</span></div>
+      </div>
+    </div>
+    <div class="note"><b>Why this page sells:</b> "your data is yours, exportable, offline-capable,
+    updates never break a saved project" — every line answers a procurement objection incumbents
+    struggle with.</div>
+  </section>
+</main>
+
+<script>
+  const tabs = document.querySelectorAll('nav button');
+  tabs.forEach(b => b.onclick = () => {
+    tabs.forEach(x => x.classList.remove('on'));
+    document.querySelectorAll('main section').forEach(s => s.classList.remove('on'));
+    b.classList.add('on');
+    document.getElementById(b.dataset.s).classList.add('on');
+  });
+</script>
