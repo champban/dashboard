@@ -1,0 +1,26 @@
+(function(){
+'use strict';
+const URL='https://qjaywadzvwvcspdsjxth.supabase.co';
+const KEY='sb_publishable_qJxPQAYlwBZnfXtVSqQnPQ_0RrKvSlB';
+const client=window.supabase.createClient(URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+let mode='signin';
+document.body.classList.add('mtp-auth-pending');
+function route(name){if(location.hash!=='#/'+name)history.replaceState(null,'','#/'+name)}
+function clearUI(){document.getElementById('mtp-auth-screen')?.remove();document.getElementById('mtp-auth-signout')?.remove()}
+function showApp(email){clearUI();document.body.classList.remove('mtp-auth-pending','mtp-auth-signed-out');document.body.classList.add('mtp-auth-ready');route('app');const b=document.createElement('button');b.id='mtp-auth-signout';b.className='mtp-auth-signout';b.type='button';b.textContent='Sign out · '+(email||'Account');b.onclick=async()=>{b.disabled=true;await client.auth.signOut({scope:'local'})};document.body.appendChild(b)}
+function showLogin(initialMessage,kind){
+ clearUI();document.body.classList.remove('mtp-auth-pending','mtp-auth-ready');document.body.classList.add('mtp-auth-signed-out');route('login');
+ const s=document.createElement('section');s.id='mtp-auth-screen';s.className='mtp-auth-screen';s.setAttribute('aria-label','Account access');s.innerHTML='<form class="mtp-auth-card" id="mtp-auth-form"><div class="mtp-auth-logo" aria-hidden="true">✓</div><h1 id="mtp-auth-title">Welcome back</h1><p id="mtp-auth-copy">Sign in to open My Todo Planner.</p><button class="mtp-auth-google" id="mtp-auth-google" type="button"><span aria-hidden="true">G</span>Continue with Google</button><div class="mtp-auth-divider"><span>or use email</span></div><label class="mtp-auth-field">Email<input id="mtp-auth-email" type="email" autocomplete="email" required></label><label class="mtp-auth-field">Password<input id="mtp-auth-password" type="password" autocomplete="current-password" minlength="8" required></label><button class="mtp-auth-submit" id="mtp-auth-submit" type="submit">Sign in</button><div class="mtp-auth-message" id="mtp-auth-message" role="status" aria-live="polite"></div><button class="mtp-auth-switch" id="mtp-auth-switch" type="button">Create an account</button></form>';document.body.appendChild(s);
+ const form=document.getElementById('mtp-auth-form'),email=document.getElementById('mtp-auth-email'),password=document.getElementById('mtp-auth-password'),submit=document.getElementById('mtp-auth-submit'),google=document.getElementById('mtp-auth-google'),status=document.getElementById('mtp-auth-message'),title=document.getElementById('mtp-auth-title'),copy=document.getElementById('mtp-auth-copy'),toggle=document.getElementById('mtp-auth-switch');
+ function render(){const up=mode==='signup';title.textContent=up?'Create your account':'Welcome back';copy.textContent=up?'Use an email and a password of at least 8 characters.':'Sign in to open My Todo Planner.';submit.textContent=up?'Create account':'Sign in';toggle.textContent=up?'Already registered? Sign in':'Create an account';password.autocomplete=up?'new-password':'current-password';status.textContent=''}
+ toggle.onclick=()=>{mode=mode==='signin'?'signup':'signin';render()};
+ google.onclick=async()=>{google.disabled=true;status.textContent='Redirecting to Google…';status.dataset.kind='success';const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});if(error){google.disabled=false;status.dataset.kind='error';status.textContent=error.message}};
+ form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;status.textContent='';const credentials={email:email.value.trim(),password:password.value};const signUpCredentials={...credentials,options:{emailRedirectTo:location.origin+location.pathname}};const result=mode==='signup'?await client.auth.signUp(signUpCredentials):await client.auth.signInWithPassword(credentials);submit.disabled=false;if(result.error){status.dataset.kind='error';status.textContent=result.error.message;return}if(mode==='signup'&&!result.data.session){mode='signin';render();status.dataset.kind='success';status.textContent='Account created. Check your email to confirm, then sign in.'}};
+ if(initialMessage){status.dataset.kind=kind||'error';status.textContent=initialMessage}email.focus()
+}
+async function verify(){const {data,error}=await client.auth.getClaims();if(!error&&data?.claims?.sub)showApp(data.claims.email);else showLogin()}
+client.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT')showLogin();if((event==='SIGNED_IN'||event==='TOKEN_REFRESHED')&&session?.user)showApp(session.user.email)});
+window.addEventListener('hashchange',()=>{if(location.hash==='#/login'&&document.body.classList.contains('mtp-auth-ready'))route('app');if(location.hash!=='#/login'&&document.body.classList.contains('mtp-auth-signed-out'))route('login')});
+verify().catch(()=>showLogin('Unable to verify your session. Check your connection and try again.'));
+window.__MTP_AUTH__=Object.freeze({client});
+})();
