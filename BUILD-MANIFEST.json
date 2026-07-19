@@ -1,0 +1,30 @@
+{
+  "version": "3.68.0-mobile-auth-layout-audit",
+  "full": {
+    "path": "index.html",
+    "sha256": "e8c11c4f18a71ee19592f4c7779d49e9901a60369bb2c4128824d0b4c7b4b2d8",
+    "bytes": 769391
+  },
+  "mobile": {
+    "path": "mobile/index.html",
+    "sha256": "118b4c7e5c19c5c46b30b6f63c4f11c6ce6f316c0992c8d5bc973eba92e37556",
+    "bytes": 61437
+  },
+  "csp": {
+    "full_hashes": 8,
+    "mobile_hashes": 3
+  },
+  "auth": {
+    "project": "Dashboard",
+    "providers": ["email", "google"],
+    "supabase_js": "2.110.7",
+    "script_sha256": "3382bfac525a7b2c7805f112225e88f559a4fa316dc8cad5133429b636ceb8cf",
+    "style_sha256": "914509b8cf7c62c12dac36ebf05f78e1e09a2b13651f3f2ebada2c5cd5df1b1d",
+    "sdk_sha256": "2697f51bb3efa5f10b5b0bca2a39b3772b1b8f810e6885e3bb8d69c3242d5e07"
+  },
+  "docs": {
+    "audit_sha256": "4345a9a74cfa6e0f1d6e15b12678a897edcd418374a2b08904490b8aee1d3415",
+    "deployment_checklist_sha256": "a361c457d032c1e70572be71572699a083de02469c18441a600bcf4f4fb08054",
+    "execution_skills_guide_sha256": "25a86112c4cd90f1a811504f7aa8621f8d47c94aff179450930a52f049c15e91"
+  }
+}
