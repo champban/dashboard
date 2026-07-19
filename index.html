@@ -248,7 +248,7 @@ function lockCredentialFields(root){
   });
   var cloud=[...(root||document).querySelectorAll('span,div')].find(function(el){return (el.textContent||'').trim()==='☁️ CLOUD STORAGE'});
   if(cloud&&cloud.parentElement&&!cloud.parentElement.querySelector('[data-mtp-security-note]')){
-    var note=document.createElement('div');note.dataset.mtpSecurityNote='1';note.textContent='Security build: OAuth is managed by the deployment. Browser API-secret entry is disabled.';note.style.cssText='margin:8px 0;padding:9px 11px;border:1px solid #0f766e55;border-radius:8px;background:#0f766e12;color:var(--c-text-muted);font-size:11px;font-weight:700';cloud.parentElement.insertBefore(note,cloud.nextSibling);
+    var note=document.createElement('div');note.dataset.mtpSecurityNote='1';note.textContent='Drive sync uses your signed-in Google account. OAuth credentials are managed by this deployment; Local JSON and offline use remain available.';note.style.cssText='margin:8px 0;padding:9px 11px;border:1px solid #0f766e55;border-radius:8px;background:#0f766e12;color:var(--c-text-muted);font-size:11px;font-weight:700';cloud.parentElement.insertBefore(note,cloud.nextSibling);
   }
 }
 lockCredentialFields(document);
