@@ -1,4 +1,4 @@
-# My Todo Planner v3.73.0 — Release Audit 6D
+# My Todo Planner v3.74.0 — Release Audit 6D
 
 Build date: 2026-07-20
 
@@ -25,10 +25,12 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 - Entire Mobile task cards now open the task editor; Upcoming Event rows open a dedicated event editor for title, dates, location, details and deletion.
 - Task lookup, edit, delete, complete, and Focus selection now compare imported numeric IDs and DOM string IDs safely; previously these type differences could make taps fail silently.
 - Task title/content and chevron are explicit touch buttons, while the remaining card surface still opens Edit on iOS.
+- Task Edit now exposes Back to home and Mark done/Reopen controls; both return to Today after the requested state change.
 - Mobile Sync now includes a bilingual Storage Manager showing Planner JSON, total app localStorage, in-session Undo/Redo memory, and task/event/note counts.
 - Storage pressure is visible against a conservative 4 MB soft limit with 70%, 85%, and 95% warning levels.
 - Backup export, Undo/Redo cleanup, usage refresh, and one-year completed-task archiving are available without covering the bottom navigation.
 - Cloud-file selection now includes Add, Refresh, Use, and confirmed Delete controls; deleting the currently linked file safely returns the device to Local mode.
+- Each Cloud file exposes an Open folder link plus Rename. Add creates in the active/recent file folder, opens that Drive folder, and assigns the first unused per-folder sequence (`My-Todo-Planner.json`, `...1.json`, `...2.json`). Manual rename also prevents same-folder name collisions by applying the next sequence.
 - The storage warning limit is owner-configurable from 1–100 MB. Above the chosen maximum, the owner can acknowledge current usage; red state is suppressed until usage grows another 10% or the limit changes.
 - No preview is generated as part of this release package.
 
@@ -86,7 +88,7 @@ Residual limitations:
 ## Release files
 
 - `index.html` — Full app v3.64.0 security build
-- `mobile/index.html` — Mobile app v3.73.0 data-controls and task-ID compatibility build
+- `mobile/index.html` — Mobile app v3.74.0 task and cloud workflow build
 - `AUDIT-6D-SECURITY-REPORT.md` — this report
 - `DEPLOYMENT-CHECKLIST.md` — controlled GitHub Pages deployment steps
 - `EXECUTION-SKILLS-GUIDE.md` — reusable AI/HUMAN execution and handoff workflow
@@ -106,5 +108,7 @@ Residual limitations:
 - Task interaction regression: numeric ID `14` and DOM ID `"14"` resolve to the same task for open/edit/save/delete/toggle/Focus paths; newly generated string IDs remain unchanged.
 - jsdom interaction regression: a numeric-ID task opened, edited, saved and toggled; a custom 1 MB warning limit rendered the over-limit action; Acknowledge replaced the red warning with the acknowledged state.
 - Cloud-list static contract: Add/Refresh/Use/Delete controls are separate buttons; Delete requires confirmation, uses the narrow `drive.file` grant, refreshes the list, and unlinks a deleted active file.
+- Task workflow regression: Back returned to Today; Save persisted an edit; Mark done persisted completion and returned to Today.
+- Cloud naming regression: base plus existing suffixes `1` and `2` produced suffix `3` in the same folder; another folder did not affect the sequence; Rename excluded the current file from collision checks.
 
 Live navigation to a local HTTP server was blocked by the execution environment's administrator policy, so actual Google OAuth consent and Drive round-trip remain post-deployment acceptance tests.
