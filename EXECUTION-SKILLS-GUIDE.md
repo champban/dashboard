@@ -113,6 +113,8 @@ This guide separates work that an AI coding agent can execute from work that the
 9. Export a local JSON backup before testing conflict resolution.
 10. Open **Sync → Storage manager** and confirm Planner data, Browser storage, Undo/Redo memory, and stored-item counts appear.
 11. Press **Refresh usage**, then **Clear Undo/Redo** and confirm history memory decreases; export a backup before testing **Archive completed > 1 year**.
+12. Set the Storage warning limit below current usage, press **Acknowledge usage**, and confirm the red warning changes to acknowledged; restore the preferred limit afterward.
+13. In **Cloud files**, create a disposable file, confirm it appears after Refresh, select it with **Use**, then test confirmed Delete only on that disposable file.
 
 **AI**
 
