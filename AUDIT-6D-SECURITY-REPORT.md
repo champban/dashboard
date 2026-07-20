@@ -1,4 +1,4 @@
-# My Todo Planner v3.71.0 — Release Audit 6D
+# My Todo Planner v3.73.0 — Release Audit 6D
 
 Build date: 2026-07-20
 
@@ -23,9 +23,13 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 - The signed-in email remains available through the button's accessible label and tooltip without consuming mobile layout space.
 - Mobile provides visible Undo/Redo controls with disabled states, bilingual labels and a bounded 40-step in-session history.
 - Entire Mobile task cards now open the task editor; Upcoming Event rows open a dedicated event editor for title, dates, location, details and deletion.
+- Task lookup, edit, delete, complete, and Focus selection now compare imported numeric IDs and DOM string IDs safely; previously these type differences could make taps fail silently.
+- Task title/content and chevron are explicit touch buttons, while the remaining card surface still opens Edit on iOS.
 - Mobile Sync now includes a bilingual Storage Manager showing Planner JSON, total app localStorage, in-session Undo/Redo memory, and task/event/note counts.
 - Storage pressure is visible against a conservative 4 MB soft limit with 70%, 85%, and 95% warning levels.
 - Backup export, Undo/Redo cleanup, usage refresh, and one-year completed-task archiving are available without covering the bottom navigation.
+- Cloud-file selection now includes Add, Refresh, Use, and confirmed Delete controls; deleting the currently linked file safely returns the device to Local mode.
+- The storage warning limit is owner-configurable from 1–100 MB. Above the chosen maximum, the owner can acknowledge current usage; red state is suppressed until usage grows another 10% or the limit changes.
 - No preview is generated as part of this release package.
 
 ## 3. Lean Architecture & Performance — PASS with residual dependency
@@ -42,8 +46,10 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 - Sign out has a 42 × 42 px header touch target, keyboard focus styling, accessible name, disabled/busy feedback and no bottom-nav collision.
 - Undo/Redo use 40 px controls beneath the sticky header, remain clear of bottom navigation and expose button state to assistive technology.
 - Task cards support touch plus Enter/Space keyboard activation; completion remains a separate control and event rows are semantic buttons.
+- Task edit controls use native buttons with `type="button"`, accessible edit labels, and pointer affordance rather than relying only on a non-interactive card element.
 - Credential configuration is removed from the mobile user workflow.
 - Storage controls use the existing responsive grid, collapse to one column on narrow screens, and expose the usage bar as an accessible meter.
+- Storage settings explicitly state that the warning limit does not increase the underlying Safari/browser quota.
 - External `_blank` links are forced to `noopener noreferrer`.
 
 ## 5. Security & Privacy — PASS for static personal deployment; CONDITIONAL for commercial use
@@ -80,7 +86,7 @@ Residual limitations:
 ## Release files
 
 - `index.html` — Full app v3.64.0 security build
-- `mobile/index.html` — Mobile app v3.71.0 storage-manager build
+- `mobile/index.html` — Mobile app v3.73.0 data-controls and task-ID compatibility build
 - `AUDIT-6D-SECURITY-REPORT.md` — this report
 - `DEPLOYMENT-CHECKLIST.md` — controlled GitHub Pages deployment steps
 - `EXECUTION-SKILLS-GUIDE.md` — reusable AI/HUMAN execution and handoff workflow
@@ -97,5 +103,8 @@ Residual limitations:
 - Mobile history regression: add, edit, delete, complete/reopen, profile/settings, JSON import, Drive pull and cloud-file load all create undo checkpoints; a new edit clears redo history.
 - Mobile editor regression: card-area task taps preserve the editing target through re-render; event edits/deletes create undo checkpoints and retain unedited event fields.
 - Storage Manager regression: exact UTF-8 Planner size, estimated UTF-16 localStorage quota use, bounded history size, item counts, threshold status, export, clear-history, guarded import, and export-before-delete archive paths passed static contract checks.
+- Task interaction regression: numeric ID `14` and DOM ID `"14"` resolve to the same task for open/edit/save/delete/toggle/Focus paths; newly generated string IDs remain unchanged.
+- jsdom interaction regression: a numeric-ID task opened, edited, saved and toggled; a custom 1 MB warning limit rendered the over-limit action; Acknowledge replaced the red warning with the acknowledged state.
+- Cloud-list static contract: Add/Refresh/Use/Delete controls are separate buttons; Delete requires confirmation, uses the narrow `drive.file` grant, refreshes the list, and unlinks a deleted active file.
 
 Live navigation to a local HTTP server was blocked by the execution environment's administrator policy, so actual Google OAuth consent and Drive round-trip remain post-deployment acceptance tests.
