@@ -7,8 +7,8 @@
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "d0bbcb82ad0648d15b13253fd8dde16696efd0c1970dd3b650edb5b0f5fca1d9",
-    "bytes": 87861
+    "sha256": "37a1dbc768f2ee09d9306e33d66c8e230eae68a223f7de6702b2159953bb25b9",
+    "bytes": 87972
   },
   "csp": {
     "full_hashes": 8,
