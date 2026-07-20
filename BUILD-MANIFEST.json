@@ -1,5 +1,5 @@
 {
-  "version": "3.71.0-storage-manager",
+  "version": "3.73.0-mobile-data-controls",
   "full": {
     "path": "index.html",
     "sha256": "e8c11c4f18a71ee19592f4c7779d49e9901a60369bb2c4128824d0b4c7b4b2d8",
@@ -7,8 +7,8 @@
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "4484e40b119e34230498d51bb28e7ea2f84ed490517872432e3b1525149c556a",
-    "bytes": 77151
+    "sha256": "11c5eceb03204819ec5a1eb7aab4e2d949615eb5e370abd751309f3c3b9b99d5",
+    "bytes": 82641
   },
   "csp": {
     "full_hashes": 8,
@@ -23,8 +23,8 @@
     "sdk_sha256": "2697f51bb3efa5f10b5b0bca2a39b3772b1b8f810e6885e3bb8d69c3242d5e07"
   },
   "docs": {
-    "audit_sha256": "784ad75f924cfb5fca29fd492eb83fcef2bab88e4d26f3b295af8fe4f14f0ac4",
+    "audit_sha256": "5fdb45b25fff54fab867cb58cad5cb978b38515dcfd80166aba24edc4e104573",
     "deployment_checklist_sha256": "a361c457d032c1e70572be71572699a083de02469c18441a600bcf4f4fb08054",
-    "execution_skills_guide_sha256": "5b24d6f848161a865160e913db88bc89239266a203de0d8fe592f35600e85a16"
+    "execution_skills_guide_sha256": "06b55eff7e4e995ba03072d1e54d7ff43102b156db16290aa9971a805c1411c2"
   }
 }
