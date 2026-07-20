@@ -1,4 +1,4 @@
-# My Todo Planner v3.68.0 — Release Audit 6D
+# My Todo Planner v3.69.0 — Release Audit 6D
 
 Build date: 2026-07-20
 
@@ -21,6 +21,7 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 - A security notice explains that OAuth is deployment-managed and API secrets require a backend.
 - Mobile Sign out is now a compact, accessible header action; it no longer floats over tasks or bottom navigation.
 - The signed-in email remains available through the button's accessible label and tooltip without consuming mobile layout space.
+- Mobile provides visible Undo/Redo controls with disabled states, bilingual labels and a bounded 40-step in-session history.
 - No preview is generated as part of this release package.
 
 ## 3. Lean Architecture & Performance — PASS with residual dependency
@@ -34,6 +35,7 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 
 - Existing focus, safe-area, touch-target and reduced-motion controls are retained.
 - Sign out has a 42 × 42 px header touch target, keyboard focus styling, accessible name, disabled/busy feedback and no bottom-nav collision.
+- Undo/Redo use 40 px controls beneath the sticky header, remain clear of bottom navigation and expose button state to assistive technology.
 - Credential configuration is removed from the mobile user workflow.
 - External `_blank` links are forced to `noopener noreferrer`.
 
@@ -60,6 +62,7 @@ Residual limitations:
 - Allowed JavaScript origin must include `https://champban.github.io`.
 - Drive scope remains `https://www.googleapis.com/auth/drive.file`.
 - Access tokens are not persisted.
+- Undo/Redo snapshots remain memory-only for the current tab session; restoring a snapshot marks local data dirty so automatic Drive sync can reconcile it normally.
 - Supabase sign-in and Drive synchronization are separate OAuth grants with narrow responsibilities.
 - Live sign-out, Google consent and Drive round-trip must be tested after deployment because they depend on the owner's browser and Google Cloud configuration.
 
@@ -80,5 +83,6 @@ Residual limitations:
 - Mobile Settings regression: `#clientIdInput` count = 0 after render.
 - CSP regression: both apps executed under their generated hash-based meta CSP without violations during the isolated render test.
 - Mobile auth layout regression: Sign out is placed in `.toprow`, while Full app retains the existing floating action.
+- Mobile history regression: add, edit, delete, complete/reopen, profile/settings, JSON import, Drive pull and cloud-file load all create undo checkpoints; a new edit clears redo history.
 
 Live navigation to a local HTTP server was blocked by the execution environment's administrator policy, so actual Google OAuth consent and Drive round-trip remain post-deployment acceptance tests.
