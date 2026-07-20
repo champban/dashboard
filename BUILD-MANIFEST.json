@@ -1,5 +1,5 @@
 {
-  "version": "3.68.0-mobile-auth-layout-audit",
+  "version": "3.70.0-mobile-editors",
   "full": {
     "path": "index.html",
     "sha256": "e8c11c4f18a71ee19592f4c7779d49e9901a60369bb2c4128824d0b4c7b4b2d8",
@@ -7,8 +7,8 @@
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "118b4c7e5c19c5c46b30b6f63c4f11c6ce6f316c0992c8d5bc973eba92e37556",
-    "bytes": 61437
+    "sha256": "0d22cb2d68983c791a194cf7f4a104f8fa23159ad83524cd4d3be7002ea839aa",
+    "bytes": 67947
   },
   "csp": {
     "full_hashes": 8,
@@ -23,8 +23,8 @@
     "sdk_sha256": "2697f51bb3efa5f10b5b0bca2a39b3772b1b8f810e6885e3bb8d69c3242d5e07"
   },
   "docs": {
-    "audit_sha256": "4345a9a74cfa6e0f1d6e15b12678a897edcd418374a2b08904490b8aee1d3415",
+    "audit_sha256": "22918acab887cfb907d4466e7f3d19a04f05bbc2a80e9f14fdf857825c822abe",
     "deployment_checklist_sha256": "a361c457d032c1e70572be71572699a083de02469c18441a600bcf4f4fb08054",
-    "execution_skills_guide_sha256": "25a86112c4cd90f1a811504f7aa8621f8d47c94aff179450930a52f049c15e91"
+    "execution_skills_guide_sha256": "dad7cfe6b41d7e10875d0b7478a45297ff6cc54861ed96a1c9b4735f24dbbba2"
   }
 }
