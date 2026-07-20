@@ -7,8 +7,8 @@
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "5344652bc6d206c3de2910d78695571e2ac2b24ae685ad42b35037b98a935167",
-    "bytes": 87367
+    "sha256": "d0bbcb82ad0648d15b13253fd8dde16696efd0c1970dd3b650edb5b0f5fca1d9",
+    "bytes": 87861
   },
   "csp": {
     "full_hashes": 8,
@@ -25,6 +25,7 @@
   "docs": {
     "audit_sha256": "3dbac788671b4a4151d4bd87bda0e58d59dd3be385b7c1ef949896df8d52d370",
     "deployment_checklist_sha256": "a361c457d032c1e70572be71572699a083de02469c18441a600bcf4f4fb08054",
-    "execution_skills_guide_sha256": "59272cc8377e4118d4b47aac82bd7f885d3685e57f9f762910c1ef28998ae8f7"
+    "execution_skills_guide_sha256": "59272cc8377e4118d4b47aac82bd7f885d3685e57f9f762910c1ef28998ae8f7",
+    "project_context_sha256": "c99b8e70ccd8e466807484b51f9313fa0ea3ec1c535e14c0830485f4095ee1ff"
   }
 }
