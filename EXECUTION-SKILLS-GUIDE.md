@@ -115,6 +115,8 @@ This guide separates work that an AI coding agent can execute from work that the
 11. Press **Refresh usage**, then **Clear Undo/Redo** and confirm history memory decreases; export a backup before testing **Archive completed > 1 year**.
 12. Set the Storage warning limit below current usage, press **Acknowledge usage**, and confirm the red warning changes to acknowledged; restore the preferred limit afterward.
 13. In **Cloud files**, create a disposable file, confirm it appears after Refresh, select it with **Use**, then test confirmed Delete only on that disposable file.
+14. Open a task, test **Back to home**, reopen it, test **Save task**, then test **Mark done** and confirm the app returns to Today.
+15. In **Cloud files**, verify **Open folder** reaches the file's parent folder, **Rename** updates the selected filename, and repeated **Add file** creates sequential unique names rather than duplicates.
 
 **AI**
 
