@@ -107,8 +107,12 @@ This guide separates work that an AI coding agent can execute from work that the
 3. Confirm the app opens after sign-in and Sign out does not cover navigation.
 4. Open **Sync**, connect Drive, create or select a planner JSON file, and press **Sync now**.
 5. Add one harmless test task, press **Undo**, confirm it disappears, then press **Redo** and confirm it returns.
-6. Sync and verify the test task appears on the other device.
-7. Export a local JSON backup before testing conflict resolution.
+6. Tap the task card outside its checkbox, edit it, save, and verify the change.
+7. Tap an Upcoming Event, edit its title/date/location, save, then verify Undo restores the previous event.
+8. Sync and verify the test task appears on the other device.
+9. Export a local JSON backup before testing conflict resolution.
+10. Open **Sync → Storage manager** and confirm Planner data, Browser storage, Undo/Redo memory, and stored-item counts appear.
+11. Press **Refresh usage**, then **Clear Undo/Redo** and confirm history memory decreases; export a backup before testing **Archive completed > 1 year**.
 
 **AI**
 
