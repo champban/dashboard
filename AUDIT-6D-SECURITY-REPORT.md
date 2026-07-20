@@ -1,4 +1,4 @@
-# My Todo Planner v3.70.0 — Release Audit 6D
+# My Todo Planner v3.71.0 — Release Audit 6D
 
 Build date: 2026-07-20
 
@@ -23,11 +23,15 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 - The signed-in email remains available through the button's accessible label and tooltip without consuming mobile layout space.
 - Mobile provides visible Undo/Redo controls with disabled states, bilingual labels and a bounded 40-step in-session history.
 - Entire Mobile task cards now open the task editor; Upcoming Event rows open a dedicated event editor for title, dates, location, details and deletion.
+- Mobile Sync now includes a bilingual Storage Manager showing Planner JSON, total app localStorage, in-session Undo/Redo memory, and task/event/note counts.
+- Storage pressure is visible against a conservative 4 MB soft limit with 70%, 85%, and 95% warning levels.
+- Backup export, Undo/Redo cleanup, usage refresh, and one-year completed-task archiving are available without covering the bottom navigation.
 - No preview is generated as part of this release package.
 
 ## 3. Lean Architecture & Performance — PASS with residual dependency
 
 - Mobile remains framework-free and lightweight.
+- Storage measurement runs only when saving or opening/refreshing Sync; it does not add a polling loop or background database.
 - Full app remains a single compiled bundle to avoid regression.
 - Security sanitization is scoped to note editors rather than globally rewriting normal UI.
 - Residual: Excel import/export dynamically loads pinned SheetJS `0.18.5` from cdnjs. It is restricted by CSP, `crossOrigin=anonymous`, and no-referrer, but should be vendored or upgraded in the next architecture release.
@@ -39,6 +43,7 @@ The Google OAuth **Client ID is a public application identifier, not a client se
 - Undo/Redo use 40 px controls beneath the sticky header, remain clear of bottom navigation and expose button state to assistive technology.
 - Task cards support touch plus Enter/Space keyboard activation; completion remains a separate control and event rows are semantic buttons.
 - Credential configuration is removed from the mobile user workflow.
+- Storage controls use the existing responsive grid, collapse to one column on narrow screens, and expose the usage bar as an accessible meter.
 - External `_blank` links are forced to `noopener noreferrer`.
 
 ## 5. Security & Privacy — PASS for static personal deployment; CONDITIONAL for commercial use
@@ -50,6 +55,8 @@ Closed findings:
 - **Direct AI secret usage:** browser calls to `api.anthropic.com` are blocked; AI requires a secured backend proxy.
 - **CSP:** hash-based inline-script policy added; no `unsafe-eval`; inline event handlers blocked; Google and Drive endpoints narrowly allowed.
 - **Token storage:** OAuth access tokens remain memory-only; `drive.file` scope remains.
+- **Archive safety:** completed tasks are downloaded to a local JSON archive before deletion; the action requires explicit confirmation and clears large in-memory history snapshots after success.
+- **Storage privacy:** usage is calculated locally; no storage metrics or Planner content are sent to Supabase, GitHub, or analytics.
 - **Tabnabbing:** external links hardened.
 
 Residual limitations:
@@ -65,13 +72,15 @@ Residual limitations:
 - Drive scope remains `https://www.googleapis.com/auth/drive.file`.
 - Access tokens are not persisted.
 - Undo/Redo snapshots remain memory-only for the current tab session; restoring a snapshot marks local data dirty so automatic Drive sync can reconcile it normally.
+- localStorage write failures now produce an immediate backup warning instead of failing silently.
+- JSON imports above 95% of the 4 MB mobile soft limit require explicit confirmation before loading.
 - Supabase sign-in and Drive synchronization are separate OAuth grants with narrow responsibilities.
 - Live sign-out, Google consent and Drive round-trip must be tested after deployment because they depend on the owner's browser and Google Cloud configuration.
 
 ## Release files
 
 - `index.html` — Full app v3.64.0 security build
-- `mobile/index.html` — Mobile app v3.64.0 security build
+- `mobile/index.html` — Mobile app v3.71.0 storage-manager build
 - `AUDIT-6D-SECURITY-REPORT.md` — this report
 - `DEPLOYMENT-CHECKLIST.md` — controlled GitHub Pages deployment steps
 - `EXECUTION-SKILLS-GUIDE.md` — reusable AI/HUMAN execution and handoff workflow
@@ -87,5 +96,6 @@ Residual limitations:
 - Mobile auth layout regression: Sign out is placed in `.toprow`, while Full app retains the existing floating action.
 - Mobile history regression: add, edit, delete, complete/reopen, profile/settings, JSON import, Drive pull and cloud-file load all create undo checkpoints; a new edit clears redo history.
 - Mobile editor regression: card-area task taps preserve the editing target through re-render; event edits/deletes create undo checkpoints and retain unedited event fields.
+- Storage Manager regression: exact UTF-8 Planner size, estimated UTF-16 localStorage quota use, bounded history size, item counts, threshold status, export, clear-history, guarded import, and export-before-delete archive paths passed static contract checks.
 
 Live navigation to a local HTTP server was blocked by the execution environment's administrator policy, so actual Google OAuth consent and Drive round-trip remain post-deployment acceptance tests.
