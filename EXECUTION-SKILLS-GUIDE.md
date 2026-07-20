@@ -106,8 +106,9 @@ This guide separates work that an AI coding agent can execute from work that the
 2. Press **Continue with Google** and approve the requested access.
 3. Confirm the app opens after sign-in and Sign out does not cover navigation.
 4. Open **Sync**, connect Drive, create or select a planner JSON file, and press **Sync now**.
-5. Add one harmless test task on one device; sync and verify it appears on the other device.
-6. Export a local JSON backup before testing conflict resolution.
+5. Add one harmless test task, press **Undo**, confirm it disappears, then press **Redo** and confirm it returns.
+6. Sync and verify the test task appears on the other device.
+7. Export a local JSON backup before testing conflict resolution.
 
 **AI**
 
