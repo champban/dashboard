@@ -2,7 +2,7 @@
 
 ## Current release
 
-- Version: `3.75.0-unified-sync-conflicts`
+- Version: `3.76.0-task-image-previews`
 - Full application: `index.html`
 - Mobile application: `mobile/index.html`
 
@@ -12,7 +12,11 @@ Both applications use the same bidirectional conflict vocabulary and decision fl
 
 Cloud metadata is checked during manual sync, automatic sync, browser focus, and visibility changes. Thus a cloud update made by the Full/PC app is discovered by Mobile, and a cloud update made by Mobile is discovered by the Full/PC app. Existing version 7 profile JSON and sync metadata remain compatible.
 
-Storage actions use explicit names: **Save to Cloud**, **Open Local File**, **Backup to Local Drive**, and **Restore from Local File**. Timeline task cards show a compact, lazy-loaded thumbnail for image attachments; unsafe image URL schemes remain rejected.
+Storage actions use explicit names: **Save to Cloud**, **Open Local File**, **Backup to Local Drive**, and **Restore from Local File**. The version 3.75 unified sync-conflict workflow remains unchanged.
+
+## Task attachment previews
+
+Full/PC task surfaces show larger lazy-loaded image previews, an always-visible attachment-count indicator, and keyboard-operable attachment actions. Mobile task cards show the first safe image with an attachment-count badge, fall back to a paperclip when no image is available, and expose all safe image previews in the task editor. Preview actions open only image sources accepted by the existing URL sanitizer; task attachment data and version 7 import compatibility are unchanged.
 
 ## Mobile long task titles
 
