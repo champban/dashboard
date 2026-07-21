@@ -1,14 +1,14 @@
 {
-  "version": "3.75.0-unified-sync-conflicts",
+  "version": "3.76.0-task-image-previews",
   "full": {
     "path": "index.html",
-    "sha256": "65c403fc8e4b231037890ca12bb77d6d8568166783dfaaa66c63e9cebfb3441b",
-    "bytes": 772323
+    "sha256": "8af0e01c53fa37aeb0db91c35d25caf3f6786bd3c99ac9328bfe08ff4fadf96f",
+    "bytes": 772943
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "42746ad7f08601c6a9bd1d35119cb52bbdcd31c119a2fa678b6d5a33674c33a2",
-    "bytes": 90514
+    "sha256": "e932191ddb3678976acee4dba5029be7eb17da5ed094630c2facfbec0c67c53a",
+    "bytes": 93624
   },
   "csp": {
     "full_hashes": 6,
@@ -29,7 +29,7 @@
     "audit_sha256": "3dbac788671b4a4151d4bd87bda0e58d59dd3be385b7c1ef949896df8d52d370",
     "deployment_checklist_sha256": "cef1a0e445d5e607458f39bb5ee6ebc12e3dd0a9af3adf0d6e92189f7e793c2a",
     "execution_skills_guide_sha256": "59272cc8377e4118d4b47aac82bd7f885d3685e57f9f762910c1ef28998ae8f7",
-    "project_context_sha256": "01efa7167ec2182a696b7f3620ab625129797cbcd779ce27ef819f92b544f41c",
-    "changelog_sha256": "6e455b1cfbfc5ef3e28e7c8c0149d1226ab3369d0bedc49094c5d5608c6a6725"
+    "project_context_sha256": "cf202fc90e3fe27106e5e02ea3c336bd187054cb1c255eb56f868213b6d19ed8",
+    "changelog_sha256": "156fe4c9645631cb14ecc3a6d5dd9a2c2dbfd96240f2565ac080a78cb1841af4"
   }
 }

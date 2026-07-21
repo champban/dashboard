@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.76.0-task-image-previews — 2026-07-21
+
+### Added
+
+- Added clear attachment-count indicators and larger image previews to Full/PC task surfaces.
+- Added Mobile task-card attachment badges, a non-image paperclip fallback, and a lazy-loaded image gallery in the task editor.
+- Added keyboard activation and accessible labels to Full/PC attachment preview controls.
+
+### Security and compatibility
+
+- Mobile previews continue to accept only sanitized image URLs and open previews with opener isolation.
+- Preserved the version 3.75 unified sync-conflict workflow, Google Drive/Supabase integrations, version 7 profile compatibility, and existing task data.
+- Recalculated inline-script CSP hashes and refreshed the build manifest.
+
 ## 3.75.0-unified-sync-conflicts — 2026-07-21
 
 ### Added
