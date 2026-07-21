@@ -1,22 +1,25 @@
 {
-  "version": "3.74.0-task-cloud-workflow",
+  "version": "3.75.0-unified-sync-conflicts",
   "full": {
     "path": "index.html",
-    "sha256": "e8c11c4f18a71ee19592f4c7779d49e9901a60369bb2c4128824d0b4c7b4b2d8",
-    "bytes": 769391
+    "sha256": "65c403fc8e4b231037890ca12bb77d6d8568166783dfaaa66c63e9cebfb3441b",
+    "bytes": 772323
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "37a1dbc768f2ee09d9306e33d66c8e230eae68a223f7de6702b2159953bb25b9",
-    "bytes": 87972
+    "sha256": "42746ad7f08601c6a9bd1d35119cb52bbdcd31c119a2fa678b6d5a33674c33a2",
+    "bytes": 90514
   },
   "csp": {
-    "full_hashes": 8,
+    "full_hashes": 6,
     "mobile_hashes": 3
   },
   "auth": {
     "project": "Dashboard",
-    "providers": ["email", "google"],
+    "providers": [
+      "email",
+      "google"
+    ],
     "supabase_js": "2.110.7",
     "script_sha256": "3382bfac525a7b2c7805f112225e88f559a4fa316dc8cad5133429b636ceb8cf",
     "style_sha256": "914509b8cf7c62c12dac36ebf05f78e1e09a2b13651f3f2ebada2c5cd5df1b1d",
@@ -24,8 +27,9 @@
   },
   "docs": {
     "audit_sha256": "3dbac788671b4a4151d4bd87bda0e58d59dd3be385b7c1ef949896df8d52d370",
-    "deployment_checklist_sha256": "a361c457d032c1e70572be71572699a083de02469c18441a600bcf4f4fb08054",
+    "deployment_checklist_sha256": "cef1a0e445d5e607458f39bb5ee6ebc12e3dd0a9af3adf0d6e92189f7e793c2a",
     "execution_skills_guide_sha256": "59272cc8377e4118d4b47aac82bd7f885d3685e57f9f762910c1ef28998ae8f7",
-    "project_context_sha256": "c99b8e70ccd8e466807484b51f9313fa0ea3ec1c535e14c0830485f4095ee1ff"
+    "project_context_sha256": "01efa7167ec2182a696b7f3620ab625129797cbcd779ce27ef819f92b544f41c",
+    "changelog_sha256": "6e455b1cfbfc5ef3e28e7c8c0149d1226ab3369d0bedc49094c5d5608c6a6725"
   }
 }
