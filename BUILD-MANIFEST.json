@@ -1,14 +1,14 @@
 {
-  "version": "3.76.0-task-image-previews",
+  "version": "3.76.1-task-image-scope",
   "full": {
     "path": "index.html",
-    "sha256": "8af0e01c53fa37aeb0db91c35d25caf3f6786bd3c99ac9328bfe08ff4fadf96f",
-    "bytes": 772943
+    "sha256": "f38c1544306d6a6633de4a0db5c49af2be4b1826f0eea293d25f903f2a8b0e9b",
+    "bytes": 773234
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "e932191ddb3678976acee4dba5029be7eb17da5ed094630c2facfbec0c67c53a",
-    "bytes": 93624
+    "sha256": "f0d2891bd63e6f737da0ec39fe0a1e6e74e780bb84972d6bd6e11ced9416db93",
+    "bytes": 93369
   },
   "csp": {
     "full_hashes": 6,
@@ -29,7 +29,7 @@
     "audit_sha256": "3dbac788671b4a4151d4bd87bda0e58d59dd3be385b7c1ef949896df8d52d370",
     "deployment_checklist_sha256": "cef1a0e445d5e607458f39bb5ee6ebc12e3dd0a9af3adf0d6e92189f7e793c2a",
     "execution_skills_guide_sha256": "59272cc8377e4118d4b47aac82bd7f885d3685e57f9f762910c1ef28998ae8f7",
-    "project_context_sha256": "cf202fc90e3fe27106e5e02ea3c336bd187054cb1c255eb56f868213b6d19ed8",
-    "changelog_sha256": "156fe4c9645631cb14ecc3a6d5dd9a2c2dbfd96240f2565ac080a78cb1841af4"
+    "project_context_sha256": "e2ab987e22c2d8489245bb3b31150bb8e7b4c5548c50bf14367397c4833c5138",
+    "changelog_sha256": "2b5dbb80e2c88d5030a5ece2e21407635d93d780265235e7ed547ea90862e458"
   }
 }

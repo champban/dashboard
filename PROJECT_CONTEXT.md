@@ -2,7 +2,7 @@
 
 ## Current release
 
-- Version: `3.76.0-task-image-previews`
+- Version: `3.76.1-task-image-scope`
 - Full application: `index.html`
 - Mobile application: `mobile/index.html`
 
@@ -16,7 +16,7 @@ Storage actions use explicit names: **Save to Cloud**, **Open Local File**, **Ba
 
 ## Task attachment previews
 
-Full/PC task surfaces show larger lazy-loaded image previews, an always-visible attachment-count indicator, and keyboard-operable attachment actions. Mobile task cards show the first safe image with an attachment-count badge, fall back to a paperclip when no image is available, and expose all safe image previews in the task editor. Preview actions open only image sources accepted by the existing URL sanitizer; task attachment data and version 7 import compatibility are unchanged.
+Full/PC task surfaces show previews and image indicators only when that exact task has at least one valid image attachment. Mobile task cards and editors likewise render image UI only from valid image attachments owned by the selected `task.id`; tasks without images, including tasks with non-image attachments only, receive no image placeholder, badge, spacing, hover/tap target, or highlighted image-panel treatment. Preview actions resolve the selected attachment again from the same task before opening it, accept only sanitized image sources, and never use a global gallery, cloud list, cache, fallback, demo, or placeholder source. Task attachment data and version 7 import compatibility are unchanged.
 
 ## Mobile long task titles
 
