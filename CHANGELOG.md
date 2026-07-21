@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.76.1-task-image-scope — 2026-07-21
+
+### Fixed
+
+- Scoped every Full/PC and Mobile task preview to valid image attachments owned by that exact task.
+- Removed image UI, badges, placeholders, reserved spacing, preview targets, and image-panel treatment from tasks with no image attachments, including tasks with non-image attachments only.
+- Changed image counts to count valid task images rather than all task attachments.
+
+### Security and compatibility
+
+- Mobile tap previews re-resolve the selected attachment by task type, `task.id`, and attachment index before applying the existing image URL sanitizer.
+- Preserved version 7 task data, the version 3.75 unified sync-conflict workflow, Google Drive, Supabase, OAuth, and CSP controls.
+- Recalculated inline-script CSP hashes and refreshed the build manifest.
+
 ## 3.76.0-task-image-previews — 2026-07-21
 
 ### Added
