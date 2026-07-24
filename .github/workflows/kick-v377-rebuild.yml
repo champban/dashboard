@@ -1,0 +1,29 @@
+name: Kick v3.77.0 rebuild once
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  kick:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Trigger branch rebuild workflow and remove this one-time kicker
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '\n# PR kick %s\n' "$GITHUB_RUN_ID" >> .github/workflows/rebuild-v377-csp.yml
+          rm .github/workflows/kick-v377-rebuild.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore: trigger v3.77.0 rebuild'
+          git push origin HEAD:${{ github.head_ref }}
