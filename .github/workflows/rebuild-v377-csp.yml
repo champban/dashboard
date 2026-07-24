@@ -1,0 +1,248 @@
+name: Rebuild v3.77.0 with exact CSP bytes
+
+on:
+  push:
+    branches: [release/v3.77.0-root-entry]
+    paths: ['.github/workflows/rebuild-v377-csp.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v3.77.0-root-entry
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Restore source package and install reproducible build files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .rebuild
+          mkdir .rebuild
+          unzip -q tp-v3.77.0-upload.zip -d .rebuild
+          cd .rebuild/tp-v3.77.0
+
+          cat > package.json <<'EOF'
+          {
+            "name": "my-todo-planner",
+            "private": true,
+            "version": "3.77.0",
+            "type": "module",
+            "scripts": {
+              "audit": "python3 build/audit.py src/App.jsx",
+              "bundle": "vite build",
+              "package": "node build/package.mjs dist/app-bundle.js index.html 3.77.0",
+              "verify": "node build/verify-package.mjs index.html",
+              "test:render": "cp dist/app-bundle.js test-bundle.js && node build/check4.mjs; code=$?; rm -f test-bundle.js; exit $code",
+              "build": "npm run audit && npm run bundle && npm run package && npm run verify && npm run test:render"
+            },
+            "dependencies": { "react": "18.3.1", "react-dom": "18.3.1" },
+            "devDependencies": {
+              "@vitejs/plugin-react": "4.3.4",
+              "jsdom": "24.1.3",
+              "vite": "5.4.19"
+            }
+          }
+          EOF
+
+          cat > vite.config.js <<'EOF'
+          import { defineConfig } from 'vite'
+          import react from '@vitejs/plugin-react'
+          export default defineConfig({
+            plugins: [react()],
+            build: {
+              target: ['es2019', 'safari13'],
+              assetsInlineLimit: 100000000,
+              cssCodeSplit: false,
+              chunkSizeWarningLimit: 100000,
+              outDir: 'dist',
+              emptyOutDir: true,
+              rollupOptions: {
+                input: 'build/vite-entry.html',
+                output: {
+                  entryFileNames: 'app-bundle.js',
+                  chunkFileNames: 'chunk-[hash].js',
+                  assetFileNames: 'asset-[hash][extname]'
+                }
+              }
+            }
+          })
+          EOF
+
+          cat > build/vite-entry.html <<'EOF'
+          <!doctype html><html lang="en"><head><meta charset="UTF-8"></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('build/package.mjs')
+          s=p.read_text()
+          old='const tag = (s) => `<script id="${s.id}">\\n${s.body}\\n</script>`;'
+          new='const tag = (s) => `<script id="${s.id}">${s.body}</script>`;'
+          if old not in s: raise SystemExit('expected vulnerable tag generator not found')
+          s=s.replace(old,new,1)
+          old_verify="""const reread = fs.readFileSync(outPath, 'utf8');
+          for (const s of inline) {
+            if (!reread.includes(s.body)) { console.error('body altered on write:', s.id); ok = false; }
+          }
+          """
+          new_verify="""const reread = fs.readFileSync(outPath, 'utf8');
+          for (const s of inline) {
+            const open = `<script id=\\"${s.id}\\">`;
+            const start = reread.indexOf(open);
+            const end = start < 0 ? -1 : reread.indexOf('</script>', start + open.length);
+            const shipped = start < 0 || end < 0 ? null : reread.slice(start + open.length, end);
+            if (shipped === null || shipped !== s.body) { console.error('exact body altered on write:', s.id); ok = false; continue; }
+            if (!CSP.includes(`'sha256-${sha256(shipped)}'`)) { console.error('exact CSP mismatch:', s.id); ok = false; }
+          }
+          """
+          if old_verify not in s: raise SystemExit('expected weak self-verifier not found')
+          p.write_text(s.replace(old_verify,new_verify,1))
+          PY
+
+          cat > build/verify-package.mjs <<'EOF'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import os from 'node:os';
+          import crypto from 'node:crypto';
+          import { spawnSync } from 'node:child_process';
+          const htmlPath=process.argv[2]||'index.html', html=fs.readFileSync(htmlPath,'utf8'), raw=fs.readFileSync(htmlPath);
+          const ids=['mtp-security-bootstrap','mtp-prepaint-theme','mtp-storage-shim','mtp-app-bundle','mtp-pro-runtime-layer','mtp-security-ui'];
+          const cm=html.match(/<meta[^>]+http-equiv="Content-Security-Policy"[^>]+content="([^"]*)"/i);
+          if(!cm) throw new Error('CSP meta missing');
+          const scriptSrc=cm[1].split(';').map(x=>x.trim()).find(x=>x.startsWith('script-src '))||'';
+          if(scriptSrc.includes("'unsafe-inline'")) throw new Error('unsafe-inline in script-src');
+          const td=fs.mkdtempSync(path.join(os.tmpdir(),'mtp-csp-'));
+          try{
+            for(const [i,id] of ids.entries()){
+              const open=`<script id="${id}">`, start=html.indexOf(open), end=start<0?-1:html.indexOf('</script>',start+open.length);
+              if(start<0||end<0) throw new Error(`missing ${id}`);
+              const exact=html.slice(start+open.length,end);
+              const token=`'sha256-${crypto.createHash('sha256').update(exact,'utf8').digest('base64')}'`;
+              if(!scriptSrc.includes(token)) throw new Error(`CSP mismatch ${id}`);
+              const f=path.join(td,`${i}-${id}.js`); fs.writeFileSync(f,exact);
+              const r=spawnSync(process.execPath,['--check',f],{encoding:'utf8'}); if(r.status!==0) throw new Error(`syntax ${id}\n${r.stderr}`);
+            }
+          } finally { fs.rmSync(td,{recursive:true,force:true}); }
+          if(!html.includes('https://www.googleapis.com/auth/drive.file')) throw new Error('drive.file missing');
+          const mp=path.join(path.dirname(path.resolve(htmlPath)),'BUILD-MANIFEST.json'), m=JSON.parse(fs.readFileSync(mp,'utf8'));
+          const hex=crypto.createHash('sha256').update(raw).digest('hex');
+          if(m.full.bytes!==raw.byteLength||m.full.sha256!==hex||m.csp.full_hashes!==ids.length) throw new Error('manifest mismatch');
+          for(const p of [/GOCSPX-[A-Za-z0-9_-]+/,/(?:service[_-]?role|client[_-]?secret|refresh[_-]?token)\\s*[:=]\\s*["'][^"']{8,}["']/i,/sk-ant-[A-Za-z0-9_-]{20,}/]) if(p.test(html)) throw new Error(`secret pattern ${p}`);
+          console.log(`PASS: ${ids.length} exact CSP hashes, JS syntax, drive.file, manifest and secret scan`);
+          EOF
+
+      - name: Install and clean-build from React source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .rebuild/tp-v3.77.0
+          npm install --no-audit --no-fund
+          npm run audit
+          npm run bundle
+          node build/package.mjs dist/app-bundle.js index.html 3.77.0
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          p=Path('BUILD-MANIFEST.json'); m=json.loads(p.read_text()); raw=Path('index.html').read_bytes()
+          m['version']='3.77.0'; m['date']='2026-07-24'; m['full']={'path':'index.html','sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+          m.setdefault('csp',{})['full_hashes']=6
+          m['csp']['generated_by']='build/package.mjs + build/verify-package.mjs (exact shipped bytes)'
+          p.write_text(json.dumps(m,indent=2,ensure_ascii=False)+'\n')
+          PY
+          npm run verify
+          npm run test:render
+
+      - name: Update release documentation and source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .rebuild/tp-v3.77.0
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          c=Path('PROJECT_CONTEXT.md'); s=c.read_text()
+          s=s.replace('- Version: `3.77.0-source-restored` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)', '- Version: `3.77.0-source-restored` with exact-byte CSP packaging fix (`APP_VERSION` remains `3.77.0`)')
+          hazard='- CSP hashes include every character between `<script>` and `</script>`, including leading/trailing newlines. The packager must add no formatting bytes outside the hashed body; `build/verify-package.mjs` hashes the literal generated HTML.\n'
+          s=s.replace('## Known hazards (learned the hard way — do not regress)\n\n','## Known hazards (learned the hard way — do not regress)\n\n'+hazard)
+          if '## Prevented Recurrence Register' not in s:
+            s+='''\n## Prevented Recurrence Register\n\n| ID | Symptom | Root cause | Fix | Prevention control | Automated test/check | Commit/Deploy | Status |\n|---|---|---|---|---|---|---|---|\n| CSP-001 | v3.77.0 blank page risk because inline scripts were blocked | Source bodies were hashed, then an extra newline was inserted before and after each body; CSP hashes are whitespace-sensitive | Script tags now add no un-hashed formatting bytes | Exact-byte package verifier and PR clean-build quality gate | `npm run verify` checks 6/6 CSP hashes and JS syntax; render harness must pass | Pending PR / Pages verification | Fixed, not deployed |\n'''
+          c.write_text(s)
+          ch=Path('CHANGELOG.md'); x=ch.read_text()
+          entry='''## 3.77.0-csp-exact-bytes — 2026-07-24\n\n### Fixed\n\n- Corrected all six CSP hashes by removing un-hashed formatting newlines around inline scripts.\n- Rebuilt the application from `src/App.jsx` with pinned direct dependencies.\n\n### Prevention and validation\n\n- Added `build/verify-package.mjs`, `package.json`, `package-lock.json` and a PR quality gate.\n- Verified exact CSP bytes, JavaScript syntax, `drive.file`, manifest integrity, secret scan, six-dimension audit and jsdom render.\n\n'''
+          if '## 3.77.0-csp-exact-bytes' not in x: x=x.replace('# Changelog\n\n','# Changelog\n\n'+entry,1)
+          ch.write_text(x)
+          m=Path('BUILD-MANIFEST.json'); j=json.loads(m.read_text())
+          j.setdefault('docs',{})['project_context_sha256']=hashlib.sha256(c.read_bytes()).hexdigest()
+          j['docs']['changelog_sha256']=hashlib.sha256(ch.read_bytes()).hexdigest()
+          m.write_text(json.dumps(j,indent=2,ensure_ascii=False)+'\n')
+          PY
+          node build/verify-package.mjs index.html
+          rm -rf node_modules dist test-bundle.js
+          cd ..
+          zip -qr ../../tp-v3.77.0-upload.zip tp-v3.77.0
+
+      - name: Promote rebuilt files and add persistent PR gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=.rebuild/tp-v3.77.0
+          cp "$SRC/index.html" index.html
+          cp "$SRC/index.html" My-Todo-Planner-v3.77.0.html
+          cp "$SRC/BUILD-MANIFEST.json" "$SRC/CHANGELOG.md" "$SRC/PROJECT_CONTEXT.md" .
+          cp "$SRC/package.json" "$SRC/package-lock.json" "$SRC/vite.config.js" .
+          rm -rf src build
+          cp -R "$SRC/src" "$SRC/build" .
+          cat > .gitignore <<'EOF'
+          node_modules/
+          dist/
+          test-bundle.js
+          *.log
+          .DS_Store
+          EOF
+          cat > .github/workflows/v377-quality-gate.yml <<'EOF'
+          name: v3.77.0 source and CSP quality gate
+          on:
+            pull_request:
+              branches: [main]
+            workflow_dispatch:
+          permissions:
+            contents: read
+          jobs:
+            build-and-verify:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: '22'
+                    cache: npm
+                - name: Preserve reviewed artifact
+                  run: cp index.html /tmp/reviewed-index.html
+                - name: Clean install and full build
+                  run: npm ci && npm run build
+                - name: Verify source build matches reviewed deploy artifact
+                  run: cmp -s index.html /tmp/reviewed-index.html
+          EOF
+          rm .github/workflows/rebuild-v377-csp.yml
+          rm -rf .rebuild
+
+      - name: Commit rebuilt release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: rebuild v3.77.0 with exact CSP hashes'
+          git push origin HEAD:release/v3.77.0-root-entry
