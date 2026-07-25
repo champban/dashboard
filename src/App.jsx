@@ -13288,7 +13288,11 @@ export default function App() {
   const fontScale = (fontSize||14) / 14;
   return (
     <div data-fontscale={fontSize} style={{
-      minHeight:"100vh", minHeight:"100dvh",
+      // 100dvh only. This was `minHeight:"100vh", minHeight:"100dvh"` — the CSS
+      // fallback idiom, which does not work in a JS object: the later key simply
+      // wins, so the 100vh was dead and vite warned on every build. Anything that
+      // needs a real fallback has to go through CSS, not a style object.
+      minHeight:"100dvh",
       background:theme.bg, color:theme.text, fontFamily:fontFamily,
       fontSize: isMobile ? Math.max(13,fontSize-1) : isTablet ? Math.max(13,fontSize) : fontSize,
       paddingBottom: isCompact ? 80 : 48,
