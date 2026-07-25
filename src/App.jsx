@@ -604,6 +604,20 @@ const GDRIVE_CLIENT_ID = "369687041884-heue2bffon430f0kfaetcp8mv8kbh8q2.apps.goo
 const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified}
 
+// N105: iOS gives a home-screen web app its own WebKit storage partition,
+// separate from the Safari tab. GSYNC_KEY lives in localStorage, so connecting
+// Drive in Safari leaves the standalone app with no sync record at all — it is
+// genuinely not connected, not a bug, and reconnecting once per context is the
+// only fix. Detect the context so the UI can say so instead of looking broken.
+// navigator.standalone is the iOS-only flag and predates display-mode, so check
+// both.
+const isStandaloneCtx = () => {
+  try {
+    return (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches)
+        || window.navigator.standalone === true;
+  } catch { return false; }
+};
+
 // Open a local file (works on all platforms including mobile)
 function triggerLocalFileOpen(inputRef) {
   inputRef.current && inputRef.current.click();
@@ -1234,10 +1248,19 @@ function DateInput({ value, onChange, style={}, placeholder="YYYY-MM-DD or 14/07
 // happens twice). Legacy events only have start/end — normalise both shapes.
 function eventWindows(ev){
   if (Array.isArray(ev.windows) && ev.windows.length) {
-    return ev.windows.filter(w=>w && (w.start||w.end)).map(w=>({start:w.start||w.end, end:w.end||w.start, desc:w.desc||""}));
+    return ev.windows.filter(w=>w && (w.start||w.end)).map(w=>({start:w.start||w.end, end:w.end||w.start, desc:w.desc||"", loc:w.loc||null}));
   }
-  if (ev.start || ev.end) return [{start:ev.start||ev.end, end:ev.end||ev.start, desc:ev.note||""}];
+  if (ev.start || ev.end) return [{start:ev.start||ev.end, end:ev.end||ev.start, desc:ev.note||"", loc:null}];
   return [];
+}
+
+// N97: the location shown for one time window. A trip that happens twice can sit
+// in two different places, so the place belongs to the window, not the event.
+// Older events carry a single event-level `location`; that is read here as a
+// fallback and never written again, so existing data keeps working untouched
+// while anything edited from now on stores its place per window.
+function windowLoc(ev, w){
+  return (w && w.loc) || (ev && ev.location) || null;
 }
 
 // N37: ISO week number (module-level; CalendarTab has its own local copy)
@@ -4620,7 +4643,10 @@ function DataListTab({ personal, work, setPersonal, setWork, events=[], setEvent
         // keep windows[0] in sync when start/end edited from the grid
         if ("start" in patch || "end" in patch) {
           const wins = eventWindows(e);
-          const w0 = {start: patch.start ?? wins[0]?.start, end: patch.end ?? wins[0]?.end};
+          // N97: spread the existing window first. Rebuilding it from start/end
+          // alone dropped everything else the window owned — its desc, and now its
+          // per-window loc — every time a date was nudged from the grid.
+          const w0 = {...wins[0], start: patch.start ?? wins[0]?.start, end: patch.end ?? wins[0]?.end};
           if (w0.end && w0.start && w0.end < w0.start) w0.end = w0.start;
           merged.windows = [w0, ...wins.slice(1)];
           merged.start = w0.start; merged.end = w0.end;
@@ -6173,7 +6199,7 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
             kind:"event", id:`e-${e.id}-${wi}`, raw:e, win:w, winIdx:wi+1, winTotal:eventWindows(e).length,
             title:e.title, at:s, end:Math.max(en,s), span:en>s, color:e.color||"#8b5cf6",
             attachments: Array.isArray(e.attachments)?e.attachments:[],  // N89
-            location: e.location,  // N97
+            location: windowLoc(e, w),  // N97: this window's place, event-level as fallback
           });
         });
       });
@@ -8647,7 +8673,7 @@ function EventModal({ event, onSave, onDelete, onClose, eventTypes=DEFAULT_EVENT
   const chooseType = (t) => { set("typeId",t.id); set("color",t.color); };
   const save = ()=>{
     if(!f.title.trim())return;
-    const wins = (f.windows||[]).filter(w=>w.start||w.end).map(w=>({start:w.start||w.end,end:w.end||w.start,desc:(w.desc||"").trim()}))
+    const wins = (f.windows||[]).filter(w=>w.start||w.end).map(w=>({start:w.start||w.end,end:w.end||w.start,desc:(w.desc||"").trim(),...(w.loc?{loc:w.loc}:{})}))
                  .sort((a,b)=>a.start.localeCompare(b.start));
     if(!wins.length) return;
     // mirror the first window onto start/end so older views keep working
@@ -8680,6 +8706,31 @@ function EventModal({ event, onSave, onDelete, onClose, eventTypes=DEFAULT_EVENT
                   <input value={w.desc||""} onChange={e=>setWin(i,"desc",e.target.value)}
                     placeholder={`Description for window ${i+1}… (shown on hover in Gantt)`}
                     style={{...inp,fontSize:12,padding:"7px 10px"}}/>
+                  {/* N97: place for THIS window. Two windows of one event can be in
+                      different places, so the pin lives here rather than on the event. */}
+                  <input value={w.loc?.name||""}
+                    onChange={e=>setWin(i,"loc",{ ...(w.loc||{}), name:e.target.value })}
+                    placeholder={`📍 Place for window ${i+1}… (optional)`}
+                    style={{...inp,fontSize:12,padding:"7px 10px",marginTop:6}}/>
+                  {(w.loc?.name||w.loc?._raw||w.loc?.lat||w.loc?.url) && (
+                    <>
+                      <input value={w.loc?._raw??(typeof w.loc?.lat==="number"?`${w.loc.lat},${w.loc.lng}`:(w.loc?.url||""))}
+                        onChange={e=>{
+                          const raw=e.target.value; const ll=parseLatLng(raw);
+                          const isUrl=/^https?:\/\//i.test(raw.trim());
+                          setWin(i,"loc",{ ...(w.loc||{}), _raw:raw,
+                            lat: ll?ll.lat:undefined, lng: ll?ll.lng:undefined,
+                            url: isUrl?raw.trim():undefined });
+                        }}
+                        placeholder="Paste Google Maps link, or 13.7563,100.5018"
+                        style={{...inp,fontSize:12,padding:"7px 10px",marginTop:6}}/>
+                      <div style={{marginTop:6,display:"flex",alignItems:"center",gap:8}}>
+                        <PlacePin loc={w.loc}/>
+                        <button onClick={()=>setWin(i,"loc",undefined)}
+                          style={{padding:"2px 8px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-surface)",color:"var(--c-text-muted)",fontSize:10,fontWeight:700,cursor:"pointer"}}>Clear</button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -8729,28 +8780,24 @@ function EventModal({ event, onSave, onDelete, onClose, eventTypes=DEFAULT_EVENT
             </div>
           </div>
           <div><label style={lbl}>NOTE (optional)</label><input style={inp} value={f.note} onChange={e=>set("note",e.target.value)} placeholder="Extra detail…"/></div>
-          {/* N97: optional place — shows as a 📍 pin on calendar / timeline / gantt */}
-          <div>
-            <label style={lbl}>📍 LOCATION (optional)</label>
-            <input style={{...inp,marginBottom:6}} value={f.location?.name||""}
-              onChange={e=>set("location",{ ...(f.location||{}), name:e.target.value })}
-              placeholder="Place name — e.g. ลำพูน, Central World"/>
-            <input style={{...inp,fontSize:12}} value={f.location?._raw??(f.location&&typeof f.location.lat==="number"?`${f.location.lat},${f.location.lng}`:(f.location?.url||""))}
-              onChange={e=>{
-                const raw=e.target.value; const ll=parseLatLng(raw);
-                const isUrl=/^https?:\/\//i.test(raw.trim());
-                set("location",{ ...(f.location||{}), _raw:raw,
-                  lat: ll?ll.lat:undefined, lng: ll?ll.lng:undefined,
-                  url: isUrl?raw.trim():undefined });
-              }}
-              placeholder="Paste Google Maps link, or 13.7563,100.5018"/>
-            {(f.location?.name||f.location?.lat||f.location?.url) &&
-              <div style={{marginTop:6,display:"flex",alignItems:"center",gap:8}}>
+          {/* N97: the place editor now lives per time window, above. What remains
+              here is the legacy event-level place, shown read-only so older events
+              still explain where their pin comes from. It is never written again —
+              clearing it moves the event onto per-window places for good. */}
+          {f.location && (
+            <div>
+              <label style={lbl}>📍 LOCATION <span style={{fontWeight:500}}>· legacy, applies to every window</span></label>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,
+                background:"var(--c-surface2)",border:"1px solid var(--c-border)"}}>
                 <PlacePin loc={f.location}/>
+                <span style={{flex:1,fontSize:10.5,color:"var(--c-text-muted)",lineHeight:1.5}}>
+                  Set per window above to give each one its own place.
+                </span>
                 <button onClick={()=>set("location",undefined)}
                   style={{padding:"2px 8px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-surface)",color:"var(--c-text-muted)",fontSize:10,fontWeight:700,cursor:"pointer"}}>Clear</button>
-              </div>}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
         <div style={{display:"flex",gap:8,marginTop:20}}>
           {event&&<button onClick={()=>setConfirmDel(true)} style={{padding:"11px 16px",borderRadius:10,border:"none",background:"#7f1d1d",color:"#fca5a5",fontSize:13,fontWeight:800,cursor:"pointer"}}>🗑️ Delete</button>}
@@ -9642,7 +9689,7 @@ function CalendarTab({ personal, work, setPersonal, setWork, events=[], setEvent
                           borderRadius:4,padding:activeView?"3px 7px":"1px 4px",marginBottom:activeView?3:1,cursor:"pointer",
                           overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3,fontFamily:calFF,
                           display:"flex",alignItems:"center",gap:3}}>
-                        <span style={{fontSize:activeView?11:7}}>📅</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</span>{ev.location&&<span style={{flexShrink:0,marginLeft:2}}>📍</span>}
+                        <span style={{fontSize:activeView?11:7}}>📅</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</span>{/* N97: pin follows the window covering THIS day, not the event */}{(()=>{const w=eventWindows(ev).find(x=>fmt(d)>=x.start&&fmt(d)<=(x.end||x.start));return windowLoc(ev,w);})()&&<span style={{flexShrink:0,marginLeft:2}}>📍</span>}
                       </div>
                     ))}
                     {/* Task pills */}
@@ -9732,7 +9779,7 @@ function CalendarTab({ personal, work, setPersonal, setWork, events=[], setEvent
                       borderRadius:4,padding:"2px 5px",marginBottom:2,cursor:"pointer",
                       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
                       display:"flex",alignItems:"center",gap:2}}>
-                    <span style={{fontSize:8}}>📅</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</span>{ev.location&&<span style={{flexShrink:0,marginLeft:2}}>📍</span>}
+                    <span style={{fontSize:8}}>📅</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</span>{/* N97: pin follows the window covering THIS day */}{(()=>{const w=eventWindows(ev).find(x=>fmt(d)>=x.start&&fmt(d)<=(x.end||x.start));return windowLoc(ev,w);})()&&<span style={{flexShrink:0,marginLeft:2}}>📍</span>}
                   </div>
                 ))}
                 {tasks.length===0&&eventsOnDay(fmt(d)).length===0?(
@@ -11286,6 +11333,21 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
 
           {!gsyncSignedIn ? (
             <>
+              {/* N105: if we are in the standalone app and there is no sync record,
+                  the most likely reason is that Drive was connected in the Safari
+                  tab, which is a separate storage context on iOS. Say that, so a
+                  correct "not connected" state does not read as a dropped
+                  connection. The Connect button below doubles as Reconnect. */}
+              {isStandaloneCtx() && (
+                <div style={{fontSize:11.5,color:"#bfdbfe",background:"#1e3a8a22",border:"1px solid #1e3a8a55",
+                  borderRadius:8,padding:"9px 11px",marginBottom:12,lineHeight:1.55}}>
+                  📱 App running standalone — connect Drive once per app context.
+                  <span style={{display:"block",marginTop:3,opacity:0.85}}>
+                    The home-screen app and the Safari tab keep separate storage on iOS, so a sign-in
+                    made in Safari does not carry over. Pick the same Drive file here and both stay in sync.
+                  </span>
+                </div>
+              )}
               <p style={{fontSize:13,color:"var(--c-text-muted)",lineHeight:1.6,marginBottom:14}}>
                 Connect your Google account to sync this dashboard's data. Access is limited to files this app creates or you pick — never your whole Drive.
               </p>
