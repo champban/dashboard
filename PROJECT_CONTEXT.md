@@ -5,7 +5,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Version: `3.77.0-source-restored` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)
+- Version: `3.77.0-n104-ios-drive-file-list` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)
 - Full application: `index.html` — **generated, do not edit directly**
 - Mobile application: `mobile/index.html` (separate hand-written vanilla-JS app, v3.75.0)
 - Live: https://champban.github.io/dashboard/
@@ -84,6 +84,18 @@ entry HTML that loads `/src/main.jsx`.
 - Deploy discipline: แก้ → test → verify → สะสมเป็นชุด → deploy รอบเดียวเมื่อพร้อม. Dedicated branch + PR; no merge without explicit approval.
 - No personal names in the app (allowed: contact email champbanyat@gmail.com, "Lotus Bakeries", "Lotus General").
 - Batch changes into one build + audit + package cycle. Report audit results honestly.
+
+## Google Drive file-list recovery (N104)
+
+Both `SyncPanel` and `CloudSyncModal` display file-list errors locally and
+offer a reconnect action which reloads the list after successful explicit
+sign-in. Each GIS attempt has a 12-second timeout; a stale or failed script is
+removed and retried once. Drive REST helpers never initiate interactive OAuth,
+because the original Safari user activation may already be gone. A Drive 401
+clears all in-memory token state, offline requests get a specific message, and
+cancelled reconnects clear busy state without hiding the error. Empty lists
+explicitly describe the least-privilege `drive.file` visibility rule rather
+than implying that every JSON file in the user's Drive should appear.
 
 ## Unified sync conflict workflow (3.75, re-implemented in source in 3.77.0)
 
