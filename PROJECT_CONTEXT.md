@@ -33,7 +33,7 @@ build/*.js|css|html (wrapper) ─────┤
 | Wrapper: security bootstrap (JSON/innerHTML/fetch guards, secret redaction) | `build/security-bootstrap.js` |
 | Wrapper: theme prepaint, storage shim, runtime banners, credential-field lock | `build/prepaint.js`, `build/storage-shim.js`, `build/runtime-layer.js`, `build/security-ui.js` |
 | Packager (assembles + CSP hashes + self-verifies) | `build/package.mjs` |
-| Render harness (jsdom, frozen clock; healthy = LEN 22572 / NODES 118, no THROW) | `build/check4.mjs` |
+| Render harness (jsdom, frozen clock; healthy = LEN 22712 / NODES 129, no THROW) | `build/check4.mjs` |
 | Six-dimension audit + pre-build checklist | `build/audit.py` |
 
 Build cycle (run every time, in order):
@@ -41,6 +41,41 @@ Build cycle (run every time, in order):
 `python3 build/audit.py src/App.jsx` (0 blockers required) →
 `node build/package.mjs <bundle> index.html <version>` → update
 `BUILD-MANIFEST.json` + `CHANGELOG.md`.
+
+### Toolchain the harness numbers were measured on
+
+No `package.json` or lockfile is committed, so the toolchain is not pinned
+anywhere and has to be recorded by hand. LEN is an `innerHTML` character count
+and NODES a DOM element count, so **both move with the jsdom version** — a
+mismatch against the numbers above means "different environment" at least as
+often as it means "regression". Verify the version before treating a diff as a
+bug.
+
+| Tool | Version used for LEN 22712 / NODES 129 |
+|---|---|
+| jsdom | 25.0.1 |
+| react / react-dom | 18.3.1 |
+| vite | 5.4.21 (`@vitejs/plugin-react` 4.x) |
+| esbuild | 0.24.2 |
+
+The previous baseline in this table (LEN 22572 / NODES 118) was recorded in the
+first 3.77.0 commit and never refreshed; it does not reproduce on any source
+state in this branch's history, including the untouched `src/App.jsx` snapshot
+from `main`. It was replaced rather than investigated further because the
+toolchain that produced it was never recorded.
+
+`build/check4.mjs` reads `./test-bundle.js` but nothing in the repo builds it.
+The command used was:
+
+```
+npx esbuild src/main.jsx --bundle --format=iife --loader:.jsx=jsx \
+  --jsx=automatic --target=es2019 \
+  --define:process.env.NODE_ENV='"production"' --outfile=test-bundle.js
+```
+
+Also note `vite build` must not take the repo's `index.html` as its entry — that
+file is the generated artifact. Point `build.rollupOptions.input` at a minimal
+entry HTML that loads `/src/main.jsx`.
 
 ## Working agreement
 
