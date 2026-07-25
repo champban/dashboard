@@ -11797,6 +11797,33 @@ export default function App() {
   const isCompact   = isMobile || isTablet;       // both phone + iPad get touch UI
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // The bottom-right corner holds four independent floating controls: ＋ quick-add
+  // task, 📌 quick note, 🗓 quick event and ⛶ presentation mode. Each carried its
+  // own magic offset — 76, 84, 132 and 88 — so on a phone three of them landed on
+  // the same 50px square and only the highest z-index was visible at all. They are
+  // one column now, in fixed slots measured up from the top edge of the bottom nav.
+  //
+  // The nav exists only on compact layouts and adds the home-indicator inset
+  // itself, so the column has to add the same env() or a notched phone puts the
+  // first slot on top of the nav. Wide screens have no nav, but auth.css pins the
+  // sign-out pill at right:14px/bottom:14px (~34px tall) — the column starts above
+  // that rather than at the very bottom, or ＋ lands underneath it.
+  const navBarH   = isTablet ? 67 : 59;   // minHeight 64/56 + the 3px active-tab border
+  const overNav   = isCompact && !zenMode;
+  const FAB_RIGHT = 16, FAB_COL_W = 54;   // widest control in the column
+  // Slots are fixed, not packed: a button must not jump because another one
+  // appeared or went away.
+  const fabSlot = (offset, size) => ({
+    bottom: overNav
+      ? `calc(${navBarH + 12 + offset}px + env(safe-area-inset-bottom, 0px))`
+      : `${64 + offset}px`,
+    right: FAB_RIGHT + (FAB_COL_W - size) / 2,
+  });
+  const fabAdd   = fabSlot(0,   54);   // ＋ quick add task
+  const fabNote  = fabSlot(62,  48);   // 📌 quick note
+  const fabEvent = fabSlot(118, 48);   // 🗓 quick event
+  const fabZen   = fabSlot(174, 40);   // ⛶ presentation mode
+
   const FONT_STEPS = [12,13,14,15,16,17,18,20,22];
   const fontIdx = FONT_STEPS.indexOf(fontSize);
   const canDec = fontIdx>0, canInc = fontIdx<FONT_STEPS.length-1;
@@ -13309,7 +13336,8 @@ export default function App() {
       {/* N35 item1: presentation/zen mode — floating show/hide chrome button */}
       <button onClick={()=>setZenMode(z=>!z)}
         title={zenMode?"Show menus & headers":"Hide menus & headers (presentation mode)"}
-        style={{position:"fixed",top:zenMode?10:"auto",bottom:zenMode?"auto":88,right:14,zIndex:9999,
+        style={{position:"fixed",top:zenMode?10:"auto",bottom:zenMode?"auto":fabZen.bottom,
+          right:zenMode?14:fabZen.right,zIndex:9999,
           width:40,height:40,borderRadius:"50%",border:"none",cursor:"pointer",
           background:zenMode?"#166534":"var(--c-surface2)",color:zenMode?"#fff":"var(--c-text-muted)",
           boxShadow:"0 4px 16px rgba(0,0,0,.25)",fontSize:16,opacity:zenMode?1:0.55}}>
@@ -13398,7 +13426,7 @@ export default function App() {
             saveNotes([newNote, ...notes]);
             setFloatNoteId(id);
           }} title="New floating quick note (dated)"
-          style={{position:"fixed",right:20,bottom:84,zIndex:150,width:48,height:48,borderRadius:"50%",
+          style={{position:"fixed",right:fabNote.right,bottom:fabNote.bottom,zIndex:150,width:48,height:48,borderRadius:"50%",
             border:"none",background:"#6366f1",color:"#fff",fontSize:20,cursor:"pointer",
             boxShadow:"0 6px 20px rgba(99,102,241,.5)"}}>📌</button>
       )}
@@ -13415,7 +13443,7 @@ export default function App() {
               color:(eventTypes[0]?.color)||"#8b5cf6", note:"" });
           }} title="New event"
           aria-label="New event"
-          style={{position:"fixed",right:20,bottom:140,zIndex:150,width:48,height:48,borderRadius:"50%",
+          style={{position:"fixed",right:fabEvent.right,bottom:fabEvent.bottom,zIndex:150,width:48,height:48,borderRadius:"50%",
             border:"none",background:"#0e7490",color:"#fff",fontSize:20,cursor:"pointer",
             boxShadow:"0 6px 20px rgba(14,116,144,.5)"}}>🗓</button>
       )}
@@ -13545,7 +13573,9 @@ export default function App() {
       {/* ── Phase 2: Toast Notification ─────────────────────────────────────── */}
       {toast&&(
         <div style={{
-          position:"fixed",bottom:isCompact?80:24,left:"50%",transform:"translateX(-50%)",
+          // Same nav clearance as the button column: bottom:80 was under the nav
+          // on a notched phone, where the nav is ~59px plus the home-indicator inset.
+          position:"fixed",bottom:overNav?fabAdd.bottom:24,left:"50%",transform:"translateX(-50%)",
           zIndex:9000,background:toast.type==="error"?"#dc2626":"#166534",
           color:"#fff",padding:"10px 20px",borderRadius:99,fontSize:13,fontWeight:700,
           boxShadow:"0 4px 20px rgba(0,0,0,.25)",whiteSpace:"nowrap",
@@ -13562,7 +13592,7 @@ export default function App() {
           title="Quick Add Task (＋)"
           style={{
             position:"fixed",
-            bottom:isCompact?76:24,right:isCompact?16:28,
+            bottom:fabAdd.bottom,right:fabAdd.right,
             zIndex:4000,width:54,height:54,borderRadius:"50%",
             background:theme.accent,color:"#fff",
             border:"none",fontSize:26,fontWeight:700,
@@ -13663,8 +13693,15 @@ export default function App() {
       )}
       {isCompact ? (
         <div>
-          {/* Top bar */}
-          <div className="lp-app-chrome" style={{
+          {/* Top bar.
+              `toprow` is the hook auth.js looks for: it does
+              document.querySelector('.toprow') to place the sign-out control here,
+              and falls back to document.body when that misses. Nothing carried the
+              class, so it always missed — and the fallback is a fixed, full-width
+              pill at bottom:78px with z-index 2147482000, which buried the quick
+              buttons in the corner. With the class present it renders as the 42px
+              circle auth.css already styles for `.toprow > .mtp-auth-signout`. */}
+          <div className="lp-app-chrome toprow" style={{
             position:"sticky", top:0, zIndex:200,
             background:theme.bg, borderBottom:`1px solid ${theme.border}`,
             padding: isTablet ? "11px 20px" : "10px 14px",
