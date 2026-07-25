@@ -11819,13 +11819,24 @@ export default function App() {
 
   // N106: persist the stamp on every change. Done as one effect rather than at
   // each setDataLastUpdated site — there are ~15 of them and a missed one is
-  // invisible until a user loses data. The `loaded` guard keeps the restore
-  // above from writing straight back, and skipping null means a profile switch
-  // (which resets the stamp to null) cannot clobber the stored value.
+  // invisible until a user loses data.
+  //
+  // activeProfileId is deliberately NOT a dependency. With it in the list this
+  // effect re-ran on a profile switch, and because effects see the values from
+  // the render that scheduled them, it ran with the NEW profile's pk() but the
+  // PREVIOUS profile's stamp still in scope — writing profile A's edit time into
+  // profile B's key. B then looked locally-edited when it was not, which is
+  // enough to make gsync push stale data or skip a pull it needed.
+  //
+  // Leaving it out is safe because the load effect above is keyed on
+  // activeProfileId and sets loaded=false as its first act, so the only renders
+  // that reach the write are ones where the stamp and the profile already agree.
+  // The `loaded` guard also stops the restore from writing straight back, and
+  // skipping null means the reset during a switch cannot clobber a stored value.
   useEffect(()=>{
     if (!loaded || !dataLastUpdated) return;
     (async()=>{ try{ await window.storage.set(pk(DATA_UPDATED_KEY), dataLastUpdated); }catch{} })();
-  },[dataLastUpdated, loaded, activeProfileId]);
+  },[dataLastUpdated, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // N7: badge stays until user explicitly acknowledges. Compute current notif counts,
   // and expose markAllRead() to clear all badges at once (via bell dropdown button).
