@@ -137,19 +137,73 @@ const GDrive = (() => {
   let accessToken = null;
   let tokenExpiry = 0;
   let gisReady = false;
+  let gisLoadPromise = null;
 
-  const loadGIS = () => new Promise((resolve, reject) => {
+  const loadGISAttempt = (attempt) => new Promise((resolve, reject) => {
     if (window.google?.accounts?.oauth2) { gisReady = true; return resolve(); }
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    const ready = () => {
+      if (!window.google?.accounts?.oauth2) {
+        finish(reject, new Error("Google sign-in loaded incorrectly. Please reload and try again."));
+        return;
+      }
+      gisReady = true;
+      finish(resolve);
+    };
+    // N104 P2: an attempt may only remove the element IT is waiting on. Looking
+    // the id up and removing whatever comes back let a late handler from attempt 0
+    // delete attempt 1's script: attempt 0 times out at 12s and rejects, attempt 1
+    // creates a fresh script, then attempt 0's original request finally errors and
+    // its onerror removes the new element by id. Attempt 1 is then waiting on a
+    // script that is no longer in the document and can only fail by timing out —
+    // another 12s of the same silent hang this fix exists to remove.
+    // The `settled` check has to come first for the same reason: a resolved or
+    // rejected attempt must not touch the DOM at all.
+    let owned = null;
+    const failed = (message) => {
+      if (settled) return;
+      if (owned && owned === document.getElementById("gis-script")) owned.remove();
+      finish(reject, new Error(message));
+    };
+    const timer = setTimeout(() => failed("Google sign-in timed out. Check your connection and content blockers, then try again."), 12000);
     const existing = document.getElementById("gis-script");
-    if (existing) { existing.addEventListener("load", () => resolve()); return; }
+    // A script left by a timed-out/failed attempt will never emit another load
+    // event. Remove it before the one permitted retry so iOS performs a fresh
+    // request rather than waiting on a stale element.
+    if (existing && attempt > 0) existing.remove();
+    else if (existing) {
+      owned = existing;
+      existing.addEventListener("load", ready, {once:true});
+      existing.addEventListener("error", () => failed("Could not load Google sign-in. Check your connection and content blockers, then try again."), {once:true});
+      return;
+    }
     const s = document.createElement("script");
     s.id = "gis-script";
     s.src = "https://accounts.google.com/gsi/client";
     s.async = true; s.defer = true;
-    s.onload = () => { gisReady = true; resolve(); };
-    s.onerror = () => reject(new Error("Could not load Google sign-in. Check your connection."));
+    s.onload = ready;
+    s.onerror = () => failed("Could not load Google sign-in. Check your connection and content blockers, then try again.");
+    owned = s;
     document.head.appendChild(s);
   });
+
+  // Share concurrent callers and retry the GIS network load exactly once. A
+  // later explicit user action may start a new two-attempt cycle after failure.
+  const loadGIS = () => {
+    if (window.google?.accounts?.oauth2) { gisReady = true; return Promise.resolve(); }
+    if (!gisLoadPromise) {
+      gisLoadPromise = loadGISAttempt(0)
+        .catch(() => loadGISAttempt(1))
+        .finally(() => { gisLoadPromise = null; });
+    }
+    return gisLoadPromise;
+  };
 
   // Interactive sign-in (must be triggered by a user click, or the popup is blocked)
   let lastHint = null;   // remember the last account so Connect skips the chooser
@@ -187,7 +241,11 @@ const GDrive = (() => {
 
   const ensureToken = async () => {
     if (accessToken && Date.now() < tokenExpiry) return accessToken;
-    return signIn({}); // interactive if needed
+    // Drive helpers often run after the original tap has completed. Starting an
+    // OAuth popup here loses Safari's user activation and is silently blocked.
+    // Only the visible Connect/Reconnect controls may call interactive signIn.
+    accessToken = null; tokenExpiry = 0;
+    throw new Error("Google session expired — reconnect and try again.");
   };
 
   const signOut = ({forget=false}={}) => {
@@ -211,12 +269,15 @@ const GDrive = (() => {
 
   // ── Drive REST helpers ─────────────────────────────────────────────────────
   const api = async (path, opts={}) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new Error("You are offline. Reconnect to the internet and try Google Drive again.");
+    }
     const tok = await ensureToken();
     const res = await fetch(`https://www.googleapis.com/${path}`, {
       ...opts,
       headers: { Authorization: `Bearer ${tok}`, ...(opts.headers||{}) },
     });
-    if (res.status === 401) { accessToken=null; throw new Error("Google session expired — please reconnect."); }
+    if (res.status === 401) { accessToken=null; tokenExpiry=0; throw new Error("Google session expired — reconnect and try again."); }
     if (!res.ok) throw new Error(`Drive error ${res.status}: ${await res.text().catch(()=> "")}`.slice(0,140));
     return res;
   };
@@ -10929,6 +10990,7 @@ function SyncPanel({
   const [pos, setPos] = React.useState(()=>({ x: Math.max(12, window.innerWidth - 372), y: 76 }));
   const [busy, setBusy] = React.useState(false);
   const [files, setFiles] = React.useState(null);
+  const [listError, setListError] = React.useState("");
   const [renaming, setRenaming] = React.useState(false);
   const [nameDraft, setNameDraft] = React.useState("");
   const linked = !!gsync?.fileId;
@@ -10966,8 +11028,30 @@ function SyncPanel({
                     : (online&&linked)?`Synced · ${relTime(gsync.lastSyncAt)}`
                     : linked?"Linked — not connected":"Not connected";
 
-  const doConnect = async()=>{ setBusy(true); await onConnect(); setBusy(false); };
-  const loadList  = async()=>{ setBusy(true); try{ setFiles(await listFiles()); }catch{} setBusy(false); };
+  const doConnect = async()=>{
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) setListError("Google Drive reconnection was cancelled or failed. Tap Reconnect to try again.");
+      return !!ok;
+    } catch(e) { setListError(e?.message || "Could not reconnect Google Drive."); return false; }
+    finally { setBusy(false); }
+  };
+  const reconnectAndReload = async()=>{
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) throw new Error("Google Drive reconnection was cancelled or failed. Tap Reconnect to try again.");
+      setFiles(await listFiles());
+    } catch(e) { setFiles(null); setListError(e?.message || "Could not reconnect Google Drive."); }
+    finally { setBusy(false); }
+  };
+  const loadList  = async()=>{
+    setBusy(true); setListError("");
+    try { setFiles(await listFiles()); }
+    catch(e) { setFiles(null); setListError(e?.message || "Could not load files from Google Drive."); }
+    finally { setBusy(false); }
+  };
   const pick      = async(f)=>{ await onRelink(f.id,f.name); setFiles(null); };
   const createNew = async()=>{ setBusy(true); await onPushNow(); setBusy(false); };
   const openDrive = ()=>{ onOpenFolder && onOpenFolder(); };
@@ -11065,6 +11149,13 @@ function SyncPanel({
                   ))}
                 </div>
               )}
+              {listError && (
+                <div role="alert" style={{marginTop:8,fontSize:10.5,color:"#fca5a5",background:"#7f1d1d22",border:"1px solid #7f1d1d55",borderRadius:7,padding:"7px 9px"}}>
+                  ⚠️ {listError}
+                  <button onClick={reconnectAndReload} disabled={busy} style={{marginLeft:7,...smallBtn("#1a73e8","#fff")}}>Reconnect Google Drive</button>
+                </div>
+              )}
+              {files?.length===0 && <div style={{marginTop:7,fontSize:10,color:"var(--c-text-muted)",lineHeight:1.45}}>With Google’s <code>drive.file</code> permission, only JSON files created by or previously opened with My Todo Planner can appear here. Create a new sync file if your other Drive files are not listed.</div>}
             </div>
 
             {/* LOCAL SIDE */}
@@ -11114,6 +11205,7 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
                           onConnect, onDisconnect, onPushNow, onPullNow, onLinkFile, listFiles }) {
   const [busy, setBusy] = React.useState(false);
   const [files, setFiles] = React.useState(null); // null = not loaded, [] = loaded empty
+  const [listError, setListError] = React.useState("");
   const linked = !!gsync?.fileId;
   const lastSync = gsync?.lastSyncAt ? new Date(gsync.lastSyncAt) : null;
 
@@ -11126,12 +11218,29 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
     return d.toLocaleDateString();
   };
 
-  const doConnect = async () => { setBusy(true); await onConnect(); setBusy(false); };
+  const doConnect = async () => {
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) setListError("Google Drive connection was cancelled or failed. Tap Connect to try again.");
+      return !!ok;
+    } catch(e) { setListError(e?.message || "Could not connect Google Drive."); return false; }
+    finally { setBusy(false); }
+  };
+  const reconnectAndReload = async () => {
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) throw new Error("Google Drive reconnection was cancelled or failed. Tap Reconnect to try again.");
+      setFiles(await listFiles());
+    } catch(e) { setFiles(null); setListError(e?.message || "Could not reconnect Google Drive."); }
+    finally { setBusy(false); }
+  };
   const doPickFile = async () => {
-    setBusy(true);
+    setBusy(true); setListError("");
     try { const list = await listFiles(); setFiles(list); }
-    catch(e){ /* surfaced via status */ }
-    setBusy(false);
+    catch(e){ setFiles(null); setListError(e?.message || "Could not load files from Google Drive."); }
+    finally { setBusy(false); }
   };
   const chooseFile = async (f) => { await onLinkFile(f.id, f.name); setFiles(null); };
   const startFresh = async () => { setBusy(true); await onPushNow(); setBusy(false); };
@@ -11196,6 +11305,12 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
                   color:"var(--c-text)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                 📂 Link an existing file
               </button>
+              {listError && (
+                <div role="alert" style={{marginTop:10,fontSize:11.5,color:"#fca5a5",background:"#7f1d1d22",border:"1px solid #7f1d1d55",borderRadius:8,padding:"8px 11px"}}>
+                  ⚠️ {listError}
+                  <button onClick={reconnectAndReload} disabled={busy} style={{marginLeft:8,padding:"5px 8px",border:0,borderRadius:6,background:"#1a73e8",color:"#fff",fontWeight:800,cursor:"pointer"}}>Reconnect Google Drive</button>
+                </div>
+              )}
               {files && (
                 <div style={{marginTop:12,border:"1px solid var(--c-border)",borderRadius:9,overflow:"hidden"}}>
                   {files.length===0 && <div style={{padding:"12px",fontSize:12,color:"var(--c-text-muted)",textAlign:"center"}}>No .json files found on Drive yet.</div>}
@@ -11209,6 +11324,7 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
                   ))}
                 </div>
               )}
+              {files?.length===0 && <div style={{marginTop:9,fontSize:11,color:"var(--c-text-muted)",lineHeight:1.5}}>Google’s <code>drive.file</code> permission only shows JSON files created by or previously opened with My Todo Planner. If an existing Drive file is missing, create a new sync file here.</div>}
             </>
           ) : (
             <>

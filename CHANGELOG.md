@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.77.0-n104-ios-drive-file-list — 2026-07-25
+
+### Fixed
+
+- Google Drive file-list failures are now shown inside both sync interfaces
+  instead of being silently discarded, with a **Reconnect** action beside the
+  error so an expired session can be repaired in place.
+- Each Google Identity Services loading attempt now fails with an actionable
+  message after 12 seconds rather than leaving iOS users waiting indefinitely.
+  A failed or stale script is removed and retried once with a fresh request.
+- Expired Drive sessions clear both the cached token and its expiry state. REST
+  helpers no longer try to open nested OAuth UI after the initiating tap has
+  ended; users reconnect explicitly and the file list reloads after success.
+- Offline list requests show an offline-specific recovery message, while a
+  cancelled reconnect clears the busy state and leaves a visible error.
+- Empty file lists explain the intentionally narrow `drive.file` permission:
+  only JSON files created by or previously opened with My Todo Planner are
+  visible, while creating a new per-profile sync file remains available.
+
+### Security and compatibility
+
+- The least-privilege Google Drive `drive.file` OAuth scope is unchanged; this
+  release adds guidance and recovery without requesting broader Drive access.
+
 ## 3.77.0-source-restored — 2026-07-24
 
 ### The point of this release

@@ -1,10 +1,10 @@
 {
-  "version": "3.77.0",
+  "version": "3.77.0-n104-ios-drive-file-list",
   "date": "2026-07-24",
   "full": {
     "path": "index.html",
-    "sha256": "ad6a999db2e81fb812b9d951feaf0b5cdefe73cf6114a5a26085d84535eb7e6c",
-    "bytes": 726835
+    "sha256": "3bd058d574a82f29ec7219868fa5ddc75c70a2278cc3c901d493a0e91aedb30b",
+    "bytes": 730529
   },
   "mobile": {
     "path": "mobile/index.html",
@@ -23,7 +23,7 @@
     "packager": "build/package.mjs",
     "audit": "build/audit.py",
     "harness": "build/check4.mjs",
-    "note": "index.html is generated \u2014 do not edit it directly; edit src/ or build/ and run the pipeline"
+    "note": "index.html is generated — do not edit it directly; edit src/ or build/ and run the pipeline"
   },
   "auth": {
     "project": "Dashboard",
