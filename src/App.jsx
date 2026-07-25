@@ -527,10 +527,13 @@ const BOTTOM_NAV = [
 // ─── Google Drive / OneDrive helpers ─────────────────────────────────────────
 // Uses Google Picker API — no backend needed, runs entirely in browser
 // User picks a .json file from their own Drive; app reads/writes it directly.
-// Google Drive sync credentials. Client ID + API key are safe to ship in a
-// frontend — Google restricts them to the domain registered in the Cloud
-// Console, and the OAuth token flow (GIS) never needs a client secret.
-const GDRIVE_API_KEY  = "AIzaSyCGbaaFkWdzM2eSZM0dfED8eu0FOIR2z2o";
+// Google Drive sync credentials. The client ID is safe to ship in a frontend —
+// Google restricts it to the domain registered in the Cloud Console, and the
+// OAuth token flow (GIS) never needs a client secret. Do not add an API key
+// here: nothing in this app reads one, Picker + GIS work without it, and a
+// literal key in a public repo is exposed the moment it is committed, whatever
+// the Console restrictions say. If one is ever genuinely needed, read it from
+// import.meta.env and keep the .env file out of git.
 const GDRIVE_CLIENT_ID = "369687041884-heue2bffon430f0kfaetcp8mv8kbh8q2.apps.googleusercontent.com";
 const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified}
