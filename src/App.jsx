@@ -92,6 +92,11 @@ const CHANGELOG = [
 
 const ACTIVITY_KEY    = "lifeplanner-activity-v1";
 const CONFIG_KEY      = "lifeplanner-config-v1";
+// N106: dataLastUpdated has to outlive a reload. It arbitrates against
+// gsync.lastSyncAt, and gsync state IS persisted, so keeping the local stamp in
+// React state only meant every refresh reset it to null — gsyncNow then read
+// "no local change" and pulled the cloud over data the user had just typed.
+const DATA_UPDATED_KEY = "lifeplanner-data-updated-v1";
 const CUSTOM_TABS_KEY = "lifeplanner-custom-tabs-v1";
 const WIDGET_KEY      = "lifeplanner-widgets-v1";
 const IDB_NAME        = "lifeplanner-dashboard";
@@ -11624,10 +11629,25 @@ export default function App() {
       try{const tor=await window.storage.get(pk(TABORDER_KEY));if(tor?.value)setTabOrder(JSON.parse(tor.value));}catch{}
       try{const gvr=await window.storage.get(pk(GANTT_VIEWS_KEY));if(gvr?.value){const p=JSON.parse(gvr.value);if(Array.isArray(p))setGanttViewsBk(p);}}catch{}
       try{const tvr=await window.storage.get(pk(TL_VIEWS_KEY));if(tvr?.value){const p=JSON.parse(tvr.value);if(Array.isArray(p))setTlViewsBk(p);}}catch{}
-      try{const pr=await window.storage.get(pk(P_KEY));if(pr?.value){const tasks=JSON.parse(pr.value);const ts=tasks.find(t=>t._updated)?._updated;if(ts)setDataLastUpdated(ts);}}catch{}
+      // N106: restore the local-edit stamp. This used to read
+      // tasks.find(t=>t._updated)?._updated, but nothing in the app ever wrote
+      // an _updated field, so the lookup was always undefined and the stamp was
+      // null after every reload — which is what let gsyncNow overwrite fresh
+      // notes and events. Read the persisted stamp instead.
+      try{const du=await window.storage.get(pk(DATA_UPDATED_KEY));if(du?.value)setDataLastUpdated(du.value);}catch{}
       setLoaded(true);
     })();
   },[activeProfileId]); // reload when profile changes
+
+  // N106: persist the stamp on every change. Done as one effect rather than at
+  // each setDataLastUpdated site — there are ~15 of them and a missed one is
+  // invisible until a user loses data. The `loaded` guard keeps the restore
+  // above from writing straight back, and skipping null means a profile switch
+  // (which resets the stamp to null) cannot clobber the stored value.
+  useEffect(()=>{
+    if (!loaded || !dataLastUpdated) return;
+    (async()=>{ try{ await window.storage.set(pk(DATA_UPDATED_KEY), dataLastUpdated); }catch{} })();
+  },[dataLastUpdated, loaded, activeProfileId]);
 
   // N7: badge stays until user explicitly acknowledges. Compute current notif counts,
   // and expose markAllRead() to clear all badges at once (via bell dropdown button).

@@ -3,8 +3,8 @@
   "date": "2026-07-24",
   "full": {
     "path": "index.html",
-    "sha256": "ad6a999db2e81fb812b9d951feaf0b5cdefe73cf6114a5a26085d84535eb7e6c",
-    "bytes": 726835
+    "sha256": "56c67258ff10b96d53d2d3a0070bdcef0ab8e6f97fcdfd401a0088083fdfab5d",
+    "bytes": 726877
   },
   "mobile": {
     "path": "mobile/index.html",
@@ -23,7 +23,7 @@
     "packager": "build/package.mjs",
     "audit": "build/audit.py",
     "harness": "build/check4.mjs",
-    "note": "index.html is generated \u2014 do not edit it directly; edit src/ or build/ and run the pipeline"
+    "note": "index.html is generated — do not edit it directly; edit src/ or build/ and run the pipeline"
   },
   "auth": {
     "project": "Dashboard",
