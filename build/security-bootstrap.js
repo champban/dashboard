@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const SECURITY_VERSION='3.64.0-security';
+const SECURITY_VERSION='3.77.0-security';
 const MAX_JSON_CHARS=52428800;
 const MAX_FILE_BYTES=52428800;
 const DANGEROUS_KEYS=new Set(['__proto__','prototype','constructor']);
