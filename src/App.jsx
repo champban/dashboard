@@ -11071,7 +11071,7 @@ function RecurringDoneModal({ task, onConfirmAndSave, onMarkDoneOnly, onCancel }
 // everything from one place: link/relink/rename files, open the Drive location,
 // toggle auto-sync, push/pull now, and watch live status.
 function SyncPanel({
-  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto,
+  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote,
   onConnect, onDisconnect, onSyncNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
 }) {
@@ -11100,6 +11100,11 @@ function SyncPanel({
     document.addEventListener("mousemove",move); document.addEventListener("mouseup",up);
     document.addEventListener("touchmove",move,{passive:false}); document.addEventListener("touchend",up);
   };
+
+  // The age was computed once per render with nothing to trigger another, so an
+  // open panel kept showing whatever it said when it opened. Tick it.
+  const [, tick] = React.useState(0);
+  React.useEffect(()=>{ const t=setInterval(()=>tick(n=>n+1), 15000); return ()=>clearInterval(t); },[]);
 
   const relTime = (ms) => {
     if(!ms) return "never";
@@ -11265,6 +11270,20 @@ function SyncPanel({
                     animation:(busy||gsyncStatus==="syncing")?"spin 0.9s linear infinite":"none"}}>🔄</span>
                   {(busy||gsyncStatus==="syncing")?"Syncing…":"Save to Cloud"}
                 </button>
+                {/* What the last sync actually did. "Synced · 25 min ago" on its own
+                    could not tell a fresh upload from a no-op from a failure, so a
+                    successful save was indistinguishable from nothing happening. */}
+                {gsyncNote && (
+                  <div style={{marginTop:7,fontSize:11,fontWeight:700,lineHeight:1.45,
+                    borderRadius:8,padding:"6px 9px",
+                    background: gsyncNote.kind==="error" ? "#7f1d1d22" : gsyncNote.kind==="later" ? "#78350f22" : "#14532d22",
+                    border: `1px solid ${gsyncNote.kind==="error" ? "#7f1d1d66" : gsyncNote.kind==="later" ? "#78350f66" : "#14532d66"}`,
+                    color: gsyncNote.kind==="error" ? "#fca5a5" : gsyncNote.kind==="later" ? "#fcd34d" : "#86efac"}}>
+                    {gsyncNote.kind==="error" ? "⚠️ " : gsyncNote.kind==="later" ? "⏸ " : gsyncNote.kind==="pulled" ? "⬇️ " : gsyncNote.kind==="nochange" ? "✓ " : "✅ "}
+                    {gsyncNote.text}
+                    <span style={{opacity:0.75,fontWeight:600}}> · {relTime(gsyncNote.at)}</span>
+                  </div>
+                )}
                 {/* auto toggle */}
                 <div style={{...box,display:"flex",alignItems:"center",gap:9,marginBottom:9}}>
                   <div style={{flex:1}}>
@@ -11669,6 +11688,15 @@ export default function App() {
   const [gsyncStatus, setGsyncStatus] = useState("idle"); // idle | syncing | synced | error | offline
   const [gsyncError, setGsyncError] = useState("");
   const [gsyncConflict, setGsyncConflict] = useState(null); // {cloudText, cloudModified}
+  // What the last sync actually DID, so pressing "Save to Cloud" always produces a
+  // visible answer. "Synced · 25 min ago" alone could not distinguish a fresh
+  // upload from a no-op from a silent failure, which is why a successful save
+  // looked identical to nothing happening. {kind, text, at}
+  const [gsyncNote, setGsyncNote] = useState(null);
+  // Cloud moved but local did not. This used to pull and overwrite the screen with
+  // no prompt at all; the user now chooses. {cloudModified, cloudText}
+  const [gsyncCloudAhead, setGsyncCloudAhead] = useState(null);
+  const note = (kind, text) => setGsyncNote({ kind, text, at: Date.now() });
   const [importConflict, setImportConflict] = useState(null); // N107: {parsed, fileName, handle, cloud:{payload,modifiedTime}}
   const [gsyncAuto, setGsyncAuto] = useState(true);      // auto-push on edits
   const [gsyncPanel, setGsyncPanel] = useState(false);   // floating panel open
@@ -12173,7 +12201,8 @@ export default function App() {
         localName: gsync.localName || meta.name,   // keep both sides on the same name
         lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"" });
       setGsyncStatus("synced"); setGsyncError("");
-    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); }
+      if(!silent) note("saved","Saved to cloud");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
     finally { gsyncBusy.current = false; }
   };
 
@@ -12278,23 +12307,58 @@ export default function App() {
         });
         setGsyncStatus("idle");
       } else if (cloudChanged) {
-        // Only the cloud moved — safe to pull, nothing local to lose.
+        // Only the cloud moved — another device saved. This used to download and
+        // apply immediately, so the screen changed under the user with no warning
+        // and no way to decline. Ask instead: update now, decide later, or keep
+        // this device's copy. "Later" deliberately leaves lastCloudModified alone
+        // so the next sync raises it again rather than forgetting.
         const text = await GDrive.download(gsync.fileId);
-        await applyPayloadLive(JSON.parse(text));
-        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "" });
-        setGsyncStatus("synced");
+        setGsyncCloudAhead({ cloudModified: meta.modifiedTime || "", cloudText: text });
+        setGsyncStatus("idle");
       } else if (localChanged) {
         // Only local moved — safe to push, nothing cloud-side to lose.
         const content = JSON.stringify(buildSavePayload(), null, 2);
         const updated = await GDrive.updateFile(gsync.fileId, content);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "" });
-        setGsyncStatus("synced");
+        setGsyncStatus("synced"); note("saved","Saved to cloud");
       } else {
-        // Nothing changed on either side.
-        setGsyncStatus("synced");
+        // Nothing changed on either side. Still stamp lastSyncAt: the check really
+        // did just happen and confirmed both copies agree. Leaving it untouched is
+        // what made a successful "Save to Cloud" look like nothing happened — the
+        // panel kept showing the age of the previous upload.
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || gsync.lastCloudModified || "" });
+        setGsyncStatus("synced"); note("nochange","Already up to date — nothing to upload");
       }
-    } catch (e) { setGsyncStatus("error"); setGsyncError(e.message || "Sync failed"); }
+    } catch (e) { setGsyncStatus("error"); setGsyncError(e.message || "Sync failed"); note("error", e.message || "Sync failed"); }
     finally { gsyncBusy.current = false; }
+  };
+
+  // The three answers to "another device saved" (gsyncCloudAhead).
+  const cloudAheadUpdate = async () => {
+    const c = gsyncCloudAhead; if(!c) return;
+    setGsyncCloudAhead(null); setGsyncStatus("syncing");
+    try {
+      await applyPayloadLive(JSON.parse(c.cloudText));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified });
+      setGsyncStatus("synced"); note("pulled","Updated from cloud");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Update failed"); note("error", e.message||"Update failed"); }
+  };
+  // Later: keep this device untouched and do NOT record the cloud version, so the
+  // next sync asks again instead of quietly forgetting the change.
+  const cloudAheadLater = () => {
+    setGsyncCloudAhead(null); setGsyncStatus("idle");
+    note("later","Kept this device — cloud change still pending");
+  };
+  // Keep mine: overwrite the cloud with this device's copy. Discards the other
+  // device's change, so it is the destructive answer and is styled as such.
+  const cloudAheadKeepMine = async () => {
+    setGsyncCloudAhead(null); setGsyncStatus("syncing");
+    try {
+      const content = JSON.stringify(buildSavePayload(), null, 2);
+      const updated = await GDrive.updateFile(gsync.fileId, content);
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"" });
+      setGsyncStatus("synced"); note("saved","Cloud replaced with this device's copy");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed"); }
   };
 
   const gsyncAcceptCloud = async () => {
@@ -13369,7 +13433,7 @@ export default function App() {
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError}
         gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()} gsyncAuto={gsyncAuto}
         onConnect={gsyncConnect} onDisconnect={()=>{gsyncDisconnect();setGsyncPanel(true);}}
-        onSyncNow={gsyncNow}
+        onSyncNow={gsyncNow} gsyncNote={gsyncNote}
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
         listFiles={()=>GDrive.listFiles()}
         minimized={gsyncPanelMin} onToggleMin={()=>setGsyncPanelMin(m=>!m)}
@@ -13382,6 +13446,48 @@ export default function App() {
         onUseLocal={importUseLocal}
         onUseCloud={importUseCloud}
         onCancel={()=>setImportConflict(null)} />}
+      {/* Another device saved and this one has no local edits to lose. Previously
+          the app just downloaded and applied it, so the screen changed without
+          asking. Standard three answers instead. */}
+      {gsyncCloudAhead && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",zIndex:6000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--c-card2)",border:"1px solid var(--c-border)",borderRadius:14,
+            width:"100%",maxWidth:430,padding:"18px 20px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+              <span style={{fontSize:22}}>☁️</span>
+              <div style={{fontSize:15,fontWeight:800,color:"var(--c-text)"}}>Cloud file changed</div>
+            </div>
+            <p style={{fontSize:12.5,color:"var(--c-text-muted)",lineHeight:1.6,marginBottom:6}}>
+              Another device saved <strong style={{color:"var(--c-text)"}}>{gsync.fileName||"the cloud file"}</strong>.
+              This device has no unsaved edits, so updating is safe — but it is your call.
+            </p>
+            <div style={{fontSize:11,color:"var(--c-text-muted)",marginBottom:14}}>
+              Cloud version: {gsyncCloudAhead.cloudModified ? new Date(gsyncCloudAhead.cloudModified).toLocaleString() : "unknown"}
+            </div>
+            <button onClick={cloudAheadUpdate}
+              style={{width:"100%",padding:"12px 0",borderRadius:10,border:"none",background:"#166534",
+                color:"#fff",fontSize:13.5,fontWeight:800,cursor:"pointer",marginBottom:8}}>
+              ⬇️ Update now
+            </button>
+            <button onClick={cloudAheadLater}
+              style={{width:"100%",padding:"11px 0",borderRadius:10,border:"1.5px solid var(--c-border)",
+                background:"var(--c-surface)",color:"var(--c-text)",fontSize:13,fontWeight:800,
+                cursor:"pointer",marginBottom:8}}>
+              ⏸ Later — ask me again next sync
+            </button>
+            <button onClick={cloudAheadKeepMine}
+              style={{width:"100%",padding:"10px 0",borderRadius:10,border:"1px solid #7f1d1d66",
+                background:"#7f1d1d22",color:"#fca5a5",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+              Keep this device and overwrite the cloud
+            </button>
+            <div style={{fontSize:10.5,color:"var(--c-text-muted)",marginTop:9,lineHeight:1.5}}>
+              "Later" changes nothing and keeps the reminder — the next sync will ask again.
+              The last option discards the other device's change.
+            </div>
+          </div>
+        </div>
+      )}
       {gsyncConflict && <DirectionDialog
         title="⚠️ Both copies changed"
         intro="This device and Google Drive were both edited since the last sync, so one of them has to win. Nothing has been changed yet."
