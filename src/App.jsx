@@ -2906,7 +2906,8 @@ function MediaCardStrip({ attachments, onLightbox }) {
   return (
     <div style={{
       display:"flex",gap:2,marginTop:8,marginBottom:2,
-      height: media.length===1?100:70,
+      // 3x taller than the original 100/70 — the strip was too small to read at a glance
+      height: media.length===1?300:210,
       borderRadius:6,overflow:"hidden",background:"var(--c-card2)",
     }}>
       {media.slice(0,3).map((a,ai)=>{
@@ -3142,7 +3143,7 @@ function GanttTooltip({ t, x, y, isWork }) {
   const firstVid=!firstImg&&mediaAttach.find(a=>detectAttachType(a)==="video");
   return (
     <div style={{position:"fixed",left:Math.min(x+14,window.innerWidth-300),top:Math.max(y-20,10),zIndex:9000,background:"var(--c-card2)",border:`1px solid ${cc}55`,borderRadius:12,padding:"12px 14px",pointerEvents:"none",boxShadow:"0 12px 40px rgba(0,0,0,.8)",maxWidth:280,minWidth:200}}>
-      {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:120,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
+      {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:360,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
       {firstVid&&<div style={{width:"100%",height:80,background:"var(--c-surface)",borderRadius:8,marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4}}><span style={{fontSize:24}}>▶️</span><span style={{fontSize:10,color:"var(--c-text-muted)"}}>{firstVid.name||firstVid.label||"video"}</span></div>}
       {mediaAttach.length>1&&<div style={{fontSize:9,color:"var(--c-text-muted)",marginBottom:8,textAlign:"right"}}>+{mediaAttach.length-1} more media</div>}
       <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}><Chip color={cc}>{t.cat}</Chip><span style={{fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:20,background:pc.bg,color:pc.color}}>{t.priority||"Medium"}</span>{isWork&&<span style={{fontSize:9,background:"#818cf822",color:"#818cf8",borderRadius:3,padding:"1px 4px",fontWeight:700}}>Work</span>}</div>
@@ -7280,83 +7281,41 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
         </div>
       )}
 
-      {/* N53: hover tooltip — full details for any item on the timeline */}
+      {/* Hover shows the attached images and nothing else. Repeating the bar's own
+          title, dates and countdown here was noise — the bar already carries them and
+          the panel has the rest. If an item has no attached image there is nothing
+          worth showing, so no tooltip appears at all. */}
       {hoverItem && (()=>{
-        const it=hoverItem.it, r=it.raw;
-        const dt=(ms)=>new Date(ms).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+        const it = hoverItem.it;
+        // Read from it.raw, not the timeline item: milestone items are built without
+        // an `attachments` field, so asking the item directly finds nothing for
+        // exactly the rows most likely to carry a photo. it.raw is always the
+        // underlying task or event and always carries them.
+        const imgs = taskImages(it.raw);        // sanitised images this item owns
+        if (!imgs.length) return null;          // nothing attached — show nothing
+        const many = imgs.length > 1;
+        const W = many ? 460 : 380;
         return (
-          <div style={{position:"fixed",left:Math.min(hoverItem.x+14,(typeof window!=="undefined"?window.innerWidth:1200)-310),
-            top:hoverItem.y+16,zIndex:9500,pointerEvents:"none",maxWidth:300,
-            background:"var(--c-card2)",border:`1.5px solid ${it.color}`,borderRadius:11,padding:"10px 13px",
-            boxShadow:"0 12px 34px rgba(0,0,0,.38)"}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:it.color,flexShrink:0}}/>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--c-text)"}}>{it.title}</span>
-            </div>
-            {it.overdue && (
-              <div style={{fontSize:10,fontWeight:900,color:"#fff",background:"#dc2626",borderRadius:5,
-                padding:"2px 7px",display:"inline-block",marginBottom:6,letterSpacing:"0.04em"}}>⚠ OVERDUE</div>
-            )}
-            <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.06em",color:"var(--c-text-muted)",marginBottom:6}}>
-              {it.kind==="milestone"?"MILESTONE":it.kind==="event"?"EVENT":(it._type==="work"?"WORK TASK":"PERSONAL TASK")}
-              {it.kind==="event"&&it.winTotal>1?` · WINDOW ${it.winIdx}/${it.winTotal}`:""}
-            </div>
-            <div style={{fontSize:11,color:"var(--c-text-muted)",fontWeight:700,marginBottom:5}}>
-              📅 {dt(it.at)}{it.span?` → ${dt(it.end)}`:""} · W{isoWeekNum(new Date(it.at))}
-              {it.span?<span style={{marginLeft:6,color:"var(--c-text)"}}>({Math.max(1,Math.round((it.end-it.at)/86400000))}d)</span>:null}
-            </div>
-            {/* N62: how far away is this from today? */}
-            {(()=>{
-              const cd = countdownOf(it.span ? it.end : it.at);
-              return (
-                <div style={{fontSize:11,fontWeight:800,color:cd.color,marginBottom:6,
-                  background:cd.color+"18",border:`1px solid ${cd.color}44`,borderRadius:7,padding:"3px 8px",display:"inline-block"}}>
-                  ⏳ {cd.long}{cd.days!==0?` (${cd.abs} day${cd.abs!==1?"s":""})`:""}
-                </div>
-              );
-            })()}
-            {/* N89: attachments (click an icon to open) */}
-            {it.attachments&&it.attachments.length>0 && (
-              <div style={{display:"flex",gap:6,alignItems:"center",margin:"2px 0 6px"}}>
-                <span style={{fontSize:10,fontWeight:800,color:"var(--c-text-muted)"}}>ATTACHMENTS</span>
-                <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={14}/>{it.location&&<PlacePin loc={it.location} size={12}/>}
-              </div>
-            )}
-            {/* N73: full subtask list with status */}
-            {(()=>{ const sp=subsOf(it); if(!sp) return null;
-              return (
-                <div style={{borderTop:"1px solid var(--c-border)",paddingTop:6,marginTop:2,marginBottom:4}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                    <span style={{fontSize:10,fontWeight:800,color:"var(--c-text-muted)"}}>☑ {sp.done}/{sp.total} SUBTASKS</span>
-                    <span style={{flex:1,height:4,borderRadius:2,background:"var(--c-surface2)",overflow:"hidden"}}>
-                      <span style={{display:"block",height:"100%",width:`${(sp.done/sp.total)*100}%`,background:it.color}}/>
-                    </span>
-                  </div>
-                  {sp.subs.slice(0,7).map((s,i2)=>(
-                    <div key={i2} style={{fontSize:11,lineHeight:1.5,color:s.done?"var(--c-text-muted)":"var(--c-text)",
-                      textDecoration:s.done?"line-through":"none",opacity:s.done?0.65:1}}>
-                      {s.done?"✓":"☐"} {s.text||s.title}
+          <div style={{position:"fixed",
+            left:Math.min(hoverItem.x+14,(typeof window!=="undefined"?window.innerWidth:1200)-(W+16)),
+            top:hoverItem.y+16,zIndex:9500,pointerEvents:"none",width:W,
+            background:"var(--c-card2)",border:`1.5px solid ${it.color}`,borderRadius:11,
+            padding:5,boxShadow:"0 12px 34px rgba(0,0,0,.38)"}}>
+            <div style={{display:"flex",gap:4,height:many?200:290,borderRadius:7,overflow:"hidden"}}>
+              {imgs.slice(0,3).map((a,ai)=>(
+                <div key={a.id||ai} style={{flex:1,position:"relative",overflow:"hidden",background:"var(--c-surface)"}}>
+                  <img src={safeImageSrc(a)} alt="" loading="lazy"
+                    style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+                    onError={e=>{e.target.style.display="none";}}/>
+                  {ai===2 && imgs.length>3 && (
+                    <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.55)",display:"flex",
+                      alignItems:"center",justifyContent:"center",color:"#fff",fontSize:20,fontWeight:900}}>
+                      +{imgs.length-2}
                     </div>
-                  ))}
-                  {sp.total>7 && <div style={{fontSize:10,color:"var(--c-text-muted)",opacity:0.7}}>+{sp.total-7} more</div>}
+                  )}
                 </div>
-              );
-            })()}
-            {it.kind!=="event" && (
-              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
-                {r.status&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:"var(--c-text-muted)"}}>{r.status}</span>}
-                {r.priority&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:r.priority==="High"?"#ef4444":r.priority==="Low"?"#64748b":"#f59e0b"}}>{r.priority}</span>}
-                {r.pinned&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:"var(--c-accent)"}}>📌 Pinned</span>}
-                {(r.project||r.cat)&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:it.color+"22",color:it.color}}>{r.project||r.cat}</span>}
-                {r.recur&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:"var(--c-text-muted)"}}>🔁 {r.recur}</span>}
-              </div>
-            )}
-            {(it.kind==="event" ? (it.win.desc||r.note) : r.description) && (
-              <div style={{fontSize:11.5,color:"var(--c-text)",lineHeight:1.55,whiteSpace:"pre-wrap",
-                borderTop:"1px solid var(--c-border)",paddingTop:6,marginTop:2}}>
-                {it.kind==="event" ? (it.win.desc||r.note) : r.description}
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         );
       })()}
@@ -7950,7 +7909,7 @@ function TimelineTab({ personal, work, setPersonal, setWork, events=[], widgetOr
                       onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 24px ${cc}33`;e.currentTarget.style.borderColor=cc;}}
                       onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";e.currentTarget.style.borderColor=t.days===0?"#f9731688":"var(--c-border)";}}>
                       {mAttach.length>0&&(
-                        <div style={{display:"flex",gap:2,height:80,overflow:"hidden",background:"var(--c-card2)"}}>
+                        <div style={{display:"flex",gap:2,height:240,overflow:"hidden",background:"var(--c-card2)"}}>
                           {mAttach.slice(0,2).map((a,ai)=>{
                             const kind=detectAttachType(a);const src=a.type==="file"?a.data:a.url;
                             return (
@@ -9653,7 +9612,7 @@ function CalendarTab({ personal, work, setPersonal, setWork, events=[], setEvent
     const top=Math.max(y-10,10);
     return (
       <div style={{position:"fixed",left,top,zIndex:8000,background:"var(--c-card2)",border:`1px solid ${cc}55`,borderRadius:12,padding:"12px 14px",pointerEvents:"none",boxShadow:"0 12px 40px rgba(0,0,0,.85)",maxWidth:280,minWidth:200}}>
-        {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:110,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
+        {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:330,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
         {firstVid&&<div style={{width:"100%",height:70,background:"var(--c-surface)",borderRadius:8,marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><span style={{fontSize:20}}>▶️</span><span style={{fontSize:10,color:"var(--c-text-muted)"}}>{firstVid.name||"video"}</span></div>}
         {mediaAttach.length>1&&<div style={{fontSize:9,color:"var(--c-text-muted)",marginBottom:8,textAlign:"right"}}>+{mediaAttach.length-1} more media</div>}
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>
