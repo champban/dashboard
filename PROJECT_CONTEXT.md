@@ -42,14 +42,25 @@ Build cycle (run every time, in order):
 `node build/package.mjs <bundle> index.html <version>` → update
 `BUILD-MANIFEST.json` + `CHANGELOG.md`.
 
-### Toolchain the harness numbers were measured on
+### Toolchain (pinned)
 
-No `package.json` or lockfile is committed, so the toolchain is not pinned
-anywhere and has to be recorded by hand. LEN is an `innerHTML` character count
-and NODES a DOM element count, so **both move with the jsdom version** — a
-mismatch against the numbers above means "different environment" at least as
-often as it means "regression". Verify the version before treating a diff as a
-bug.
+`package.json` and `package-lock.json` are committed with exact versions, so the
+whole pipeline is one command:
+
+```
+npm ci          # exact versions from the lockfile
+npm run verify  # build -> harness -> audit -> package, in order
+```
+
+Individual steps: `npm run build`, `npm run harness`, `npm run audit`,
+`npm run package`. `npm run package` goes through `build/pipeline.mjs`, which finds
+the content-hashed bundle in `dist/assets`, calls the packager, and refreshes
+`BUILD-MANIFEST.json` — the filename changes every build so it cannot be hard-coded.
+
+LEN is an `innerHTML` character count and NODES a DOM element count, so **both move
+with the jsdom version**. That is exactly why the lockfile matters: before it, a
+mismatch against the numbers below meant "different environment" at least as often
+as "regression", and there was no way to tell which.
 
 | Tool | Version used for LEN 25127 / NODES 141 |
 |---|---|
@@ -64,8 +75,8 @@ state in this branch's history, including the untouched `src/App.jsx` snapshot
 from `main`. It was replaced rather than investigated further because the
 toolchain that produced it was never recorded.
 
-`build/check4.mjs` reads `./test-bundle.js` but nothing in the repo builds it.
-The command used was:
+`build/check4.mjs` reads `./test-bundle.js`; `npm run test-bundle` builds it (and
+`npm run harness` chains the two). The command is:
 
 ```
 npx esbuild src/main.jsx --bundle --format=iife --loader:.jsx=jsx \
@@ -73,9 +84,9 @@ npx esbuild src/main.jsx --bundle --format=iife --loader:.jsx=jsx \
   --define:process.env.NODE_ENV='"production"' --outfile=test-bundle.js
 ```
 
-Also note `vite build` must not take the repo's `index.html` as its entry — that
-file is the generated artifact. Point `build.rollupOptions.input` at a minimal
-entry HTML that loads `/src/main.jsx`.
+`vite build` must not take the repo's `index.html` as its entry — that file is the
+generated artifact. The committed `vite.config.js` points
+`build.rollupOptions.input` at `build/vite-entry.html` instead.
 
 ## Working agreement
 
