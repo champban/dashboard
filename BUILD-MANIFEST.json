@@ -1,10 +1,10 @@
 {
-  "version": "3.77.0-n104-ios-drive-file-list",
+  "version": "3.77.0",
   "date": "2026-07-24",
   "full": {
     "path": "index.html",
-    "sha256": "3bd058d574a82f29ec7219868fa5ddc75c70a2278cc3c901d493a0e91aedb30b",
-    "bytes": 730529
+    "sha256": "56c67258ff10b96d53d2d3a0070bdcef0ab8e6f97fcdfd401a0088083fdfab5d",
+    "bytes": 726877
   },
   "mobile": {
     "path": "mobile/index.html",
