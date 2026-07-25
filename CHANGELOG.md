@@ -179,6 +179,12 @@ copied byte-for-byte — small visual details may differ.
 - `build/check4.mjs` (render harness) now freezes the clock; rendered length is
   deterministic across runs (LEN 22572 / NODES 118) instead of drifting with
   relative dates and being mistaken for a regression.
+  <br>*Note added later: that figure never reproduced. It does not match any source
+  state in this branch's history, including the untouched `src/App.jsx` snapshot from
+  `main`, and the toolchain that produced it was not recorded — there was no
+  lockfile at the time. Left as written because this is a historical record. The
+  live baseline is in `PROJECT_CONTEXT.md`, alongside the pinned versions it was
+  measured on.*
 - `build/audit.py`: six-dimension audit + the standing pre-build checklist,
   corrected for nested-template-literal parsing after its first run produced
   13 phantom blockers. Current result: 0 blockers, 4 explained warnings.

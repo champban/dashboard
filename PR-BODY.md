@@ -10,6 +10,8 @@ Fixed: profile-scoped storage bug in Gantt recurring-done flow (N106 family) —
 
 Pipeline: vite + esbuild + jsdom harness (frozen clock, LEN 22572/NODES 118) + audit.py (0 blockers) + package.mjs (6 CSP hashes). Adds BUILD-MANIFEST.json and shared PROJECT_CONTEXT.md.
 
+> **Note added later.** The LEN/NODES figure above never reproduced and was superseded. This file is the body of an already-merged pull request, kept as a record, so the number is left as it was written. For the current baseline and the pinned toolchain it was measured on, see `PROJECT_CONTEXT.md`.
+
 ## Test before merge
 
 - [ ] About shows 3.77.0
