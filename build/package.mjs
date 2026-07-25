@@ -33,7 +33,13 @@ const inline = [
   { id: 'mtp-security-ui', body: read('security-ui.js') },
 ];
 
-const hashes = inline.map((s) => `'sha256-${sha256(s.body)}'`).join(' ');
+// A CSP hash must cover the element's text content exactly as it appears in the
+// document — including the newlines the <script> template puts around the body.
+// Hashing s.body alone is off by those two bytes and the browser blocks every
+// inline script, so emit and hash the same string.
+const content = (s) => `\n${s.body}\n`;
+
+const hashes = inline.map((s) => `'sha256-${sha256(content(s))}'`).join(' ');
 
 const CSP = [
   "default-src 'self'",
@@ -54,7 +60,7 @@ const CSP = [
   'upgrade-insecure-requests',
 ].join('; ');
 
-const tag = (s) => `<script id="${s.id}">\n${s.body}\n</script>`;
+const tag = (s) => `<script id="${s.id}">${content(s)}</script>`;
 
 const html = `${read('head.html').trimEnd()}
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
@@ -84,18 +90,28 @@ ${tag(inline[5])}
 
 fs.writeFileSync(outPath, html, 'utf8');
 
-// --- self-verification: every inline script must match a CSP hash ------------
+// --- self-verification ------------------------------------------------------
+// Read the emitted file back and hash what a browser would actually hash: the
+// text content of each inline <script>. Hashing our own in-memory strings would
+// pass even when the emitted document disagrees with the CSP, which is exactly
+// the bug this check exists to catch.
 let ok = true;
-for (const s of inline) {
-  if (!CSP.includes(sha256(s.body))) { console.error('CSP hash missing for', s.id); ok = false; }
-}
 const reread = fs.readFileSync(outPath, 'utf8');
+const emitted = [...reread.matchAll(/<script(?![^>]*\bsrc=)[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/script>/g)];
+
+if (emitted.length !== inline.length) {
+  console.error(`inline script count mismatch: emitted ${emitted.length}, expected ${inline.length}`);
+  ok = false;
+}
+for (const [, id, body] of emitted) {
+  if (!CSP.includes(sha256(body))) { console.error('CSP hash does not cover emitted script:', id); ok = false; }
+}
 for (const s of inline) {
   if (!reread.includes(s.body)) { console.error('body altered on write:', s.id); ok = false; }
 }
 
 console.log(`packaged ${outPath}  ${(Buffer.byteLength(html) / 1024).toFixed(1)} KB  v${version}`);
-console.log(`inline scripts: ${inline.length}   csp hashes: ${inline.length}   verify: ${ok ? 'PASS' : 'FAIL'}`);
-inline.forEach((s) => console.log(`   ${s.id.padEnd(24)} ${String(Buffer.byteLength(s.body)).padStart(8)} B  sha256-${sha256(s.body).slice(0, 12)}…`));
+console.log(`inline scripts: ${emitted.length}   csp hashes: ${inline.length}   verify: ${ok ? 'PASS' : 'FAIL'}`);
+emitted.forEach(([, id, body]) => console.log(`   ${id.padEnd(24)} ${String(Buffer.byteLength(body)).padStart(8)} B  sha256-${sha256(body).slice(0, 12)}…`));
 
 if (!ok) process.exit(1);
