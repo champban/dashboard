@@ -10358,7 +10358,25 @@ function ConfigTab({ config, onSave }) {
 
   return (
     <div style={{maxWidth:700}}>
-      <div style={{fontSize:13,fontWeight:800,color:"var(--c-text-muted)",letterSpacing:"0.08em",marginBottom:22}}>⚙️ CONFIGURATION — set all app defaults here</div>
+      <div style={{fontSize:13,fontWeight:800,color:"var(--c-text-muted)",letterSpacing:"0.08em",marginBottom:14}}>⚙️ CONFIGURATION — set all app defaults here</div>
+
+      {/* Version, stated plainly. The header wordmark is deliberately faint (N51,
+          so the app is not obvious to onlookers in public) which makes it a poor
+          place to read a build number off a phone. Settings is somewhere you open
+          on purpose, so the version can be unambiguous here. */}
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",
+        padding:"14px 16px",borderRadius:12,marginBottom:24,
+        background:"var(--c-surface)",border:"1px solid var(--c-border)"}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:800,color:"var(--c-text-muted)",letterSpacing:"0.08em",marginBottom:4}}>APP VERSION</div>
+          <div style={{fontSize:26,fontWeight:900,color:"var(--c-accent)",lineHeight:1,letterSpacing:"-0.02em"}}>v{APP_VERSION}</div>
+        </div>
+        <div style={{fontSize:11,color:"var(--c-text-muted)",lineHeight:1.6}}>
+          Built {APP_BUILD}<br/>
+          <span style={{opacity:0.8}}>If this does not match the version you expect, the browser is still
+          serving a cached copy — hard-refresh, or on iOS remove the home-screen icon and add it again.</span>
+        </div>
+      </div>
 
       {/* ── Theme ── */}
       <div style={{marginBottom:26}}>
@@ -13661,11 +13679,17 @@ export default function App() {
               <div style={{fontSize:10,color:theme.textMuted,lineHeight:1.3}}>
                 W{todayWeekNum} · {TODAY.toLocaleDateString(lang==="TH"?"th-TH":"en-GB",{day:"numeric",month:"short"})}
                 {lang==="TH"?` ${toThaiYear(TODAY.getFullYear())}` : ""}
+                {/* The version chip lives in the desktop header, which is not rendered
+                    below 1024px — so on a phone there was nowhere to read the build
+                    number, which is exactly the device where it matters most after
+                    re-adding a home-screen icon. */}
+                <span style={{marginLeft:6,fontWeight:800,color:theme.accentText,opacity:0.95}}>v{APP_VERSION}</span>
               </div>
             </div>}
 
             {isTablet&&<div style={{flex:1}}>
               <div style={{fontSize:11,color:theme.textMuted}}>
+                <span style={{fontWeight:800,color:theme.accentText,opacity:0.95,marginRight:6}}>v{APP_VERSION}</span>
                 W{todayWeekNum} · {lang==="TH"
                   ? `${TODAY.toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"long"})} ${toThaiYear(TODAY.getFullYear())}`
                   : TODAY.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}
@@ -13770,7 +13794,14 @@ export default function App() {
                   width:20,height:20,borderRadius:6,background:"#16653422",color:"#166534",fontSize:12,flexShrink:0}}>✓</span>
                 <h1 style={{margin:0,fontSize:"0.72em",fontWeight:400,color:theme.textMuted,opacity:0.42,
                   letterSpacing:"0.02em",textTransform:"lowercase"}}>my todo planner</h1>
-                <span style={{fontSize:"0.55em",fontWeight:600,opacity:0.35,padding:"2px 8px",borderRadius:20,background:theme.accent+"14",color:theme.accentText,border:`1px solid ${theme.accent}44`}}>v{APP_VERSION}</span>
+                {/* The wordmark above stays faint on purpose (N51). A bare version number
+                    identifies nothing about the app, so it is safe to make it readable —
+                    and it has to be, or there is no way to confirm what a phone is
+                    actually running. */}
+                <span title={`My Todo Planner v${APP_VERSION} · built ${APP_BUILD}`}
+                  style={{fontSize:"0.62em",fontWeight:800,opacity:0.9,padding:"2px 9px",borderRadius:20,
+                    background:theme.accent+"22",color:theme.accentText,border:`1px solid ${theme.accent}66`,
+                    userSelect:"text"}}>v{APP_VERSION}</span>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
                 <span style={{fontSize:"0.72em",fontWeight:900,padding:"2px 10px",borderRadius:20,background:theme.accent,color:"#fff",letterSpacing:"0.04em"}}>W{todayWeekNum}</span>
