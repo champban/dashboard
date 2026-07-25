@@ -142,19 +142,73 @@ const GDrive = (() => {
   let accessToken = null;
   let tokenExpiry = 0;
   let gisReady = false;
+  let gisLoadPromise = null;
 
-  const loadGIS = () => new Promise((resolve, reject) => {
+  const loadGISAttempt = (attempt) => new Promise((resolve, reject) => {
     if (window.google?.accounts?.oauth2) { gisReady = true; return resolve(); }
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    const ready = () => {
+      if (!window.google?.accounts?.oauth2) {
+        finish(reject, new Error("Google sign-in loaded incorrectly. Please reload and try again."));
+        return;
+      }
+      gisReady = true;
+      finish(resolve);
+    };
+    // N104 P2: an attempt may only remove the element IT is waiting on. Looking
+    // the id up and removing whatever comes back let a late handler from attempt 0
+    // delete attempt 1's script: attempt 0 times out at 12s and rejects, attempt 1
+    // creates a fresh script, then attempt 0's original request finally errors and
+    // its onerror removes the new element by id. Attempt 1 is then waiting on a
+    // script that is no longer in the document and can only fail by timing out —
+    // another 12s of the same silent hang this fix exists to remove.
+    // The `settled` check has to come first for the same reason: a resolved or
+    // rejected attempt must not touch the DOM at all.
+    let owned = null;
+    const failed = (message) => {
+      if (settled) return;
+      if (owned && owned === document.getElementById("gis-script")) owned.remove();
+      finish(reject, new Error(message));
+    };
+    const timer = setTimeout(() => failed("Google sign-in timed out. Check your connection and content blockers, then try again."), 12000);
     const existing = document.getElementById("gis-script");
-    if (existing) { existing.addEventListener("load", () => resolve()); return; }
+    // A script left by a timed-out/failed attempt will never emit another load
+    // event. Remove it before the one permitted retry so iOS performs a fresh
+    // request rather than waiting on a stale element.
+    if (existing && attempt > 0) existing.remove();
+    else if (existing) {
+      owned = existing;
+      existing.addEventListener("load", ready, {once:true});
+      existing.addEventListener("error", () => failed("Could not load Google sign-in. Check your connection and content blockers, then try again."), {once:true});
+      return;
+    }
     const s = document.createElement("script");
     s.id = "gis-script";
     s.src = "https://accounts.google.com/gsi/client";
     s.async = true; s.defer = true;
-    s.onload = () => { gisReady = true; resolve(); };
-    s.onerror = () => reject(new Error("Could not load Google sign-in. Check your connection."));
+    s.onload = ready;
+    s.onerror = () => failed("Could not load Google sign-in. Check your connection and content blockers, then try again.");
+    owned = s;
     document.head.appendChild(s);
   });
+
+  // Share concurrent callers and retry the GIS network load exactly once. A
+  // later explicit user action may start a new two-attempt cycle after failure.
+  const loadGIS = () => {
+    if (window.google?.accounts?.oauth2) { gisReady = true; return Promise.resolve(); }
+    if (!gisLoadPromise) {
+      gisLoadPromise = loadGISAttempt(0)
+        .catch(() => loadGISAttempt(1))
+        .finally(() => { gisLoadPromise = null; });
+    }
+    return gisLoadPromise;
+  };
 
   // Interactive sign-in (must be triggered by a user click, or the popup is blocked)
   let lastHint = null;   // remember the last account so Connect skips the chooser
@@ -192,7 +246,11 @@ const GDrive = (() => {
 
   const ensureToken = async () => {
     if (accessToken && Date.now() < tokenExpiry) return accessToken;
-    return signIn({}); // interactive if needed
+    // Drive helpers often run after the original tap has completed. Starting an
+    // OAuth popup here loses Safari's user activation and is silently blocked.
+    // Only the visible Connect/Reconnect controls may call interactive signIn.
+    accessToken = null; tokenExpiry = 0;
+    throw new Error("Google session expired — reconnect and try again.");
   };
 
   const signOut = ({forget=false}={}) => {
@@ -216,12 +274,15 @@ const GDrive = (() => {
 
   // ── Drive REST helpers ─────────────────────────────────────────────────────
   const api = async (path, opts={}) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new Error("You are offline. Reconnect to the internet and try Google Drive again.");
+    }
     const tok = await ensureToken();
     const res = await fetch(`https://www.googleapis.com/${path}`, {
       ...opts,
       headers: { Authorization: `Bearer ${tok}`, ...(opts.headers||{}) },
     });
-    if (res.status === 401) { accessToken=null; throw new Error("Google session expired — please reconnect."); }
+    if (res.status === 401) { accessToken=null; tokenExpiry=0; throw new Error("Google session expired — reconnect and try again."); }
     if (!res.ok) throw new Error(`Drive error ${res.status}: ${await res.text().catch(()=> "")}`.slice(0,140));
     return res;
   };
@@ -2845,7 +2906,8 @@ function MediaCardStrip({ attachments, onLightbox }) {
   return (
     <div style={{
       display:"flex",gap:2,marginTop:8,marginBottom:2,
-      height: media.length===1?100:70,
+      // 3x taller than the original 100/70 — the strip was too small to read at a glance
+      height: media.length===1?300:210,
       borderRadius:6,overflow:"hidden",background:"var(--c-card2)",
     }}>
       {media.slice(0,3).map((a,ai)=>{
@@ -3081,7 +3143,7 @@ function GanttTooltip({ t, x, y, isWork }) {
   const firstVid=!firstImg&&mediaAttach.find(a=>detectAttachType(a)==="video");
   return (
     <div style={{position:"fixed",left:Math.min(x+14,window.innerWidth-300),top:Math.max(y-20,10),zIndex:9000,background:"var(--c-card2)",border:`1px solid ${cc}55`,borderRadius:12,padding:"12px 14px",pointerEvents:"none",boxShadow:"0 12px 40px rgba(0,0,0,.8)",maxWidth:280,minWidth:200}}>
-      {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:120,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
+      {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:360,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
       {firstVid&&<div style={{width:"100%",height:80,background:"var(--c-surface)",borderRadius:8,marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4}}><span style={{fontSize:24}}>▶️</span><span style={{fontSize:10,color:"var(--c-text-muted)"}}>{firstVid.name||firstVid.label||"video"}</span></div>}
       {mediaAttach.length>1&&<div style={{fontSize:9,color:"var(--c-text-muted)",marginBottom:8,textAlign:"right"}}>+{mediaAttach.length-1} more media</div>}
       <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}><Chip color={cc}>{t.cat}</Chip><span style={{fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:20,background:pc.bg,color:pc.color}}>{t.priority||"Medium"}</span>{isWork&&<span style={{fontSize:9,background:"#818cf822",color:"#818cf8",borderRadius:3,padding:"1px 4px",fontWeight:700}}>Work</span>}</div>
@@ -3599,6 +3661,13 @@ function GanttTab({ personal, work, setPersonal, setWork, events=[], setEvents, 
           <div style={{fontSize:10.5,color:"var(--c-text-muted)",fontWeight:700,marginBottom:hoverEv.w.desc?5:0}}>
             📅 {hoverEv.w.start}{hoverEv.w.end&&hoverEv.w.end!==hoverEv.w.start?` → ${hoverEv.w.end}`:""}
           </div>
+          {/* N97-Gantt: the bar only has room for a pin, so the full place name goes
+              here. windowLoc keeps this per-window rather than per-event. */}
+          {(()=>{ const hl = windowLoc(hoverEv.ev, hoverEv.w); return hl ? (
+            <div style={{marginBottom:hoverEv.w.desc?5:0}}>
+              <PlacePin loc={hl} size={11}/>
+            </div>
+          ) : null; })()}
           {hoverEv.w.desc
             ? <div style={{fontSize:11.5,color:"var(--c-text)",lineHeight:1.55,whiteSpace:"pre-wrap"}}>{hoverEv.w.desc}</div>
             : (hoverEv.ev.note
@@ -3829,8 +3898,17 @@ function GanttTab({ personal, work, setPersonal, setWork, events=[], setEvents, 
                       {setEvents&&<span style={{fontSize:9,opacity:0.5,marginLeft:"auto",flexShrink:0}}>✏️</span>}
                     </div>
                     <div style={{flex:1,position:"relative",height:"100%"}}>
-                      {bars.map((b,bi)=>(
-                        <div key={bi}
+                      {bars.map((b,bi)=>{
+                        // N97-Gantt: the place for THIS window. It cannot be rendered
+                        // inside the bar — bars carry minWidth:6 and overflow:hidden, so
+                        // at a wide zoom a pin inside would simply be clipped away. That
+                        // is why this item sat deferred. The pin goes beside the bar
+                        // instead, as a sibling in the same relative container.
+                        const loc = windowLoc(ev, b.w);
+                        const flipPin = (b.left + b.width) > 82;
+                        return (
+                        <React.Fragment key={bi}>
+                        <div
                           onClick={()=>setEvents&&setEditingEvent(ev)}
                           onMouseEnter={e=>setHoverEv({ev,w:b.w,idx:bi+1,total:bars.length,x:e.clientX,y:e.clientY})}
                           onMouseMove={e=>setHoverEv(h=>h?{...h,x:e.clientX,y:e.clientY}:h)}
@@ -3849,7 +3927,31 @@ function GanttTab({ personal, work, setPersonal, setWork, events=[], setEvents, 
                             </span>
                           </>)}
                         </div>
-                      ))}
+                        {loc && (
+                          <div style={{position:"absolute",left:`${flipPin?b.left:b.left+b.width}%`,top:"50%",
+                            transform:flipPin?"translate(-100%,-50%)":"translateY(-50%)",
+                            paddingLeft:flipPin?0:6,paddingRight:flipPin?6:0,
+                            display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
+                            pointerEvents:"none",zIndex:2}}>
+                            <span style={{pointerEvents:"auto"}}>
+                              <PlacePin loc={loc} size={Math.max(8,gFS-2)}/>
+                            </span>
+                            {/* Same composition as the Timeline label: place name AND the
+                                window's date range. The dates also appear inside the bar
+                                when barLines is on, but that copy is clipped as soon as the
+                                bar narrows — which is the case this label exists for. */}
+                            <span style={{fontSize:Math.max(7,gFS-3),fontFamily:gFF,fontWeight:700,
+                              color:"var(--c-text-muted)",opacity:0.9}}>
+                              {new Date(b.w.start).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}
+                              {b.w.end&&b.w.end!==b.w.start
+                                ? ` → ${new Date(b.w.end).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}`
+                                : ""}
+                            </span>
+                          </div>
+                        )}
+                        </React.Fragment>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -6011,7 +6113,11 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
   // what to plot
   const [showMilestones, setShowMilestones] = useState(true);
   const [showTasks, setShowTasks]           = useState(false);
-  const [showEvents, setShowEvents]         = useState(false);
+  // Events on by default, matching the Gantt, which has always shown its event rows
+  // without asking. With this off, event bars were absent from the Timeline until the
+  // user found the toggle — and so were their N97 place labels, which made a shipped
+  // feature look missing. Saved Timeline views still override this via applyTlView.
+  const [showEvents, setShowEvents]         = useState(true);
   // task filters (mirror the Gantt page)
   const [tStatus, setTStatus]   = useState("active");   // active | all | done
   const [tSource, setTSource]   = useState("all");      // all | personal | work
@@ -6980,9 +7086,14 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
                                   {it.high&&<span title="High priority" style={{fontSize:Math.max(7,tFS-4),fontWeight:900,color:"#fff",
                                     background:"#ef4444",borderRadius:4,padding:"0 4px",marginRight:5}}>HIGH</span>}
                                   {it.title}
-                                  {it.attachments&&it.attachments.length>0 && (
+                                  {/* N97-fix2: the pin used to be nested inside this
+                                      attachments check, so an event with a place but no
+                                      attachment showed no pin at all. The two are
+                                      independent. */}
+                                  {((it.attachments&&it.attachments.length>0) || it.location) && (
                                     <span style={{marginLeft:5}}>
-                                      <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-2)}/>{it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-3)}/>}
+                                      {it.attachments&&it.attachments.length>0 && <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-2)}/>}
+                                      {it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-3)}/>}
                                     </span>
                                   )}
                                 </div>
@@ -7080,9 +7191,12 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
                               {it.high&&<span title="High priority" style={{fontSize:Math.max(7,tFS-4),fontWeight:900,color:"#fff",
                                 background:"#ef4444",borderRadius:4,padding:"0 4px",marginRight:5}}>HIGH</span>}
                               {it.kind==="event"?"📅 ":it._type==="work"?"💼 ":"🏠 "}{it.title}
-                              {it.attachments&&it.attachments.length>0 && (
+                              {/* N97-fix2: pin no longer requires an attachment — see the
+                                  matching note on the compact bar above. */}
+                              {((it.attachments&&it.attachments.length>0) || it.location) && (
                                 <span style={{marginLeft:6}}>
-                                  <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-1)} dark/>{it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-2)} dark/>}
+                                  {it.attachments&&it.attachments.length>0 && <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-1)} dark/>}
+                                  {it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-2)} dark/>}
                                 </span>
                               )}
                             </span>
@@ -7112,6 +7226,35 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
                               })()}
                             </>)}
                           </div>
+                          {/* N97-fix2: place name + date range as a label OUTSIDE the bar.
+                              The bar is overflow:hidden and at a zoomed-out range can be a
+                              few pixels wide, so anything rendered inside it disappears
+                              exactly when the user most needs to know where and when.
+                              This floats past the bar's edge instead, so it stays readable
+                              at any width. pointerEvents:none except on the pin itself, or
+                              the label would swallow the resize handles and the drag
+                              surface it sits over. Near the right edge it flips to the
+                              other side of the bar rather than running off the chart. */}
+                          {it.location && (()=>{
+                            const flip = r > 82;
+                            return (
+                              <div style={{position:"absolute",left:`${flip?l:r}%`,top,height:LANE_H-BAR_PAD,
+                                transform:flip?"translateX(-100%)":"none",
+                                display:"flex",alignItems:"center",gap:5,
+                                paddingLeft:flip?0:7,paddingRight:flip?7:0,
+                                zIndex:zTop+1,pointerEvents:"none",whiteSpace:"nowrap"}}>
+                                <span style={{pointerEvents:"auto"}}>
+                                  <PlacePin loc={it.location} size={Math.max(8,tFS-3)}/>
+                                </span>
+                                <span style={{fontSize:Math.max(7,tFS-4),fontWeight:700,
+                                  color:"var(--c-text-muted)",opacity:0.9}}>
+                                  {new Date(it.at).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}
+                                  {" → "}
+                                  {new Date(it.end).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -7142,83 +7285,41 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
         </div>
       )}
 
-      {/* N53: hover tooltip — full details for any item on the timeline */}
+      {/* Hover shows the attached images and nothing else. Repeating the bar's own
+          title, dates and countdown here was noise — the bar already carries them and
+          the panel has the rest. If an item has no attached image there is nothing
+          worth showing, so no tooltip appears at all. */}
       {hoverItem && (()=>{
-        const it=hoverItem.it, r=it.raw;
-        const dt=(ms)=>new Date(ms).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+        const it = hoverItem.it;
+        // Read from it.raw, not the timeline item: milestone items are built without
+        // an `attachments` field, so asking the item directly finds nothing for
+        // exactly the rows most likely to carry a photo. it.raw is always the
+        // underlying task or event and always carries them.
+        const imgs = taskImages(it.raw);        // sanitised images this item owns
+        if (!imgs.length) return null;          // nothing attached — show nothing
+        const many = imgs.length > 1;
+        const W = many ? 460 : 380;
         return (
-          <div style={{position:"fixed",left:Math.min(hoverItem.x+14,(typeof window!=="undefined"?window.innerWidth:1200)-310),
-            top:hoverItem.y+16,zIndex:9500,pointerEvents:"none",maxWidth:300,
-            background:"var(--c-card2)",border:`1.5px solid ${it.color}`,borderRadius:11,padding:"10px 13px",
-            boxShadow:"0 12px 34px rgba(0,0,0,.38)"}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-              <span style={{width:9,height:9,borderRadius:"50%",background:it.color,flexShrink:0}}/>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--c-text)"}}>{it.title}</span>
-            </div>
-            {it.overdue && (
-              <div style={{fontSize:10,fontWeight:900,color:"#fff",background:"#dc2626",borderRadius:5,
-                padding:"2px 7px",display:"inline-block",marginBottom:6,letterSpacing:"0.04em"}}>⚠ OVERDUE</div>
-            )}
-            <div style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.06em",color:"var(--c-text-muted)",marginBottom:6}}>
-              {it.kind==="milestone"?"MILESTONE":it.kind==="event"?"EVENT":(it._type==="work"?"WORK TASK":"PERSONAL TASK")}
-              {it.kind==="event"&&it.winTotal>1?` · WINDOW ${it.winIdx}/${it.winTotal}`:""}
-            </div>
-            <div style={{fontSize:11,color:"var(--c-text-muted)",fontWeight:700,marginBottom:5}}>
-              📅 {dt(it.at)}{it.span?` → ${dt(it.end)}`:""} · W{isoWeekNum(new Date(it.at))}
-              {it.span?<span style={{marginLeft:6,color:"var(--c-text)"}}>({Math.max(1,Math.round((it.end-it.at)/86400000))}d)</span>:null}
-            </div>
-            {/* N62: how far away is this from today? */}
-            {(()=>{
-              const cd = countdownOf(it.span ? it.end : it.at);
-              return (
-                <div style={{fontSize:11,fontWeight:800,color:cd.color,marginBottom:6,
-                  background:cd.color+"18",border:`1px solid ${cd.color}44`,borderRadius:7,padding:"3px 8px",display:"inline-block"}}>
-                  ⏳ {cd.long}{cd.days!==0?` (${cd.abs} day${cd.abs!==1?"s":""})`:""}
-                </div>
-              );
-            })()}
-            {/* N89: attachments (click an icon to open) */}
-            {it.attachments&&it.attachments.length>0 && (
-              <div style={{display:"flex",gap:6,alignItems:"center",margin:"2px 0 6px"}}>
-                <span style={{fontSize:10,fontWeight:800,color:"var(--c-text-muted)"}}>ATTACHMENTS</span>
-                <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={14}/>{it.location&&<PlacePin loc={it.location} size={12}/>}
-              </div>
-            )}
-            {/* N73: full subtask list with status */}
-            {(()=>{ const sp=subsOf(it); if(!sp) return null;
-              return (
-                <div style={{borderTop:"1px solid var(--c-border)",paddingTop:6,marginTop:2,marginBottom:4}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                    <span style={{fontSize:10,fontWeight:800,color:"var(--c-text-muted)"}}>☑ {sp.done}/{sp.total} SUBTASKS</span>
-                    <span style={{flex:1,height:4,borderRadius:2,background:"var(--c-surface2)",overflow:"hidden"}}>
-                      <span style={{display:"block",height:"100%",width:`${(sp.done/sp.total)*100}%`,background:it.color}}/>
-                    </span>
-                  </div>
-                  {sp.subs.slice(0,7).map((s,i2)=>(
-                    <div key={i2} style={{fontSize:11,lineHeight:1.5,color:s.done?"var(--c-text-muted)":"var(--c-text)",
-                      textDecoration:s.done?"line-through":"none",opacity:s.done?0.65:1}}>
-                      {s.done?"✓":"☐"} {s.text||s.title}
+          <div style={{position:"fixed",
+            left:Math.min(hoverItem.x+14,(typeof window!=="undefined"?window.innerWidth:1200)-(W+16)),
+            top:hoverItem.y+16,zIndex:9500,pointerEvents:"none",width:W,
+            background:"var(--c-card2)",border:`1.5px solid ${it.color}`,borderRadius:11,
+            padding:5,boxShadow:"0 12px 34px rgba(0,0,0,.38)"}}>
+            <div style={{display:"flex",gap:4,height:many?200:290,borderRadius:7,overflow:"hidden"}}>
+              {imgs.slice(0,3).map((a,ai)=>(
+                <div key={a.id||ai} style={{flex:1,position:"relative",overflow:"hidden",background:"var(--c-surface)"}}>
+                  <img src={safeImageSrc(a)} alt="" loading="lazy"
+                    style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+                    onError={e=>{e.target.style.display="none";}}/>
+                  {ai===2 && imgs.length>3 && (
+                    <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.55)",display:"flex",
+                      alignItems:"center",justifyContent:"center",color:"#fff",fontSize:20,fontWeight:900}}>
+                      +{imgs.length-2}
                     </div>
-                  ))}
-                  {sp.total>7 && <div style={{fontSize:10,color:"var(--c-text-muted)",opacity:0.7}}>+{sp.total-7} more</div>}
+                  )}
                 </div>
-              );
-            })()}
-            {it.kind!=="event" && (
-              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
-                {r.status&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:"var(--c-text-muted)"}}>{r.status}</span>}
-                {r.priority&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:r.priority==="High"?"#ef4444":r.priority==="Low"?"#64748b":"#f59e0b"}}>{r.priority}</span>}
-                {r.pinned&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:"var(--c-accent)"}}>📌 Pinned</span>}
-                {(r.project||r.cat)&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:it.color+"22",color:it.color}}>{r.project||r.cat}</span>}
-                {r.recur&&<span style={{fontSize:10,fontWeight:700,borderRadius:5,padding:"1px 7px",background:"var(--c-surface2)",color:"var(--c-text-muted)"}}>🔁 {r.recur}</span>}
-              </div>
-            )}
-            {(it.kind==="event" ? (it.win.desc||r.note) : r.description) && (
-              <div style={{fontSize:11.5,color:"var(--c-text)",lineHeight:1.55,whiteSpace:"pre-wrap",
-                borderTop:"1px solid var(--c-border)",paddingTop:6,marginTop:2}}>
-                {it.kind==="event" ? (it.win.desc||r.note) : r.description}
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         );
       })()}
@@ -7812,7 +7913,7 @@ function TimelineTab({ personal, work, setPersonal, setWork, events=[], widgetOr
                       onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 24px ${cc}33`;e.currentTarget.style.borderColor=cc;}}
                       onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";e.currentTarget.style.borderColor=t.days===0?"#f9731688":"var(--c-border)";}}>
                       {mAttach.length>0&&(
-                        <div style={{display:"flex",gap:2,height:80,overflow:"hidden",background:"var(--c-card2)"}}>
+                        <div style={{display:"flex",gap:2,height:240,overflow:"hidden",background:"var(--c-card2)"}}>
                           {mAttach.slice(0,2).map((a,ai)=>{
                             const kind=detectAttachType(a);const src=a.type==="file"?a.data:a.url;
                             return (
@@ -9515,7 +9616,7 @@ function CalendarTab({ personal, work, setPersonal, setWork, events=[], setEvent
     const top=Math.max(y-10,10);
     return (
       <div style={{position:"fixed",left,top,zIndex:8000,background:"var(--c-card2)",border:`1px solid ${cc}55`,borderRadius:12,padding:"12px 14px",pointerEvents:"none",boxShadow:"0 12px 40px rgba(0,0,0,.85)",maxWidth:280,minWidth:200}}>
-        {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:110,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
+        {firstImg&&<img src={safeImageSrc(firstImg)} alt="" style={{width:"100%",height:330,objectFit:"cover",borderRadius:8,marginBottom:10,display:"block"}} onError={e=>{e.target.style.display="none";}}/>}
         {firstVid&&<div style={{width:"100%",height:70,background:"var(--c-surface)",borderRadius:8,marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><span style={{fontSize:20}}>▶️</span><span style={{fontSize:10,color:"var(--c-text-muted)"}}>{firstVid.name||"video"}</span></div>}
         {mediaAttach.length>1&&<div style={{fontSize:9,color:"var(--c-text-muted)",marginBottom:8,textAlign:"right"}}>+{mediaAttach.length-1} more media</div>}
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>
@@ -10261,7 +10362,25 @@ function ConfigTab({ config, onSave }) {
 
   return (
     <div style={{maxWidth:700}}>
-      <div style={{fontSize:13,fontWeight:800,color:"var(--c-text-muted)",letterSpacing:"0.08em",marginBottom:22}}>⚙️ CONFIGURATION — set all app defaults here</div>
+      <div style={{fontSize:13,fontWeight:800,color:"var(--c-text-muted)",letterSpacing:"0.08em",marginBottom:14}}>⚙️ CONFIGURATION — set all app defaults here</div>
+
+      {/* Version, stated plainly. The header wordmark is deliberately faint (N51,
+          so the app is not obvious to onlookers in public) which makes it a poor
+          place to read a build number off a phone. Settings is somewhere you open
+          on purpose, so the version can be unambiguous here. */}
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",
+        padding:"14px 16px",borderRadius:12,marginBottom:24,
+        background:"var(--c-surface)",border:"1px solid var(--c-border)"}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:800,color:"var(--c-text-muted)",letterSpacing:"0.08em",marginBottom:4}}>APP VERSION</div>
+          <div style={{fontSize:26,fontWeight:900,color:"var(--c-accent)",lineHeight:1,letterSpacing:"-0.02em"}}>v{APP_VERSION}</div>
+        </div>
+        <div style={{fontSize:11,color:"var(--c-text-muted)",lineHeight:1.6}}>
+          Built {APP_BUILD}<br/>
+          <span style={{opacity:0.8}}>If this does not match the version you expect, the browser is still
+          serving a cached copy — hard-refresh, or on iOS remove the home-screen icon and add it again.</span>
+        </div>
+      </div>
 
       {/* ── Theme ── */}
       <div style={{marginBottom:26}}>
@@ -10974,13 +11093,14 @@ function RecurringDoneModal({ task, onConfirmAndSave, onMarkDoneOnly, onCancel }
 // everything from one place: link/relink/rename files, open the Drive location,
 // toggle auto-sync, push/pull now, and watch live status.
 function SyncPanel({
-  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto,
+  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote,
   onConnect, onDisconnect, onSyncNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
 }) {
   const [pos, setPos] = React.useState(()=>({ x: Math.max(12, window.innerWidth - 372), y: 76 }));
   const [busy, setBusy] = React.useState(false);
   const [files, setFiles] = React.useState(null);
+  const [listError, setListError] = React.useState("");
   const [renaming, setRenaming] = React.useState(false);
   const [nameDraft, setNameDraft] = React.useState("");
   const linked = !!gsync?.fileId;
@@ -11003,6 +11123,11 @@ function SyncPanel({
     document.addEventListener("touchmove",move,{passive:false}); document.addEventListener("touchend",up);
   };
 
+  // The age was computed once per render with nothing to trigger another, so an
+  // open panel kept showing whatever it said when it opened. Tick it.
+  const [, tick] = React.useState(0);
+  React.useEffect(()=>{ const t=setInterval(()=>tick(n=>n+1), 15000); return ()=>clearInterval(t); },[]);
+
   const relTime = (ms) => {
     if(!ms) return "never";
     const s=Math.floor((Date.now()-ms)/1000);
@@ -11018,8 +11143,30 @@ function SyncPanel({
                     : (online&&linked)?`Synced · ${relTime(gsync.lastSyncAt)}`
                     : linked?"Linked — not connected":"Not connected";
 
-  const doConnect = async()=>{ setBusy(true); await onConnect(); setBusy(false); };
-  const loadList  = async()=>{ setBusy(true); try{ setFiles(await listFiles()); }catch{} setBusy(false); };
+  const doConnect = async()=>{
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) setListError("Google Drive reconnection was cancelled or failed. Tap Reconnect to try again.");
+      return !!ok;
+    } catch(e) { setListError(e?.message || "Could not reconnect Google Drive."); return false; }
+    finally { setBusy(false); }
+  };
+  const reconnectAndReload = async()=>{
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) throw new Error("Google Drive reconnection was cancelled or failed. Tap Reconnect to try again.");
+      setFiles(await listFiles());
+    } catch(e) { setFiles(null); setListError(e?.message || "Could not reconnect Google Drive."); }
+    finally { setBusy(false); }
+  };
+  const loadList  = async()=>{
+    setBusy(true); setListError("");
+    try { setFiles(await listFiles()); }
+    catch(e) { setFiles(null); setListError(e?.message || "Could not load files from Google Drive."); }
+    finally { setBusy(false); }
+  };
   const pick      = async(f)=>{ await onRelink(f.id,f.name); setFiles(null); };
   const createNew = async()=>{ setBusy(true); await onPushNow(); setBusy(false); };
   const openDrive = ()=>{ onOpenFolder && onOpenFolder(); };
@@ -11117,6 +11264,13 @@ function SyncPanel({
                   ))}
                 </div>
               )}
+              {listError && (
+                <div role="alert" style={{marginTop:8,fontSize:10.5,color:"#fca5a5",background:"#7f1d1d22",border:"1px solid #7f1d1d55",borderRadius:7,padding:"7px 9px"}}>
+                  ⚠️ {listError}
+                  <button onClick={reconnectAndReload} disabled={busy} style={{marginLeft:7,...smallBtn("#1a73e8","#fff")}}>Reconnect Google Drive</button>
+                </div>
+              )}
+              {files?.length===0 && <div style={{marginTop:7,fontSize:10,color:"var(--c-text-muted)",lineHeight:1.45}}>With Google’s <code>drive.file</code> permission, only JSON files created by or previously opened with My Todo Planner can appear here. Create a new sync file if your other Drive files are not listed.</div>}
             </div>
 
             {/* LOCAL SIDE */}
@@ -11138,6 +11292,20 @@ function SyncPanel({
                     animation:(busy||gsyncStatus==="syncing")?"spin 0.9s linear infinite":"none"}}>🔄</span>
                   {(busy||gsyncStatus==="syncing")?"Syncing…":"Save to Cloud"}
                 </button>
+                {/* What the last sync actually did. "Synced · 25 min ago" on its own
+                    could not tell a fresh upload from a no-op from a failure, so a
+                    successful save was indistinguishable from nothing happening. */}
+                {gsyncNote && (
+                  <div style={{marginTop:7,fontSize:11,fontWeight:700,lineHeight:1.45,
+                    borderRadius:8,padding:"6px 9px",
+                    background: gsyncNote.kind==="error" ? "#7f1d1d22" : gsyncNote.kind==="later" ? "#78350f22" : "#14532d22",
+                    border: `1px solid ${gsyncNote.kind==="error" ? "#7f1d1d66" : gsyncNote.kind==="later" ? "#78350f66" : "#14532d66"}`,
+                    color: gsyncNote.kind==="error" ? "#fca5a5" : gsyncNote.kind==="later" ? "#fcd34d" : "#86efac"}}>
+                    {gsyncNote.kind==="error" ? "⚠️ " : gsyncNote.kind==="later" ? "⏸ " : gsyncNote.kind==="pulled" ? "⬇️ " : gsyncNote.kind==="nochange" ? "✓ " : "✅ "}
+                    {gsyncNote.text}
+                    <span style={{opacity:0.75,fontWeight:600}}> · {relTime(gsyncNote.at)}</span>
+                  </div>
+                )}
                 {/* auto toggle */}
                 <div style={{...box,display:"flex",alignItems:"center",gap:9,marginBottom:9}}>
                   <div style={{flex:1}}>
@@ -11166,6 +11334,7 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
                           onConnect, onDisconnect, onPushNow, onPullNow, onLinkFile, listFiles }) {
   const [busy, setBusy] = React.useState(false);
   const [files, setFiles] = React.useState(null); // null = not loaded, [] = loaded empty
+  const [listError, setListError] = React.useState("");
   const linked = !!gsync?.fileId;
   const lastSync = gsync?.lastSyncAt ? new Date(gsync.lastSyncAt) : null;
 
@@ -11178,12 +11347,29 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
     return d.toLocaleDateString();
   };
 
-  const doConnect = async () => { setBusy(true); await onConnect(); setBusy(false); };
+  const doConnect = async () => {
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) setListError("Google Drive connection was cancelled or failed. Tap Connect to try again.");
+      return !!ok;
+    } catch(e) { setListError(e?.message || "Could not connect Google Drive."); return false; }
+    finally { setBusy(false); }
+  };
+  const reconnectAndReload = async () => {
+    setBusy(true); setListError("");
+    try {
+      const ok = await onConnect();
+      if (!ok) throw new Error("Google Drive reconnection was cancelled or failed. Tap Reconnect to try again.");
+      setFiles(await listFiles());
+    } catch(e) { setFiles(null); setListError(e?.message || "Could not reconnect Google Drive."); }
+    finally { setBusy(false); }
+  };
   const doPickFile = async () => {
-    setBusy(true);
+    setBusy(true); setListError("");
     try { const list = await listFiles(); setFiles(list); }
-    catch(e){ /* surfaced via status */ }
-    setBusy(false);
+    catch(e){ setFiles(null); setListError(e?.message || "Could not load files from Google Drive."); }
+    finally { setBusy(false); }
   };
   const chooseFile = async (f) => { await onLinkFile(f.id, f.name); setFiles(null); };
   const startFresh = async () => { setBusy(true); await onPushNow(); setBusy(false); };
@@ -11263,6 +11449,12 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
                   color:"var(--c-text)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                 📂 Link an existing file
               </button>
+              {listError && (
+                <div role="alert" style={{marginTop:10,fontSize:11.5,color:"#fca5a5",background:"#7f1d1d22",border:"1px solid #7f1d1d55",borderRadius:8,padding:"8px 11px"}}>
+                  ⚠️ {listError}
+                  <button onClick={reconnectAndReload} disabled={busy} style={{marginLeft:8,padding:"5px 8px",border:0,borderRadius:6,background:"#1a73e8",color:"#fff",fontWeight:800,cursor:"pointer"}}>Reconnect Google Drive</button>
+                </div>
+              )}
               {files && (
                 <div style={{marginTop:12,border:"1px solid var(--c-border)",borderRadius:9,overflow:"hidden"}}>
                   {files.length===0 && <div style={{padding:"12px",fontSize:12,color:"var(--c-text-muted)",textAlign:"center"}}>No .json files found on Drive yet.</div>}
@@ -11276,6 +11468,7 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
                   ))}
                 </div>
               )}
+              {files?.length===0 && <div style={{marginTop:9,fontSize:11,color:"var(--c-text-muted)",lineHeight:1.5}}>Google’s <code>drive.file</code> permission only shows JSON files created by or previously opened with My Todo Planner. If an existing Drive file is missing, create a new sync file here.</div>}
             </>
           ) : (
             <>
@@ -11478,6 +11671,11 @@ export default function App() {
   const splitKindRef  = useRef(null);
   const [quickAddText, setQuickAddText] = useState("");     // B3: natural-language quick add
   const [floatNoteId, setFloatNoteId] = useState(null);   // N32: id of the open floating note (null=closed)
+  // N107: draft event for the main-view quick-add. Notes already had a main-view
+  // launcher (the 📌 button); events only had one inside Calendar, Gantt and
+  // Timeline, so on a phone there was no way to add an event without first
+  // navigating into a tab and finding the affordance there.
+  const [quickEvent, setQuickEvent] = useState(null);
   const [floatPin, setFloatPin]      = useState(true);      // N30: keep panel on top within app
   const [mentionTarget, setMentionTarget] = useState(null); // N33: pending navigation target from a clicked @mention
   const [fabType, setFabType]        = useState(null);      // "personal" | "work"
@@ -11512,6 +11710,15 @@ export default function App() {
   const [gsyncStatus, setGsyncStatus] = useState("idle"); // idle | syncing | synced | error | offline
   const [gsyncError, setGsyncError] = useState("");
   const [gsyncConflict, setGsyncConflict] = useState(null); // {cloudText, cloudModified}
+  // What the last sync actually DID, so pressing "Save to Cloud" always produces a
+  // visible answer. "Synced · 25 min ago" alone could not distinguish a fresh
+  // upload from a no-op from a silent failure, which is why a successful save
+  // looked identical to nothing happening. {kind, text, at}
+  const [gsyncNote, setGsyncNote] = useState(null);
+  // Cloud moved but local did not. This used to pull and overwrite the screen with
+  // no prompt at all; the user now chooses. {cloudModified, cloudText}
+  const [gsyncCloudAhead, setGsyncCloudAhead] = useState(null);
+  const note = (kind, text) => setGsyncNote({ kind, text, at: Date.now() });
   const [importConflict, setImportConflict] = useState(null); // N107: {parsed, fileName, handle, cloud:{payload,modifiedTime}}
   const [gsyncAuto, setGsyncAuto] = useState(true);      // auto-push on edits
   const [gsyncPanel, setGsyncPanel] = useState(false);   // floating panel open
@@ -12016,7 +12223,8 @@ export default function App() {
         localName: gsync.localName || meta.name,   // keep both sides on the same name
         lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"" });
       setGsyncStatus("synced"); setGsyncError("");
-    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); }
+      if(!silent) note("saved","Saved to cloud");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
     finally { gsyncBusy.current = false; }
   };
 
@@ -12121,23 +12329,58 @@ export default function App() {
         });
         setGsyncStatus("idle");
       } else if (cloudChanged) {
-        // Only the cloud moved — safe to pull, nothing local to lose.
+        // Only the cloud moved — another device saved. This used to download and
+        // apply immediately, so the screen changed under the user with no warning
+        // and no way to decline. Ask instead: update now, decide later, or keep
+        // this device's copy. "Later" deliberately leaves lastCloudModified alone
+        // so the next sync raises it again rather than forgetting.
         const text = await GDrive.download(gsync.fileId);
-        await applyPayloadLive(JSON.parse(text));
-        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "" });
-        setGsyncStatus("synced");
+        setGsyncCloudAhead({ cloudModified: meta.modifiedTime || "", cloudText: text });
+        setGsyncStatus("idle");
       } else if (localChanged) {
         // Only local moved — safe to push, nothing cloud-side to lose.
         const content = JSON.stringify(buildSavePayload(), null, 2);
         const updated = await GDrive.updateFile(gsync.fileId, content);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "" });
-        setGsyncStatus("synced");
+        setGsyncStatus("synced"); note("saved","Saved to cloud");
       } else {
-        // Nothing changed on either side.
-        setGsyncStatus("synced");
+        // Nothing changed on either side. Still stamp lastSyncAt: the check really
+        // did just happen and confirmed both copies agree. Leaving it untouched is
+        // what made a successful "Save to Cloud" look like nothing happened — the
+        // panel kept showing the age of the previous upload.
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || gsync.lastCloudModified || "" });
+        setGsyncStatus("synced"); note("nochange","Already up to date — nothing to upload");
       }
-    } catch (e) { setGsyncStatus("error"); setGsyncError(e.message || "Sync failed"); }
+    } catch (e) { setGsyncStatus("error"); setGsyncError(e.message || "Sync failed"); note("error", e.message || "Sync failed"); }
     finally { gsyncBusy.current = false; }
+  };
+
+  // The three answers to "another device saved" (gsyncCloudAhead).
+  const cloudAheadUpdate = async () => {
+    const c = gsyncCloudAhead; if(!c) return;
+    setGsyncCloudAhead(null); setGsyncStatus("syncing");
+    try {
+      await applyPayloadLive(JSON.parse(c.cloudText));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified });
+      setGsyncStatus("synced"); note("pulled","Updated from cloud");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Update failed"); note("error", e.message||"Update failed"); }
+  };
+  // Later: keep this device untouched and do NOT record the cloud version, so the
+  // next sync asks again instead of quietly forgetting the change.
+  const cloudAheadLater = () => {
+    setGsyncCloudAhead(null); setGsyncStatus("idle");
+    note("later","Kept this device — cloud change still pending");
+  };
+  // Keep mine: overwrite the cloud with this device's copy. Discards the other
+  // device's change, so it is the destructive answer and is styled as such.
+  const cloudAheadKeepMine = async () => {
+    setGsyncCloudAhead(null); setGsyncStatus("syncing");
+    try {
+      const content = JSON.stringify(buildSavePayload(), null, 2);
+      const updated = await GDrive.updateFile(gsync.fileId, content);
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"" });
+      setGsyncStatus("synced"); note("saved","Cloud replaced with this device's copy");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed"); }
   };
 
   const gsyncAcceptCloud = async () => {
@@ -13045,7 +13288,11 @@ export default function App() {
   const fontScale = (fontSize||14) / 14;
   return (
     <div data-fontscale={fontSize} style={{
-      minHeight:"100vh", minHeight:"100dvh",
+      // 100dvh only. This was `minHeight:"100vh", minHeight:"100dvh"` — the CSS
+      // fallback idiom, which does not work in a JS object: the later key simply
+      // wins, so the 100vh was dead and vite warned on every build. Anything that
+      // needs a real fallback has to go through CSS, not a style object.
+      minHeight:"100dvh",
       background:theme.bg, color:theme.text, fontFamily:fontFamily,
       fontSize: isMobile ? Math.max(13,fontSize-1) : isTablet ? Math.max(13,fontSize) : fontSize,
       paddingBottom: isCompact ? 80 : 48,
@@ -13155,6 +13402,34 @@ export default function App() {
             border:"none",background:"#6366f1",color:"#fff",fontSize:20,cursor:"pointer",
             boxShadow:"0 6px 20px rgba(99,102,241,.5)"}}>📌</button>
       )}
+
+      {/* N107: main-view quick-add for an event, sitting above the note launcher.
+          Opens the same EventModal the tabs use, so time windows, type, colour and
+          per-window location all behave identically — there is no second event
+          editor to keep in step. */}
+      {!quickEvent && (
+        <button onClick={()=>{
+            const today = fmtLocal(TODAY);
+            setQuickEvent({ id:newId(), title:"", start:today, end:today,
+              typeId:(eventTypes[0]?.id)||"personal",
+              color:(eventTypes[0]?.color)||"#8b5cf6", note:"" });
+          }} title="New event"
+          aria-label="New event"
+          style={{position:"fixed",right:20,bottom:140,zIndex:150,width:48,height:48,borderRadius:"50%",
+            border:"none",background:"#0e7490",color:"#fff",fontSize:20,cursor:"pointer",
+            boxShadow:"0 6px 20px rgba(14,116,144,.5)"}}>🗓</button>
+      )}
+      {quickEvent && (
+        <EventModal event={quickEvent} eventTypes={eventTypes} setEventTypes={saveEventTypes}
+          onClose={()=>setQuickEvent(null)}
+          // EventModal renders its Delete button whenever `event` is truthy, and a
+          // draft is truthy, so onDelete has to exist or the button throws. For an
+          // event that was never saved, deleting it just means discarding the draft.
+          onDelete={()=>setQuickEvent(null)}
+          onSave={(ev)=>{ saveEvents([...events, ev]); setQuickEvent(null);
+            pushActivity("add", ev.title || "Untitled event", "calendar",
+              ev.start === ev.end ? ev.start : `${ev.start} → ${ev.end}`); }}/>
+      )}
       {showAddTab&&<AddTabModal personal={personal} work={work} onSave={handleSaveCustomTab} onClose={()=>setShowAddTab(false)}/>}
       {editingTab&&<AddTabModal personal={personal} work={work} existing={editingTab} onSave={handleSaveCustomTab} onClose={()=>setEditingTab(null)}/>}
       {showSearch&&<GlobalSearch personal={personal} work={work} notes={notes} events={events} lang={lang} onClose={()=>setShowSearch(false)}
@@ -13184,7 +13459,7 @@ export default function App() {
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError}
         gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()} gsyncAuto={gsyncAuto}
         onConnect={gsyncConnect} onDisconnect={()=>{gsyncDisconnect();setGsyncPanel(true);}}
-        onSyncNow={gsyncNow}
+        onSyncNow={gsyncNow} gsyncNote={gsyncNote}
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
         listFiles={()=>GDrive.listFiles()}
         minimized={gsyncPanelMin} onToggleMin={()=>setGsyncPanelMin(m=>!m)}
@@ -13197,6 +13472,48 @@ export default function App() {
         onUseLocal={importUseLocal}
         onUseCloud={importUseCloud}
         onCancel={()=>setImportConflict(null)} />}
+      {/* Another device saved and this one has no local edits to lose. Previously
+          the app just downloaded and applied it, so the screen changed without
+          asking. Standard three answers instead. */}
+      {gsyncCloudAhead && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",zIndex:6000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"var(--c-card2)",border:"1px solid var(--c-border)",borderRadius:14,
+            width:"100%",maxWidth:430,padding:"18px 20px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+              <span style={{fontSize:22}}>☁️</span>
+              <div style={{fontSize:15,fontWeight:800,color:"var(--c-text)"}}>Cloud file changed</div>
+            </div>
+            <p style={{fontSize:12.5,color:"var(--c-text-muted)",lineHeight:1.6,marginBottom:6}}>
+              Another device saved <strong style={{color:"var(--c-text)"}}>{gsync.fileName||"the cloud file"}</strong>.
+              This device has no unsaved edits, so updating is safe — but it is your call.
+            </p>
+            <div style={{fontSize:11,color:"var(--c-text-muted)",marginBottom:14}}>
+              Cloud version: {gsyncCloudAhead.cloudModified ? new Date(gsyncCloudAhead.cloudModified).toLocaleString() : "unknown"}
+            </div>
+            <button onClick={cloudAheadUpdate}
+              style={{width:"100%",padding:"12px 0",borderRadius:10,border:"none",background:"#166534",
+                color:"#fff",fontSize:13.5,fontWeight:800,cursor:"pointer",marginBottom:8}}>
+              ⬇️ Update now
+            </button>
+            <button onClick={cloudAheadLater}
+              style={{width:"100%",padding:"11px 0",borderRadius:10,border:"1.5px solid var(--c-border)",
+                background:"var(--c-surface)",color:"var(--c-text)",fontSize:13,fontWeight:800,
+                cursor:"pointer",marginBottom:8}}>
+              ⏸ Later — ask me again next sync
+            </button>
+            <button onClick={cloudAheadKeepMine}
+              style={{width:"100%",padding:"10px 0",borderRadius:10,border:"1px solid #7f1d1d66",
+                background:"#7f1d1d22",color:"#fca5a5",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+              Keep this device and overwrite the cloud
+            </button>
+            <div style={{fontSize:10.5,color:"var(--c-text-muted)",marginTop:9,lineHeight:1.5}}>
+              "Later" changes nothing and keeps the reminder — the next sync will ask again.
+              The last option discards the other device's change.
+            </div>
+          </div>
+        </div>
+      )}
       {gsyncConflict && <DirectionDialog
         title="⚠️ Both copies changed"
         intro="This device and Google Drive were both edited since the last sync, so one of them has to win. Nothing has been changed yet."
@@ -13370,11 +13687,17 @@ export default function App() {
               <div style={{fontSize:10,color:theme.textMuted,lineHeight:1.3}}>
                 W{todayWeekNum} · {TODAY.toLocaleDateString(lang==="TH"?"th-TH":"en-GB",{day:"numeric",month:"short"})}
                 {lang==="TH"?` ${toThaiYear(TODAY.getFullYear())}` : ""}
+                {/* The version chip lives in the desktop header, which is not rendered
+                    below 1024px — so on a phone there was nowhere to read the build
+                    number, which is exactly the device where it matters most after
+                    re-adding a home-screen icon. */}
+                <span style={{marginLeft:6,fontWeight:800,color:theme.accentText,opacity:0.95}}>v{APP_VERSION}</span>
               </div>
             </div>}
 
             {isTablet&&<div style={{flex:1}}>
               <div style={{fontSize:11,color:theme.textMuted}}>
+                <span style={{fontWeight:800,color:theme.accentText,opacity:0.95,marginRight:6}}>v{APP_VERSION}</span>
                 W{todayWeekNum} · {lang==="TH"
                   ? `${TODAY.toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"long"})} ${toThaiYear(TODAY.getFullYear())}`
                   : TODAY.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}
@@ -13479,7 +13802,14 @@ export default function App() {
                   width:20,height:20,borderRadius:6,background:"#16653422",color:"#166534",fontSize:12,flexShrink:0}}>✓</span>
                 <h1 style={{margin:0,fontSize:"0.72em",fontWeight:400,color:theme.textMuted,opacity:0.42,
                   letterSpacing:"0.02em",textTransform:"lowercase"}}>my todo planner</h1>
-                <span style={{fontSize:"0.55em",fontWeight:600,opacity:0.35,padding:"2px 8px",borderRadius:20,background:theme.accent+"14",color:theme.accentText,border:`1px solid ${theme.accent}44`}}>v{APP_VERSION}</span>
+                {/* The wordmark above stays faint on purpose (N51). A bare version number
+                    identifies nothing about the app, so it is safe to make it readable —
+                    and it has to be, or there is no way to confirm what a phone is
+                    actually running. */}
+                <span title={`My Todo Planner v${APP_VERSION} · built ${APP_BUILD}`}
+                  style={{fontSize:"0.62em",fontWeight:800,opacity:0.9,padding:"2px 9px",borderRadius:20,
+                    background:theme.accent+"22",color:theme.accentText,border:`1px solid ${theme.accent}66`,
+                    userSelect:"text"}}>v{APP_VERSION}</span>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
                 <span style={{fontSize:"0.72em",fontWeight:900,padding:"2px 10px",borderRadius:20,background:theme.accent,color:"#fff",letterSpacing:"0.04em"}}>W{todayWeekNum}</span>

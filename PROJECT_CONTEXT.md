@@ -5,7 +5,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Version: `3.77.0-source-restored` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)
+- Version: `3.77.0-n104-ios-drive-file-list` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)
 - Full application: `index.html` — **generated, do not edit directly**
 - Mobile application: `mobile/index.html` (separate hand-written vanilla-JS app, v3.75.0)
 - Live: https://champban.github.io/dashboard/
@@ -33,7 +33,7 @@ build/*.js|css|html (wrapper) ─────┤
 | Wrapper: security bootstrap (JSON/innerHTML/fetch guards, secret redaction) | `build/security-bootstrap.js` |
 | Wrapper: theme prepaint, storage shim, runtime banners, credential-field lock | `build/prepaint.js`, `build/storage-shim.js`, `build/runtime-layer.js`, `build/security-ui.js` |
 | Packager (assembles + CSP hashes + self-verifies) | `build/package.mjs` |
-| Render harness (jsdom, frozen clock; healthy = LEN 22712 / NODES 129, no THROW) | `build/check4.mjs` |
+| Render harness (jsdom, frozen clock; healthy = LEN 25127 / NODES 141, no THROW) | `build/check4.mjs` |
 | Six-dimension audit + pre-build checklist | `build/audit.py` |
 
 Build cycle (run every time, in order):
@@ -42,16 +42,27 @@ Build cycle (run every time, in order):
 `node build/package.mjs <bundle> index.html <version>` → update
 `BUILD-MANIFEST.json` + `CHANGELOG.md`.
 
-### Toolchain the harness numbers were measured on
+### Toolchain (pinned)
 
-No `package.json` or lockfile is committed, so the toolchain is not pinned
-anywhere and has to be recorded by hand. LEN is an `innerHTML` character count
-and NODES a DOM element count, so **both move with the jsdom version** — a
-mismatch against the numbers above means "different environment" at least as
-often as it means "regression". Verify the version before treating a diff as a
-bug.
+`package.json` and `package-lock.json` are committed with exact versions, so the
+whole pipeline is one command:
 
-| Tool | Version used for LEN 22712 / NODES 129 |
+```
+npm ci          # exact versions from the lockfile
+npm run verify  # build -> harness -> audit -> package, in order
+```
+
+Individual steps: `npm run build`, `npm run harness`, `npm run audit`,
+`npm run package`. `npm run package` goes through `build/pipeline.mjs`, which finds
+the content-hashed bundle in `dist/assets`, calls the packager, and refreshes
+`BUILD-MANIFEST.json` — the filename changes every build so it cannot be hard-coded.
+
+LEN is an `innerHTML` character count and NODES a DOM element count, so **both move
+with the jsdom version**. That is exactly why the lockfile matters: before it, a
+mismatch against the numbers below meant "different environment" at least as often
+as "regression", and there was no way to tell which.
+
+| Tool | Version used for LEN 25127 / NODES 141 |
 |---|---|
 | jsdom | 25.0.1 |
 | react / react-dom | 18.3.1 |
@@ -64,8 +75,8 @@ state in this branch's history, including the untouched `src/App.jsx` snapshot
 from `main`. It was replaced rather than investigated further because the
 toolchain that produced it was never recorded.
 
-`build/check4.mjs` reads `./test-bundle.js` but nothing in the repo builds it.
-The command used was:
+`build/check4.mjs` reads `./test-bundle.js`; `npm run test-bundle` builds it (and
+`npm run harness` chains the two). The command is:
 
 ```
 npx esbuild src/main.jsx --bundle --format=iife --loader:.jsx=jsx \
@@ -73,9 +84,9 @@ npx esbuild src/main.jsx --bundle --format=iife --loader:.jsx=jsx \
   --define:process.env.NODE_ENV='"production"' --outfile=test-bundle.js
 ```
 
-Also note `vite build` must not take the repo's `index.html` as its entry — that
-file is the generated artifact. Point `build.rollupOptions.input` at a minimal
-entry HTML that loads `/src/main.jsx`.
+`vite build` must not take the repo's `index.html` as its entry — that file is the
+generated artifact. The committed `vite.config.js` points
+`build.rollupOptions.input` at `build/vite-entry.html` instead.
 
 ## Working agreement
 
@@ -84,6 +95,18 @@ entry HTML that loads `/src/main.jsx`.
 - Deploy discipline: แก้ → test → verify → สะสมเป็นชุด → deploy รอบเดียวเมื่อพร้อม. Dedicated branch + PR; no merge without explicit approval.
 - No personal names in the app (allowed: contact email champbanyat@gmail.com, "Lotus Bakeries", "Lotus General").
 - Batch changes into one build + audit + package cycle. Report audit results honestly.
+
+## Google Drive file-list recovery (N104)
+
+Both `SyncPanel` and `CloudSyncModal` display file-list errors locally and
+offer a reconnect action which reloads the list after successful explicit
+sign-in. Each GIS attempt has a 12-second timeout; a stale or failed script is
+removed and retried once. Drive REST helpers never initiate interactive OAuth,
+because the original Safari user activation may already be gone. A Drive 401
+clears all in-memory token state, offline requests get a specific message, and
+cancelled reconnects clear busy state without hiding the error. Empty lists
+explicitly describe the least-privilege `drive.file` visibility rule rather
+than implying that every JSON file in the user's Drive should appear.
 
 ## Unified sync conflict workflow (3.75, re-implemented in source in 3.77.0)
 
@@ -103,6 +126,20 @@ that survives `safeImageSrc()` (which delegates to the wrapper's
 `__MTP_SECURITY__.safeURL`). Every image badge, preview, thumbnail and count
 asks it first; tasks without valid images get no image UI at all. Preview
 controls are keyboard-activatable with aria-labels.
+
+## Event places are per time window (N97 family, 3.77.x)
+
+`windowLoc(ev, w)` is the single definition of "the place for this time window":
+the window's own `loc` first, the legacy event-level `location` as a fallback that
+is read but never written again. A trip that happens twice can therefore sit in two
+different places under one event.
+
+Everywhere a place is drawn it is drawn **outside** the bar, never inside. Timeline
+and Gantt bars are `overflow:hidden` and can be a handful of pixels wide at a wide
+zoom, so a pin inside them disappears exactly when the user most needs it. Each
+label is a sibling of its bar, flips to the other side within ~18% of the right
+edge so it cannot run off the chart, and carries `pointerEvents:none` with the pin
+link re-enabled — otherwise it covers the resize handles and the drag surface.
 
 ## Security model
 
@@ -132,9 +169,6 @@ controls are keyboard-activatable with aria-labels.
 
 | ID | Item | Notes |
 |---|---|---|
-| N97-fix | Move `location` from event level to per time-window | Each window needs its own 📍 in `EventModal`. |
-| N97-fix2 | Timeline: place name + date range label beside banner | Floating label even when the bar is narrow. |
-| N97-Gantt | 📍 pin on Gantt rows | Deferred; bar structure needs a fresh look. |
 | N103 | iPhone vs iPad welcome screens differ | Root cause found in 3.77.0: home-screen name/manifest said "Dashboard" and version display was stale — re-add to Home Screen after deploying 3.77.0, then compare version numbers (now meaningful). |
 | N104 | Cannot pick a Drive file on iOS | Reproduce and capture the error; `listFiles()` may fail silently in mobile Safari. |
 | N105 | Connection drops on a device that already connected | iOS standalone vs Safari-tab are separate storage contexts; confirm mode first. |
