@@ -96,6 +96,26 @@ generated artifact. The committed `vite.config.js` points
 - No personal names in the app (allowed: contact email champbanyat@gmail.com, "Lotus Bakeries", "Lotus General").
 - Batch changes into one build + audit + package cycle. Report audit results honestly.
 
+## The onboarding gate is an early return (N104)
+
+`if (!activeProfileId || profileList.length===0) return <OnboardingScreen…>` sits near
+the top of `App`, **above every modal and panel in the component**. Nothing rendered
+further down exists on that path, so a gate action can never be completed by flipping a
+state flag that some panel reads — `setGsyncPanel(true)` from the gate switched on a
+panel that is not mounted, which is exactly how "Open from Google Drive" spent several
+versions connecting to Google and then doing nothing at all, visibly indistinguishable
+from a failure. **Anything the gate offers, the gate must render itself**, including its
+own errors: `gsyncError` is only read by `SyncPanel` and `CloudSyncModal`.
+
+The gate is also the one place where `activeProfileId` is `null`, so `pk()` there
+returns the **bare, unscoped key** and `patchConfig()` merges over `DEFAULT_CONFIG`
+rather than over the file being opened. Anything a first-run open needs to persist goes
+through `applyOpenedFile`'s `wPre()` writes, which happen *before* `setActiveProfileId`
+— the same ordering that function already depends on for the data itself, and the only
+point that cannot lose a race against the `[activeProfileId]` load effect.
+
+`build/drive-gate.test.mjs` covers the whole path with a stubbed GIS + Drive REST layer.
+
 ## Google Drive file-list recovery (N104)
 
 Both `SyncPanel` and `CloudSyncModal` display file-list errors locally and
@@ -196,7 +216,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | ID | Item | Notes |
 |---|---|---|
 | N103 | iPhone vs iPad welcome screens differ | Root cause found in 3.77.0: home-screen name/manifest said "Dashboard" and version display was stale — re-add to Home Screen after deploying 3.77.0, then compare version numbers (now meaningful). |
-| N104 | Cannot pick a Drive file on iOS | Reproduce and capture the error; `listFiles()` may fail silently in mobile Safari. |
+| N104 | Cannot pick a Drive file on iOS | Root cause found in 3.77.x and it was not Safari: on the welcome screen the button connected and then opened a panel that the onboarding early-return never mounts, so nothing happened and no error showed. Fixed; still needs confirming on the device that the user's file is visible to `drive.file` scope at all. |
 | N105 | Connection drops on a device that already connected | iOS standalone vs Safari-tab are separate storage contexts; confirm mode first. |
 | — | OneDrive sync | Not started; needs Azure App Registration client ID. |
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
