@@ -11671,6 +11671,11 @@ export default function App() {
   const splitKindRef  = useRef(null);
   const [quickAddText, setQuickAddText] = useState("");     // B3: natural-language quick add
   const [floatNoteId, setFloatNoteId] = useState(null);   // N32: id of the open floating note (null=closed)
+  // N107: draft event for the main-view quick-add. Notes already had a main-view
+  // launcher (the 📌 button); events only had one inside Calendar, Gantt and
+  // Timeline, so on a phone there was no way to add an event without first
+  // navigating into a tab and finding the affordance there.
+  const [quickEvent, setQuickEvent] = useState(null);
   const [floatPin, setFloatPin]      = useState(true);      // N30: keep panel on top within app
   const [mentionTarget, setMentionTarget] = useState(null); // N33: pending navigation target from a clicked @mention
   const [fabType, setFabType]        = useState(null);      // "personal" | "work"
@@ -13347,6 +13352,34 @@ export default function App() {
           style={{position:"fixed",right:20,bottom:84,zIndex:150,width:48,height:48,borderRadius:"50%",
             border:"none",background:"#6366f1",color:"#fff",fontSize:20,cursor:"pointer",
             boxShadow:"0 6px 20px rgba(99,102,241,.5)"}}>📌</button>
+      )}
+
+      {/* N107: main-view quick-add for an event, sitting above the note launcher.
+          Opens the same EventModal the tabs use, so time windows, type, colour and
+          per-window location all behave identically — there is no second event
+          editor to keep in step. */}
+      {!quickEvent && (
+        <button onClick={()=>{
+            const today = fmtLocal(TODAY);
+            setQuickEvent({ id:newId(), title:"", start:today, end:today,
+              typeId:(eventTypes[0]?.id)||"personal",
+              color:(eventTypes[0]?.color)||"#8b5cf6", note:"" });
+          }} title="New event"
+          aria-label="New event"
+          style={{position:"fixed",right:20,bottom:140,zIndex:150,width:48,height:48,borderRadius:"50%",
+            border:"none",background:"#0e7490",color:"#fff",fontSize:20,cursor:"pointer",
+            boxShadow:"0 6px 20px rgba(14,116,144,.5)"}}>🗓</button>
+      )}
+      {quickEvent && (
+        <EventModal event={quickEvent} eventTypes={eventTypes} setEventTypes={saveEventTypes}
+          onClose={()=>setQuickEvent(null)}
+          // EventModal renders its Delete button whenever `event` is truthy, and a
+          // draft is truthy, so onDelete has to exist or the button throws. For an
+          // event that was never saved, deleting it just means discarding the draft.
+          onDelete={()=>setQuickEvent(null)}
+          onSave={(ev)=>{ saveEvents([...events, ev]); setQuickEvent(null);
+            pushActivity("add", ev.title || "Untitled event", "calendar",
+              ev.start === ev.end ? ev.start : `${ev.start} → ${ev.end}`); }}/>
       )}
       {showAddTab&&<AddTabModal personal={personal} work={work} onSave={handleSaveCustomTab} onClose={()=>setShowAddTab(false)}/>}
       {editingTab&&<AddTabModal personal={personal} work={work} existing={editingTab} onSave={handleSaveCustomTab} onClose={()=>setEditingTab(null)}/>}
