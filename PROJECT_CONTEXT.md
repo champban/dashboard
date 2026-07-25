@@ -1,45 +1,121 @@
 # Project Context
 
+Shared context for whichever assistant (Claude / ChatGPT / Codex) picks up this
+project. Update this file whenever architecture, decisions, or open bugs change.
+
 ## Current release
 
-- Version: `3.76.1-task-image-scope`
-- Full application: `index.html`
-- Mobile application: `mobile/index.html`
+- Version: `3.77.0-source-restored` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)
+- Full application: `index.html` — **generated, do not edit directly**
+- Mobile application: `mobile/index.html` (separate hand-written vanilla-JS app, v3.75.0)
+- Live: https://champban.github.io/dashboard/
 
-## Unified sync conflict workflow
+## Source of truth (restored in 3.77.0)
 
-Both applications use the same bidirectional conflict vocabulary and decision flow. When both Google Drive and the current device changed after the prior sync, the dialog compares the Drive `modifiedTime` with the local profile `savedAt`, marks the newer copy, recommends that direction, and always offers **Cloud → Local** and **Local → Cloud**. Selecting either direction opens a second confirmation step before any overwrite.
+Versions 3.65–3.76.1 were produced by patching the minified bundle directly;
+3.77.0 ported those changes back into source. From now on, **all changes go
+through the pipeline** — never edit `index.html` by hand:
 
-Cloud metadata is checked during manual sync, automatic sync, browser focus, and visibility changes. Thus a cloud update made by the Full/PC app is discovered by Mobile, and a cloud update made by Mobile is discovered by the Full/PC app. Existing version 7 profile JSON and sync metadata remain compatible.
+```
+src/App.jsx  ── vite build ──►  dist bundle
+                                   │
+build/*.js|css|html (wrapper) ─────┤
+                                   ▼
+        node build/package.mjs <bundle> index.html <version>
+        (assembles wrapper + bundle, computes all 6 CSP hashes from shipped bytes)
+```
 
-Storage actions use explicit names: **Save to Cloud**, **Open Local File**, **Backup to Local Drive**, and **Restore from Local File**. The version 3.75 unified sync-conflict workflow remains unchanged.
+| Piece | Path |
+|---|---|
+| React source (edit this) | `src/App.jsx` |
+| Wrapper: head/meta/PWA identity | `build/head.html` |
+| Wrapper: base + pro-UI CSS | `build/base.css`, `build/pro-ui-layer.css` |
+| Wrapper: security bootstrap (JSON/innerHTML/fetch guards, secret redaction) | `build/security-bootstrap.js` |
+| Wrapper: theme prepaint, storage shim, runtime banners, credential-field lock | `build/prepaint.js`, `build/storage-shim.js`, `build/runtime-layer.js`, `build/security-ui.js` |
+| Packager (assembles + CSP hashes + self-verifies) | `build/package.mjs` |
+| Render harness (jsdom, frozen clock; healthy = LEN 22572 / NODES 118, no THROW) | `build/check4.mjs` |
+| Six-dimension audit + pre-build checklist | `build/audit.py` |
 
-## Task attachment previews
+Build cycle (run every time, in order):
+`vite build` → esbuild IIFE test bundle → `node build/check4.mjs` →
+`python3 build/audit.py src/App.jsx` (0 blockers required) →
+`node build/package.mjs <bundle> index.html <version>` → update
+`BUILD-MANIFEST.json` + `CHANGELOG.md`.
 
-Full/PC task surfaces show previews and image indicators only when that exact task has at least one valid image attachment. Mobile task cards and editors likewise render image UI only from valid image attachments owned by the selected `task.id`; tasks without images, including tasks with non-image attachments only, receive no image placeholder, badge, spacing, hover/tap target, or highlighted image-panel treatment. Preview actions resolve the selected attachment again from the same task before opening it, accept only sanitized image sources, and never use a global gallery, cloud list, cache, fallback, demo, or placeholder source. Task attachment data and version 7 import compatibility are unchanged.
+## Working agreement
 
-## Mobile long task titles
+- **Consult before building.** "note ไว้ก่อน" / "อย่าพึ่งทำ" = backlog only. Build on "ทำเลย" / "ทำต่อ".
+- Thai primary, concise replies. Screenshots with red circles = bug reports.
+- Deploy discipline: แก้ → test → verify → สะสมเป็นชุด → deploy รอบเดียวเมื่อพร้อม. Dedicated branch + PR; no merge without explicit approval.
+- No personal names in the app (allowed: contact email champbanyat@gmail.com, "Lotus Bakeries", "Lotus General").
+- Batch changes into one build + audit + package cycle. Report audit results honestly.
 
-The mobile task editor uses an auto-growing title textarea for both Add Task and Edit Task. It starts at 64px, grows with wrapped Thai or English content to 180px, and then enables internal vertical scrolling. Mobile task cards wrap and display at most three title lines.
+## Unified sync conflict workflow (3.75, re-implemented in source in 3.77.0)
 
-## Preserved integrations and security
+One `DirectionDialog` component backs both conflict cases (opened local file vs
+Drive; both-sides-changed sync). It compares Drive `modifiedTime` with local
+`savedAt`/`dataLastUpdated`, marks the newer copy with a NEWER badge, recommends
+that direction, always offers **Local → Cloud** and **Cloud → Local**, and a
+second confirmation step states the exact counts about to be discarded. Cloud
+metadata is checked during manual sync, auto-sync (~15 s debounce after edits),
+browser focus and visibility change — no fixed-interval polling.
 
-Google Drive uses the least-privilege `drive.file` scope. Supabase authentication, OAuth, security bootstrap, external-link hardening, import compatibility, URL sanitization, file limits, and Content Security Policy remain enabled. Inline-script SHA-256 CSP sources and `BUILD-MANIFEST.json` must be recalculated whenever either application changes.
+## Task attachment previews (3.76.x, re-implemented in source in 3.77.0)
 
-## Reusable Codex skills
+`taskImages(task)` is the single definition of "images this task owns":
+attachments of that exact task, `detectAttachType === "image"`, and a source
+that survives `safeImageSrc()` (which delegates to the wrapper's
+`__MTP_SECURITY__.safeURL`). Every image badge, preview, thumbnail and count
+asks it first; tasks without valid images get no image UI at all. Preview
+controls are keyboard-activatable with aria-labels.
 
-Repository-scoped reusable workflows are stored under `.codex/skills/`:
+## Security model
 
-- `github-codex-safe-patch-deploy` — safe branch, patch, test, PR, merge-approval, and deployment-verification workflow.
-- `webapp-security-6d-audit` — six-dimension security audit for browser-based applications.
-- `github-pages-release-verification` — GitHub Pages path, branch, build, URL, cache, and smoke-test verification.
+- CSP with 6 inline-script SHA-256 hashes — **always generated by
+  `build/package.mjs`**, never edited by hand.
+- `build/security-bootstrap.js` runs before the app: JSON.parse size/prototype
+  guards, secret redaction on storage writes, document-wide innerHTML
+  sanitizer, fetch allow-list, external-link hardening, paste/drop cleaning.
+- Credential inputs (Anthropic/Google API keys, OAuth client ID, MS app ID) are
+  **not rendered** since 3.77.0; `build/security-ui.js` remains as a second
+  line of defence that hides/disables any such field it ever sees.
+- Note HTML passes through `sanitizeNoteHTML()` before entering print/export
+  popup documents (the document-wide guard cannot reach windows the app opens).
+- Google Drive uses least-privilege `drive.file`; Supabase auth bootstrap,
+  URL sanitization, file limits unchanged.
 
-## Deploy discipline
+## Known hazards (learned the hard way — do not regress)
 
-For every significant change: edit → test → verify → group related fixes → deploy once. Use a dedicated branch and Pull Request. Do not merge or perform irreversible actions without explicit approval. Pages deployment verification is blocked until the Pull Request is reviewed and merged.
+- TDZ crash = blank screen; only the render harness catches it, not the build.
+- `build.target: ['es2019','safari13']` is mandatory; after packaging verify `??` = 0 and `?.[` = 0 or older iOS Safari renders nothing.
+- Every persist path must stamp `dataLastUpdated` (N106) and every storage write must scope via `pk()`/`pkG()` — a raw-key write in the Gantt recurring-done flow shipped for months before the audit caught it in 3.77.0.
+- Empty arrays are truthy: guard imports with `Array.isArray(x) && x.length > 0` or `version >= 7`.
+- The harness clock is frozen; if you change the fixture data, update the expected LEN/NODES in this file.
+- Splice edits: verify anchor uniqueness first, and never let an assert abort half-applied multi-replacements — apply independently and re-verify with grep.
 
 ## Open backlog
 
-1. Add automated CI checks for HTML/JavaScript syntax, CSP hashes, and manifest integrity.
-2. Add an authenticated end-to-end Google Drive test account for automated PC ↔ Mobile sync testing.
-3. Keep reusable skills synchronized with lessons learned from future deployments.
+| ID | Item | Notes |
+|---|---|---|
+| N97-fix | Move `location` from event level to per time-window | Each window needs its own 📍 in `EventModal`. |
+| N97-fix2 | Timeline: place name + date range label beside banner | Floating label even when the bar is narrow. |
+| N97-Gantt | 📍 pin on Gantt rows | Deferred; bar structure needs a fresh look. |
+| N103 | iPhone vs iPad welcome screens differ | Root cause found in 3.77.0: home-screen name/manifest said "Dashboard" and version display was stale — re-add to Home Screen after deploying 3.77.0, then compare version numbers (now meaningful). |
+| N104 | Cannot pick a Drive file on iOS | Reproduce and capture the error; `listFiles()` may fail silently in mobile Safari. |
+| N105 | Connection drops on a device that already connected | iOS standalone vs Safari-tab are separate storage contexts; confirm mode first. |
+| — | OneDrive sync | Not started; needs Azure App Registration client ID. |
+| — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
+| — | CI | Add automated checks: audit.py, harness, CSP/manifest integrity on every PR. |
+| — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
+
+Unbuilt idea list: bulk actions in List, duplicate a saved view, export
+Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
+search highlighting.
+
+## Infrastructure notes
+
+- GitHub Pages serves one branch per repo; a second URL needs its own Google
+  Console redirect URI (hence the Netlify staging plan).
+- Supabase free tier pauses after 7 days inactivity (data retained, manual
+  restore); if this becomes a problem, add a GitHub Actions cron keepalive
+  (`.github/workflows/keepalive.yml`, every ~3 days).

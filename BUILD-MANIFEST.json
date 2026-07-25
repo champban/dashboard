@@ -1,18 +1,29 @@
 {
-  "version": "3.76.1-task-image-scope",
+  "version": "3.77.0",
+  "date": "2026-07-24",
   "full": {
     "path": "index.html",
-    "sha256": "f38c1544306d6a6633de4a0db5c49af2be4b1826f0eea293d25f903f2a8b0e9b",
-    "bytes": 773234
+    "sha256": "d6192db28cb8d6deda9fc6f84ecfb5d7a0b9863b9e09add9367521c89946f66d",
+    "bytes": 726835
   },
   "mobile": {
     "path": "mobile/index.html",
     "sha256": "f0d2891bd63e6f737da0ec39fe0a1e6e74e780bb84972d6bd6e11ced9416db93",
-    "bytes": 93369
+    "bytes": 93369,
+    "note": "unchanged from 3.76.1"
   },
   "csp": {
     "full_hashes": 6,
-    "mobile_hashes": 3
+    "mobile_hashes": 3,
+    "generated_by": "build/package.mjs (computed from shipped bytes, never by hand)"
+  },
+  "source": {
+    "app": "src/App.jsx",
+    "wrapper": "build/*.{js,css,html}",
+    "packager": "build/package.mjs",
+    "audit": "build/audit.py",
+    "harness": "build/check4.mjs",
+    "note": "index.html is generated \u2014 do not edit it directly; edit src/ or build/ and run the pipeline"
   },
   "auth": {
     "project": "Dashboard",
@@ -24,12 +35,5 @@
     "script_sha256": "3382bfac525a7b2c7805f112225e88f559a4fa316dc8cad5133429b636ceb8cf",
     "style_sha256": "914509b8cf7c62c12dac36ebf05f78e1e09a2b13651f3f2ebada2c5cd5df1b1d",
     "sdk_sha256": "2697f51bb3efa5f10b5b0bca2a39b3772b1b8f810e6885e3bb8d69c3242d5e07"
-  },
-  "docs": {
-    "audit_sha256": "3dbac788671b4a4151d4bd87bda0e58d59dd3be385b7c1ef949896df8d52d370",
-    "deployment_checklist_sha256": "cef1a0e445d5e607458f39bb5ee6ebc12e3dd0a9af3adf0d6e92189f7e793c2a",
-    "execution_skills_guide_sha256": "59272cc8377e4118d4b47aac82bd7f885d3685e57f9f762910c1ef28998ae8f7",
-    "project_context_sha256": "e2ab987e22c2d8489245bb3b31150bb8e7b4c5548c50bf14367397c4833c5138",
-    "changelog_sha256": "2b5dbb80e2c88d5030a5ece2e21407635d93d780265235e7ed547ea90862e458"
   }
 }
