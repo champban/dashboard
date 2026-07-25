@@ -1,0 +1,28 @@
+{
+  "name": "my-todo-planner",
+  "private": true,
+  "version": "3.77.0",
+  "type": "module",
+  "description": "Build toolchain for index.html. index.html is GENERATED \u2014 edit src/App.jsx or build/* and run the pipeline.",
+  "scripts": {
+    "build": "vite build",
+    "test-bundle": "esbuild src/main.jsx --bundle --format=iife --loader:.jsx=jsx --jsx=automatic --target=es2019 --define:process.env.NODE_ENV='\"production\"' --outfile=test-bundle.js",
+    "harness": "npm run test-bundle && node build/check4.mjs",
+    "audit": "python3 build/audit.py src/App.jsx",
+    "package": "node build/pipeline.mjs package",
+    "verify": "npm run build && npm run harness && npm run audit && npm run package"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.7.0",
+    "esbuild": "0.24.2",
+    "jsdom": "25.0.1",
+    "vite": "5.4.21"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
