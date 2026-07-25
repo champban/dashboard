@@ -3660,6 +3660,13 @@ function GanttTab({ personal, work, setPersonal, setWork, events=[], setEvents, 
           <div style={{fontSize:10.5,color:"var(--c-text-muted)",fontWeight:700,marginBottom:hoverEv.w.desc?5:0}}>
             📅 {hoverEv.w.start}{hoverEv.w.end&&hoverEv.w.end!==hoverEv.w.start?` → ${hoverEv.w.end}`:""}
           </div>
+          {/* N97-Gantt: the bar only has room for a pin, so the full place name goes
+              here. windowLoc keeps this per-window rather than per-event. */}
+          {(()=>{ const hl = windowLoc(hoverEv.ev, hoverEv.w); return hl ? (
+            <div style={{marginBottom:hoverEv.w.desc?5:0}}>
+              <PlacePin loc={hl} size={11}/>
+            </div>
+          ) : null; })()}
           {hoverEv.w.desc
             ? <div style={{fontSize:11.5,color:"var(--c-text)",lineHeight:1.55,whiteSpace:"pre-wrap"}}>{hoverEv.w.desc}</div>
             : (hoverEv.ev.note
@@ -3890,8 +3897,17 @@ function GanttTab({ personal, work, setPersonal, setWork, events=[], setEvents, 
                       {setEvents&&<span style={{fontSize:9,opacity:0.5,marginLeft:"auto",flexShrink:0}}>✏️</span>}
                     </div>
                     <div style={{flex:1,position:"relative",height:"100%"}}>
-                      {bars.map((b,bi)=>(
-                        <div key={bi}
+                      {bars.map((b,bi)=>{
+                        // N97-Gantt: the place for THIS window. It cannot be rendered
+                        // inside the bar — bars carry minWidth:6 and overflow:hidden, so
+                        // at a wide zoom a pin inside would simply be clipped away. That
+                        // is why this item sat deferred. The pin goes beside the bar
+                        // instead, as a sibling in the same relative container.
+                        const loc = windowLoc(ev, b.w);
+                        const flipPin = (b.left + b.width) > 82;
+                        return (
+                        <React.Fragment key={bi}>
+                        <div
                           onClick={()=>setEvents&&setEditingEvent(ev)}
                           onMouseEnter={e=>setHoverEv({ev,w:b.w,idx:bi+1,total:bars.length,x:e.clientX,y:e.clientY})}
                           onMouseMove={e=>setHoverEv(h=>h?{...h,x:e.clientX,y:e.clientY}:h)}
@@ -3910,7 +3926,31 @@ function GanttTab({ personal, work, setPersonal, setWork, events=[], setEvents, 
                             </span>
                           </>)}
                         </div>
-                      ))}
+                        {loc && (
+                          <div style={{position:"absolute",left:`${flipPin?b.left:b.left+b.width}%`,top:"50%",
+                            transform:flipPin?"translate(-100%,-50%)":"translateY(-50%)",
+                            paddingLeft:flipPin?0:6,paddingRight:flipPin?6:0,
+                            display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
+                            pointerEvents:"none",zIndex:2}}>
+                            <span style={{pointerEvents:"auto"}}>
+                              <PlacePin loc={loc} size={Math.max(8,gFS-2)}/>
+                            </span>
+                            {/* Same composition as the Timeline label: place name AND the
+                                window's date range. The dates also appear inside the bar
+                                when barLines is on, but that copy is clipped as soon as the
+                                bar narrows — which is the case this label exists for. */}
+                            <span style={{fontSize:Math.max(7,gFS-3),fontFamily:gFF,fontWeight:700,
+                              color:"var(--c-text-muted)",opacity:0.9}}>
+                              {new Date(b.w.start).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}
+                              {b.w.end&&b.w.end!==b.w.start
+                                ? ` → ${new Date(b.w.end).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}`
+                                : ""}
+                            </span>
+                          </div>
+                        )}
+                        </React.Fragment>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -7041,9 +7081,14 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
                                   {it.high&&<span title="High priority" style={{fontSize:Math.max(7,tFS-4),fontWeight:900,color:"#fff",
                                     background:"#ef4444",borderRadius:4,padding:"0 4px",marginRight:5}}>HIGH</span>}
                                   {it.title}
-                                  {it.attachments&&it.attachments.length>0 && (
+                                  {/* N97-fix2: the pin used to be nested inside this
+                                      attachments check, so an event with a place but no
+                                      attachment showed no pin at all. The two are
+                                      independent. */}
+                                  {((it.attachments&&it.attachments.length>0) || it.location) && (
                                     <span style={{marginLeft:5}}>
-                                      <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-2)}/>{it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-3)}/>}
+                                      {it.attachments&&it.attachments.length>0 && <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-2)}/>}
+                                      {it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-3)}/>}
                                     </span>
                                   )}
                                 </div>
@@ -7141,9 +7186,12 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
                               {it.high&&<span title="High priority" style={{fontSize:Math.max(7,tFS-4),fontWeight:900,color:"#fff",
                                 background:"#ef4444",borderRadius:4,padding:"0 4px",marginRight:5}}>HIGH</span>}
                               {it.kind==="event"?"📅 ":it._type==="work"?"💼 ":"🏠 "}{it.title}
-                              {it.attachments&&it.attachments.length>0 && (
+                              {/* N97-fix2: pin no longer requires an attachment — see the
+                                  matching note on the compact bar above. */}
+                              {((it.attachments&&it.attachments.length>0) || it.location) && (
                                 <span style={{marginLeft:6}}>
-                                  <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-1)} dark/>{it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-2)} dark/>}
+                                  {it.attachments&&it.attachments.length>0 && <TimelineAttachIcons attachments={it.attachments} onMedia={setTlMedia} size={Math.max(10,tFS-1)} dark/>}
+                                  {it.location&&<PlacePin loc={it.location} size={Math.max(9,tFS-2)} dark/>}
                                 </span>
                               )}
                             </span>
@@ -7173,6 +7221,35 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
                               })()}
                             </>)}
                           </div>
+                          {/* N97-fix2: place name + date range as a label OUTSIDE the bar.
+                              The bar is overflow:hidden and at a zoomed-out range can be a
+                              few pixels wide, so anything rendered inside it disappears
+                              exactly when the user most needs to know where and when.
+                              This floats past the bar's edge instead, so it stays readable
+                              at any width. pointerEvents:none except on the pin itself, or
+                              the label would swallow the resize handles and the drag
+                              surface it sits over. Near the right edge it flips to the
+                              other side of the bar rather than running off the chart. */}
+                          {it.location && (()=>{
+                            const flip = r > 82;
+                            return (
+                              <div style={{position:"absolute",left:`${flip?l:r}%`,top,height:LANE_H-BAR_PAD,
+                                transform:flip?"translateX(-100%)":"none",
+                                display:"flex",alignItems:"center",gap:5,
+                                paddingLeft:flip?0:7,paddingRight:flip?7:0,
+                                zIndex:zTop+1,pointerEvents:"none",whiteSpace:"nowrap"}}>
+                                <span style={{pointerEvents:"auto"}}>
+                                  <PlacePin loc={it.location} size={Math.max(8,tFS-3)}/>
+                                </span>
+                                <span style={{fontSize:Math.max(7,tFS-4),fontWeight:700,
+                                  color:"var(--c-text-muted)",opacity:0.9}}>
+                                  {new Date(it.at).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}
+                                  {" → "}
+                                  {new Date(it.end).toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
