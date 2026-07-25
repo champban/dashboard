@@ -1,0 +1,33 @@
+:root{
+    --mtp-navy:#102a33;--mtp-teal:#0f766e;--mtp-gold:#b9852f;--mtp-ivory:#f4f6f7;
+    --mtp-ring:0 0 0 3px rgba(15,118,110,.25);
+  }
+  html{scroll-behavior:smooth}
+  body{background:
+    radial-gradient(circle at 12% -10%,rgba(15,118,110,.07),transparent 30rem),
+    radial-gradient(circle at 92% 2%,rgba(185,133,47,.06),transparent 28rem),var(--c-bg)!important;
+    letter-spacing:.002em}
+  body::selection{background:rgba(15,118,110,.18)}
+  button,input,select,textarea,[contenteditable="true"]{font:inherit}
+  button{transition:transform .12s ease,box-shadow .15s ease,border-color .15s ease,background .15s ease}
+  button:not(:disabled):active{transform:translateY(1px) scale(.99)}
+  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[contenteditable="true"]:focus-visible{
+    outline:2px solid var(--mtp-teal)!important;outline-offset:2px!important;box-shadow:var(--mtp-ring)!important
+  }
+  input,select,textarea{border-radius:9px!important}
+  .lp-app-chrome{scrollbar-width:thin;scrollbar-color:var(--c-border) transparent}
+  .lp-app-chrome::-webkit-scrollbar{height:5px}
+  #mtp-pro-skip{position:fixed;left:12px;top:-60px;z-index:99999;background:#102a33;color:#fff;padding:10px 14px;border-radius:0 0 9px 9px;font-weight:800;text-decoration:none}
+  #mtp-pro-skip:focus{top:0}
+  #mtp-network-banner,#mtp-runtime-banner{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:99998;max-width:min(92vw,620px);padding:10px 16px;border-radius:999px;color:#fff;font-size:12px;font-weight:750;box-shadow:0 12px 36px rgba(16,42,51,.24);display:none;text-align:center}
+  #mtp-network-banner{background:#8a5b10}
+  #mtp-runtime-banner{background:#9f2d2d;bottom:70px;border-radius:12px}
+  .mtp-banner-visible{display:block!important}
+  @media (pointer:coarse){button{min-height:44px}input,select,textarea{min-height:44px;font-size:16px!important}}
+  @media (max-width:767px){
+    body{font-size:15px}
+    #mtp-network-banner,#mtp-runtime-banner{bottom:76px}
+    .lp-app-chrome{overscroll-behavior-x:contain}
+  }
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+  @media print{#mtp-network-banner,#mtp-runtime-banner,#mtp-pro-skip{display:none!important}}
