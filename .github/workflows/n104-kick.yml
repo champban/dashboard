@@ -1,0 +1,26 @@
+name: N104 one-shot PR trigger
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  trigger-push-pipeline:
+    if: github.head_ref == 'fix/n104-ios-drive-file-list' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/n104-ios-drive-file-list
+          fetch-depth: 0
+      - name: Remove this one-shot trigger and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/n104-kick.yml
+          git commit -m "chore: trigger N104 implementation pipeline"
+          git push origin HEAD:fix/n104-ios-drive-file-list
