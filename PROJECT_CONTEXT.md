@@ -33,7 +33,7 @@ build/*.js|css|html (wrapper) ─────┤
 | Wrapper: security bootstrap (JSON/innerHTML/fetch guards, secret redaction) | `build/security-bootstrap.js` |
 | Wrapper: theme prepaint, storage shim, runtime banners, credential-field lock | `build/prepaint.js`, `build/storage-shim.js`, `build/runtime-layer.js`, `build/security-ui.js` |
 | Packager (assembles + CSP hashes + self-verifies) | `build/package.mjs` |
-| Render harness (jsdom, frozen clock; healthy = LEN 23090 / NODES 130, no THROW) | `build/check4.mjs` |
+| Render harness (jsdom, frozen clock; healthy = LEN 25127 / NODES 141, no THROW) | `build/check4.mjs` |
 | Six-dimension audit + pre-build checklist | `build/audit.py` |
 
 Build cycle (run every time, in order):
@@ -51,7 +51,7 @@ mismatch against the numbers above means "different environment" at least as
 often as it means "regression". Verify the version before treating a diff as a
 bug.
 
-| Tool | Version used for LEN 23090 / NODES 130 |
+| Tool | Version used for LEN 25127 / NODES 141 |
 |---|---|
 | jsdom | 25.0.1 |
 | react / react-dom | 18.3.1 |

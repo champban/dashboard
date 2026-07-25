@@ -6113,7 +6113,11 @@ function MilestonesTab({ personal, work, setPersonal, setWork, events=[], setEve
   // what to plot
   const [showMilestones, setShowMilestones] = useState(true);
   const [showTasks, setShowTasks]           = useState(false);
-  const [showEvents, setShowEvents]         = useState(false);
+  // Events on by default, matching the Gantt, which has always shown its event rows
+  // without asking. With this off, event bars were absent from the Timeline until the
+  // user found the toggle — and so were their N97 place labels, which made a shipped
+  // feature look missing. Saved Timeline views still override this via applyTlView.
+  const [showEvents, setShowEvents]         = useState(true);
   // task filters (mirror the Gantt page)
   const [tStatus, setTStatus]   = useState("active");   // active | all | done
   const [tSource, setTSource]   = useState("all");      // all | personal | work
