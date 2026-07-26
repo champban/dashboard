@@ -612,7 +612,7 @@ const BOTTOM_NAV = [
 // import.meta.env and keep the .env file out of git.
 const GDRIVE_CLIENT_ID = "369687041884-heue2bffon430f0kfaetcp8mv8kbh8q2.apps.googleusercontent.com";
 const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified}
+const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified, lastPushedStamp}
 
 // One definition of "when did this happen", used by every sync surface.
 // Every one of them used to print a relative age only — "5 min ago" — and the sole
@@ -11843,7 +11843,7 @@ export default function App() {
   const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
   const [showCloudSync, setShowCloudSync] = useState(false);
   // ── Google Drive sync state ────────────────────────────────────────────────
-  const [gsync, setGsync] = useState({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"" });
+  const [gsync, setGsync] = useState({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
   const gsyncProfRef = useRef(null); // set once activeProfileId exists (below)
   const gsyncAutoRef = useRef(false); // N93: guards one silent auto-signin per mount
   const [gsyncSignedIn, setGsyncSignedIn] = useState(false);
@@ -12297,7 +12297,14 @@ export default function App() {
     if (Array.isArray(parsed.tabOrder))   setTabOrder(parsed.tabOrder);
     if (parsed.tabReads && typeof parsed.tabReads==="object") setTabReads(parsed.tabReads);
     if (Array.isArray(parsed.activity))   setActivity(parsed.activity);
-    setDataLastUpdated(new Date().toISOString());
+    // dataLastUpdated describes the DATA, not the moment it arrived here. Stamping
+    // "now" on a payload that just came down from the cloud made the copy look newer
+    // than its own source, so the next sync pushed it straight back up — which is what
+    // the old comparison's 1500ms tolerance window existed to paper over. Returned so
+    // the caller can record it as lastPushedStamp: local and cloud now agree.
+    const stamp = parsed.dataLastUpdated || parsed.savedAt || new Date().toISOString();
+    setDataLastUpdated(stamp);
+    return stamp;
   };
 
   // ── Google Drive sync: load state, push, pull, auto-schedule ───────────────
@@ -12307,7 +12314,7 @@ export default function App() {
     if (gsyncProfRef.current !== activeProfileId) {
       gsyncProfRef.current = activeProfileId;
       if (gsyncTimer.current) clearTimeout(gsyncTimer.current);
-      setGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"" });
+      setGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
       setGsyncStatus("idle");
       gsyncAutoRef.current = false;
       // N96: keep the Google login across profiles (same person, different data).
@@ -12383,7 +12390,10 @@ export default function App() {
     gsyncBusy.current = true;
     if (!silent) setGsyncStatus("syncing");
     try {
-      const content = JSON.stringify(buildSavePayload(), null, 2);
+      // Keep the payload object: its dataLastUpdated is exactly what went into the
+      // file, and that is what lastPushedStamp has to record.
+      const payload = buildSavePayload();
+      const content = JSON.stringify(payload, null, 2);
       let meta;
       if (gsync.fileId) meta = await GDrive.updateFile(gsync.fileId, content);
       else {
@@ -12392,7 +12402,8 @@ export default function App() {
       }
       await persistGsync({ ...gsync, fileId:meta.id, fileName:meta.name,
         localName: gsync.localName || meta.name,   // keep both sides on the same name
-        lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"" });
+        lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
+        lastPushedStamp: payload.dataLastUpdated || null });
       setGsyncStatus("synced"); setGsyncError("");
       if(!silent) note("saved","Saved to cloud");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
@@ -12416,8 +12427,9 @@ export default function App() {
         return;
       }
       const text = await GDrive.download(gsync.fileId);
-      await applyPayloadLive(JSON.parse(text));
-      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"" });
+      const stamp = await applyPayloadLive(JSON.parse(text));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
+        lastPushedStamp: stamp });
       setGsyncStatus("synced");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Pull failed"); }
     finally { gsyncBusy.current = false; }
@@ -12460,7 +12472,7 @@ export default function App() {
 
   const gsyncUnlink = async () => {
     if (gsyncTimer.current) clearTimeout(gsyncTimer.current);
-    await persistGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"" });
+    await persistGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
     setGsyncStatus("idle");
   };
 
@@ -12476,10 +12488,26 @@ export default function App() {
       const meta = await GDrive.getMeta(gsync.fileId);
       if (meta.trashed) throw new Error("The cloud file was deleted.");
       const cloudChanged = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
-      // Small tolerance: applying a pulled payload also stamps dataLastUpdated, and
-      // that stamp lands a few ms before lastSyncAt. Without the margin a fresh pull
-      // could immediately look like a local edit and bounce straight back up.
-      const localChanged = !!dataLastUpdated && (!gsync.lastSyncAt || new Date(dataLastUpdated).getTime() > gsync.lastSyncAt + 1500);
+      // "Is this device's data newer than what is actually IN the cloud file?"
+      //
+      // This used to ask a different question — whether the data changed since the last
+      // *check* (dataLastUpdated vs lastSyncAt) — and the two are not the same. The
+      // no-op branch below re-stamps lastSyncAt on every check, so the moment
+      // lastSyncAt got ahead of dataLastUpdated the pending edit became permanently
+      // invisible, and each further check pushed lastSyncAt further out. A device could
+      // sit forever showing "This device 08:00 PM / Cloud file 07:57 PM / Already up to
+      // date — nothing to upload", with the newer local data never leaving the phone.
+      //
+      // lastPushedStamp is the dataLastUpdated value that was last successfully
+      // uploaded. Both sides of this comparison come from THIS device's clock, so there
+      // is no drift against Google's and no tolerance window to tune — and a failed
+      // upload simply leaves it unchanged, so the push is retried until it lands.
+      //
+      // A record written before this field existed has none, which counts as "needs a
+      // push" — that is what un-sticks an install already in the stranded state. Safe,
+      // because if the cloud has genuinely moved too then cloudChanged is true as well
+      // and the conflict dialog asks instead of overwriting.
+      const localChanged = !!dataLastUpdated && dataLastUpdated !== gsync.lastPushedStamp;
 
       if (cloudChanged && localChanged) {
         // Genuine conflict — both sides moved since the last sync. Ask once,
@@ -12510,16 +12538,18 @@ export default function App() {
         setGsyncStatus("idle");
       } else if (localChanged) {
         // Only local moved — safe to push, nothing cloud-side to lose.
-        const content = JSON.stringify(buildSavePayload(), null, 2);
-        const updated = await GDrive.updateFile(gsync.fileId, content);
-        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "" });
+        const payload = buildSavePayload();
+        const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
+          lastPushedStamp: payload.dataLastUpdated || null });
         setGsyncStatus("synced"); note("saved","Saved to cloud");
       } else {
         // Nothing changed on either side. Still stamp lastSyncAt: the check really
         // did just happen and confirmed both copies agree. Leaving it untouched is
         // what made a successful "Save to Cloud" look like nothing happened — the
         // panel kept showing the age of the previous upload.
-        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || gsync.lastCloudModified || "" });
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || gsync.lastCloudModified || "",
+          lastPushedStamp: dataLastUpdated || gsync.lastPushedStamp || null });
         setGsyncStatus("synced"); note("nochange","Already up to date — nothing to upload");
       }
     } catch (e) { setGsyncStatus("error"); setGsyncError(e.message || "Sync failed"); note("error", e.message || "Sync failed"); }
@@ -12531,8 +12561,9 @@ export default function App() {
     const c = gsyncCloudAhead; if(!c) return;
     setGsyncCloudAhead(null); setGsyncStatus("syncing");
     try {
-      await applyPayloadLive(JSON.parse(c.cloudText));
-      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified });
+      const stamp = await applyPayloadLive(JSON.parse(c.cloudText));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified,
+        lastPushedStamp: stamp });
       setGsyncStatus("synced"); note("pulled","Updated from cloud");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Update failed"); note("error", e.message||"Update failed"); }
   };
@@ -12547,9 +12578,10 @@ export default function App() {
   const cloudAheadKeepMine = async () => {
     setGsyncCloudAhead(null); setGsyncStatus("syncing");
     try {
-      const content = JSON.stringify(buildSavePayload(), null, 2);
-      const updated = await GDrive.updateFile(gsync.fileId, content);
-      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"" });
+      const payload = buildSavePayload();
+      const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
+        lastPushedStamp: payload.dataLastUpdated || null });
       setGsyncStatus("synced"); note("saved","Cloud replaced with this device's copy");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed"); }
   };
@@ -12557,8 +12589,9 @@ export default function App() {
   const gsyncAcceptCloud = async () => {
     if (!gsyncConflict) return;
     try {
-      await applyPayloadLive(JSON.parse(gsyncConflict.cloudText));
-      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:gsyncConflict.cloudModified });
+      const stamp = await applyPayloadLive(JSON.parse(gsyncConflict.cloudText));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:gsyncConflict.cloudModified,
+        lastPushedStamp: stamp });
       setGsyncStatus("synced");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Load failed"); }
     setGsyncConflict(null);
@@ -12573,9 +12606,10 @@ export default function App() {
   const gsyncAcceptLocal = async () => {
     if (!gsyncConflict) return;
     try {
-      const content = JSON.stringify(buildSavePayload(), null, 2);
-      const updated = await GDrive.updateFile(gsync.fileId, content);
-      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"" });
+      const payload = buildSavePayload();
+      const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
+      await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
+        lastPushedStamp: payload.dataLastUpdated || null });
       setGsyncStatus("synced");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save to Cloud failed"); }
     setGsyncConflict(null);
@@ -12976,6 +13010,9 @@ export default function App() {
         if (driveLink) await wPre(GSYNC_KEY, {
           fileId: driveLink.id, fileName: driveLink.name, localName: "",
           lastSyncAt: Date.now(), lastCloudModified: driveLink.modifiedTime || "",
+          // The data came FROM this cloud file, so it is already "pushed" — without
+          // this the first sync would upload an identical copy straight back.
+          lastPushedStamp: openedStamp,
         });
       } catch {}
       const newProf = {
@@ -13057,7 +13094,8 @@ export default function App() {
     // persist path is safe.
     if (driveLink) await persistGsync({ ...gsync,
       fileId: driveLink.id, fileName: driveLink.name,
-      lastSyncAt: Date.now(), lastCloudModified: driveLink.modifiedTime || "" });
+      lastSyncAt: Date.now(), lastCloudModified: driveLink.modifiedTime || "",
+      lastPushedStamp: parsed.dataLastUpdated || parsed.savedAt || null });
 
     setTab("milestones");   // N79: a freshly opened file always lands on the Timeline
     setOpenMenu(null);

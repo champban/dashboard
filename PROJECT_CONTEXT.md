@@ -96,6 +96,41 @@ generated artifact. The committed `vite.config.js` points
 - No personal names in the app (allowed: contact email champbanyat@gmail.com, "Lotus Bakeries", "Lotus General").
 - Batch changes into one build + audit + package cycle. Report audit results honestly.
 
+## "Do I need to push?" is answered by lastPushedStamp (3.77.x)
+
+```js
+const localChanged = !!dataLastUpdated && dataLastUpdated !== gsync.lastPushedStamp;
+```
+
+`lastPushedStamp` is the `dataLastUpdated` value that was last **successfully uploaded**.
+Both sides of the comparison come from this device's own clock, so there is no drift
+against Google's `modifiedTime` and no tolerance window to tune. A failed upload leaves
+it unchanged, so the push retries until it lands.
+
+**Do not go back to comparing `dataLastUpdated` against `lastSyncAt`.** That asks "did
+the data change since we last *checked*", which is a different question, and the "nothing
+changed" branch re-stamps `lastSyncAt` on every check. Once `lastSyncAt` got ahead of
+`dataLastUpdated` the pending edit was invisible forever and each further check pushed
+`lastSyncAt` further out — a self-reinforcing trap. A device sat showing
+`This device 08:00 PM / Cloud file 07:57 PM / Already up to date — nothing to upload`
+with newer data that could never leave it.
+
+Two invariants that keep it honest:
+
+- **Every path that uploads must record `lastPushedStamp`** from the payload it actually
+  sent (`payload.dataLastUpdated`), not from `dataLastUpdated` read again afterwards.
+- **Every path that receives data must set `dataLastUpdated` from the payload**, never
+  to `Date.now()`, and record the same value as `lastPushedStamp`. A stamp of "now" on a
+  copy that just came down makes it look newer than its own source and bounces it back
+  up; that bounce is what the old 1500ms tolerance existed to hide.
+
+A record predating the field has no `lastPushedStamp`, which counts as needing a push —
+that is deliberate, and it is what recovers an install already stranded. Safe, because a
+cloud that also moved makes `cloudChanged` true and the conflict dialog asks first.
+
+`build/sync-push-stranded.test.mjs` reproduces the stranded state and asserts an upload
+happens; it fails against the commit before the fix.
+
 ## Sync time has to be visible, and absolute (3.77.x)
 
 Three separate facts, and the answer to "is my copy the same as the cloud's?" needs all
