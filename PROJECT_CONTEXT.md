@@ -202,6 +202,23 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
   popup documents (the document-wide guard cannot reach windows the app opens).
 - Google Drive uses least-privilege `drive.file`; Supabase auth bootstrap,
   URL sanitization, file limits unchanged.
+- **No credential belongs in this repo at all.** A Google API key was committed
+  twice in one week — the second time through the GitHub web editor — and the repo is
+  public, so both had to be rotated. Nothing in the app reads an API key: Drive works
+  on an OAuth token from GIS, so the answer is always to delete the constant, never to
+  paste a new value in. Two independent guards now exist:
+  - GitHub **push protection**, which blocks the push (including web-editor commits).
+    It is an account setting and can be switched off.
+  - `build/secret-scan.mjs`, run by CI and by `npm run scan-secrets`. It lives in the
+    repo, so it also covers a commit that is never pushed. Patterns are **narrow on
+    purpose** — the Google OAuth **client ID** in `src/App.jsx`/`auth.js` is a public
+    identifier, not a secret, and a broad scanner would flag it and leave CI red until
+    someone deleted the check. `--selftest` asserts both directions: that each pattern
+    still catches a credential, and that the client ID, `sha512-` integrity hashes and
+    the Supabase project URL are still ignored.
+  - A revoked key in git history is not an incident. Rotating is the fix; rewriting
+    history is not, and for an unreachable commit it cannot work at all — only GitHub
+    Support can remove one.
 
 ## Known hazards (learned the hard way — do not regress)
 
