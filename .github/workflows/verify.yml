@@ -22,16 +22,27 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 rather than v4: v4 runs on the Node 20 action runtime that GitHub is
+      # retiring, and every run logged a deprecation warning saying it was being
+      # forced onto Node 24 anyway.
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20' # package.json engines: >=20
+          node-version: '20' # the app's runtime — package.json engines: >=20
           cache: npm
 
       # ci, not install: the lockfile is the point. LEN/NODES in the harness move
       # with the jsdom version, so an unpinned install makes the baseline meaningless.
       - run: npm ci
+
+      # Second line of defence behind GitHub push protection, which is an account
+      # setting someone can switch off and which never sees an unpushed commit.
+      # Narrow patterns only — this repo ships a Google OAuth *client ID* on purpose.
+      - name: Secret scan
+        run: |
+          node build/secret-scan.mjs --selftest
+          node build/secret-scan.mjs
 
       # vite build -> jsdom harness -> audit.py (0 blockers) -> packager (6 CSP hashes)
       - name: Build, harness, audit, package

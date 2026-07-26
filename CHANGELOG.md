@@ -1,5 +1,37 @@
 # Changelog
 
+## 3.77.0 — a secret scanner in the repo — 2026-07-26
+
+`APP_VERSION` unchanged. CI and tooling only — `index.html` is byte-identical.
+
+### Added
+
+- **`build/secret-scan.mjs`**, run by CI on every PR and by `npm run scan-secrets`.
+  A Google API key reached this public repo twice in one week, the second time through
+  the GitHub web editor. Push protection now blocks that at the door, but it is an
+  account setting that can be switched off and it never sees an unpushed commit — this
+  check lives in the repo instead.
+
+  Patterns are narrow by design: Google API keys, PEM private-key blocks, AWS access
+  key ids, GitHub tokens, Slack tokens, and `sk-`-prefixed keys. Nothing broader,
+  because the repo ships a Google OAuth **client ID** on purpose — a public identifier
+  for a frontend OAuth flow — and flagging it would leave CI permanently red, which is
+  how a check gets deleted.
+
+  `--selftest` asserts both directions and runs before the scan in CI: six patterns
+  each catch a synthetic credential, and four intentionally-public strings (the client
+  ID, a `sha512-` lockfile hash, the Supabase project URL, and the word "skip") are
+  still ignored. Verified against the real incident too — the scanner finds the key in
+  commit `7740041`, and a synthetic key added to a tracked file makes the CI step exit 1
+  with a `::error file=…,line=…` annotation.
+
+### Changed
+
+- `actions/checkout` and `actions/setup-node` bumped v4 → v5. v4 runs on the Node 20
+  action runtime GitHub is retiring, and every run logged a warning saying it was being
+  forced onto Node 24 regardless. The app still builds on Node 20 per
+  `package.json` engines.
+
 ## 3.77.0 — opening a Drive file on first run — 2026-07-25
 
 `APP_VERSION` is unchanged. Reported as "เปิด file json ที่อยู่บน google drive ไม่ได้"
