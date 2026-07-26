@@ -310,8 +310,13 @@ const GDrive = (() => {
   };
 
   // create a new .json file in the user's Drive, return its id
-  const createFile = async (name, content) => {
+  //
+  // parentId places it in a specific folder. Left out, Drive puts the file in My
+  // Drive root — right for the first sync file, wrong for a conflict copy, which
+  // has to land beside the file it is a copy of or nobody will find it.
+  const createFile = async (name, content, parentId = null) => {
     const meta = { name, mimeType: "application/json" };
+    if (parentId) meta.parents = [parentId];
     const boundary = "-------ban" + Math.random().toString(36).slice(2);
     const body =
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
@@ -9068,6 +9073,12 @@ function DirectionDialog({
   localAction, localHint,
   cloudAction, cloudHint,
   onUseLocal, onUseCloud, onCancel,
+  // The confirm step's safety line. A prop and not a constant because it is a
+  // promise about what happens to the losing copy, and only some callers can keep
+  // it: the Drive conflict paths upload a conflicted copy first, the disk-import
+  // path does not. Defaulting to the honest "cannot be undone" means a caller that
+  // forgets to pass this understates its safety rather than overstating it.
+  keepsLoser = false,
 }) {
   const [pending, setPending] = useState(null);   // null | "local" | "cloud"
 
@@ -9134,13 +9145,22 @@ function DirectionDialog({
       <p style={{fontSize:12.5,color:"var(--c-text)",lineHeight:1.65,marginBottom:10}}>
         The copy on <strong>{winner}</strong> will replace the copy on <strong>{loser}</strong>.
       </p>
-      <div style={{background:"#9f2d2d14",border:"1px solid #9f2d2d44",borderRadius:10,padding:"11px 13px",marginBottom:16}}>
-        <div style={{fontSize:11,fontWeight:800,color:"#9f2d2d",marginBottom:5}}>This will be discarded:</div>
+      {/* Amber rather than red when the loser is kept — the panel still has to say
+          what leaves the screen, but "you are about to destroy this" is no longer
+          what is happening, and a red danger box that is not dangerous teaches the
+          user to click through red boxes. */}
+      <div style={{background:keepsLoser?"#d9770614":"#9f2d2d14",border:`1px solid ${keepsLoser?"#d9770644":"#9f2d2d44"}`,
+        borderRadius:10,padding:"11px 13px",marginBottom:16}}>
+        <div style={{fontSize:11,fontWeight:800,color:keepsLoser?"#b45309":"#9f2d2d",marginBottom:5}}>
+          {keepsLoser ? "This leaves the screen:" : "This will be discarded:"}
+        </div>
         <div style={{fontSize:11.5,color:"var(--c-text)",lineHeight:1.7}}>
           {loserCounts.tasks} tasks · {loserCounts.events} events · {loserCounts.notes} notes
         </div>
         <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:6}}>
-          This cannot be undone from here. Cancel and use Backup to Local Drive first if you are unsure.
+          {keepsLoser
+            ? <>Not deleted — it is saved to Google Drive first as <strong style={{color:"var(--c-text)"}}>“{(cloudName||"My-Todo-Planner").replace(/\.json$/i,"")} (conflicted copy …).json”</strong>, next to the file it came from. Open it any time to get this version back.</>
+            : "This cannot be undone from here. Cancel and use Backup to Local Drive first if you are unsure."}
         </div>
       </div>
       <button onClick={()=>{ setPending(null); (toCloud?onUseLocal:onUseCloud)(); }}
@@ -12724,14 +12744,45 @@ export default function App() {
   };
 
   // The three answers to "another device saved" (gsyncCloudAhead).
+  // ── Dropbox's answer to "one copy has to win": do not destroy the other one.
+  //
+  // Dropbox writes "file (conflicted copy).ext", OneDrive offers Keep both, Joplin
+  // creates a conflict note. This app used to discard the losing side outright and,
+  // at the moment of the overwrite, tell the user they should have taken a backup
+  // first — advice that only helps someone who read it before the collision.
+  //
+  // Every caller runs this BEFORE its overwrite and lets a throw abandon the
+  // overwrite. That ordering is the whole feature. A copy written afterwards is
+  // missing from exactly the run where writing it is what failed, which is the run
+  // that loses data; and a user who has been told the loser is kept will answer the
+  // dialog more freely, so the promise has to be true before anything is destroyed.
+  const saveConflictCopy = async (contentText, whose) => {
+    const base = (gsync.fileName || "My-Todo-Planner").replace(/\.json$/i, "");
+    // Drive accepts spaces and parentheses in a name; "/" is the one character it
+    // does not, and every locale-formatted date is liable to contain one.
+    const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}-${p2(d.getMinutes())}`;
+    const name = `${base} (conflicted copy from ${whose} ${stamp}).json`;
+    // Beside the master file rather than in My Drive root: a copy the user cannot
+    // find is not a copy. A null parent means the master already lives in the root,
+    // which is also where createFile puts a file with no parent — so both agree.
+    let parent = null;
+    try { parent = await GDrive.getParentFolder(gsync.fileId); } catch { parent = null; }
+    const made = await GDrive.createFile(name, contentText, parent);
+    return (made && made.name) || name;
+  };
+
   const cloudAheadUpdate = async () => {
     const c = gsyncCloudAhead; if(!c) return;
     setGsyncCloudAhead(null); setGsyncStatus("syncing");
     try {
+      // Reached only when this device has unsaved edits, so taking the cloud copy
+      // destroys them. Keep them on Drive first.
+      await saveConflictCopy(JSON.stringify(buildSavePayload(), null, 2), "this device");
       const stamp = await applyPayloadLive(JSON.parse(c.cloudText));
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified,
         lastPushedStamp: stamp });
-      setGsyncStatus("synced"); note("pulled","Updated from cloud");
+      setGsyncStatus("synced"); note("pulled","Updated from cloud — this device's copy kept on Drive");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Update failed"); note("error", e.message||"Update failed"); }
   };
   // Later: keep this device untouched and do NOT record the cloud version, so the
@@ -12743,25 +12794,32 @@ export default function App() {
   // Keep mine: overwrite the cloud with this device's copy. Discards the other
   // device's change, so it is the destructive answer and is styled as such.
   const cloudAheadKeepMine = async () => {
+    const c = gsyncCloudAhead;
     setGsyncCloudAhead(null); setGsyncStatus("syncing");
     try {
+      // The cloud copy is the other device's save, and it is about to be overwritten.
+      // cloudText was downloaded when the dialog opened, so the copy is of what the
+      // decision was actually made about.
+      if (c && c.cloudText) await saveConflictCopy(c.cloudText, "Google Drive");
       const { stamp, payload } = pushPayload();
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
         lastPushedStamp: stamp });
-      setGsyncStatus("synced"); note("saved","Cloud replaced with this device's copy");
+      setGsyncStatus("synced"); note("saved","Cloud replaced — the previous cloud copy kept beside it");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed"); }
   };
 
   const gsyncAcceptCloud = async () => {
     if (!gsyncConflict) return;
     try {
+      // Both sides moved, so this device's version is real work, not a stale copy.
+      await saveConflictCopy(JSON.stringify(buildSavePayload(), null, 2), "this device");
       const stamp = await applyPayloadLive(JSON.parse(gsyncConflict.cloudText));
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:gsyncConflict.cloudModified,
         lastPushedStamp: stamp });
-      setGsyncStatus("synced");
-    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Load failed"); }
+      setGsyncStatus("synced"); note("pulled","Loaded the Drive copy — this device's copy kept on Drive");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Load failed"); note("error", e.message||"Load failed"); }
     setGsyncConflict(null);
   };
 
@@ -12774,13 +12832,14 @@ export default function App() {
   const gsyncAcceptLocal = async () => {
     if (!gsyncConflict) return;
     try {
+      if (gsyncConflict.cloudText) await saveConflictCopy(gsyncConflict.cloudText, "Google Drive");
       const { stamp, payload } = pushPayload();
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
         lastPushedStamp: stamp });
-      setGsyncStatus("synced");
-    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save to Cloud failed"); }
+      setGsyncStatus("synced"); note("saved","Saved to cloud — the previous cloud copy kept beside it");
+    } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save to Cloud failed"); note("error", e.message||"Save to Cloud failed"); }
     setGsyncConflict(null);
   };
 
@@ -13950,9 +14009,17 @@ export default function App() {
 
           Until 3.78 this also appeared for the safe case — cloud moved, nothing
           unsaved here — where its own first line read "updating is safe". That case
-          now applies itself, so every wording here can assume a real collision. */}
+          now applies itself, so every wording here can assume a real collision.
+
+          zIndex is 9850, not the 6000 it was. The Sync Manager panel is 9700 and is
+          where "Save to Cloud" is pressed, so at 6000 this dialog rendered UNDERNEATH
+          the panel that raised it: measured in Chromium at 390x844, all three of its
+          buttons came back elementFromPoint-covered by the panel's own content. The
+          only ask in the entire sync flow, and it could not be answered. The sibling
+          conflict dialog (DirectionDialog) was already 9800, above the panel, which is
+          why this never showed up there. */}
       {gsyncCloudAhead && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",zIndex:6000,
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",zIndex:9850,
           display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{background:"var(--c-card2)",border:"1px solid var(--c-border)",borderRadius:14,
             width:"100%",maxWidth:430,padding:"18px 20px"}}>
@@ -13993,16 +14060,21 @@ export default function App() {
               Keep this device and overwrite the cloud
             </button>
             <div style={{fontSize:10.5,color:"var(--c-text-muted)",marginTop:9,lineHeight:1.5}}>
-              Taking the cloud copy discards this device's unsaved changes. Overwriting the
-              cloud discards the other device's. "Later" is the only one that loses nothing —
-              it changes neither copy and asks again at the next sync.
+              {/* Was: "'Later' is the only one that loses nothing." True until the
+                  losing side started being uploaded as a conflicted copy; leaving it
+                  there would now scare the user away from answering at all. */}
+              Whichever copy does not win the master file is saved to Drive first as a
+              conflicted copy, next to it — so neither answer loses data, only the
+              master file changes. "Later" changes nothing at all and asks again at the
+              next sync.
             </div>
           </div>
         </div>
       )}
       {gsyncConflict && <DirectionDialog
         title="⚠️ Both copies changed"
-        intro="This device and Google Drive were both edited since the last sync, so one of them has to win. Nothing has been changed yet."
+        intro="This device and Google Drive were both edited since the last sync, so one of them has to win on the master file. Whichever you don't pick is saved to Drive as a conflicted copy, so nothing is lost either way. Nothing has been changed yet."
+        keepsLoser
         localName="this device"            localPayload={gsyncConflict.localPayload} localStamp={gsyncConflict.localStamp}
         cloudName={gsyncConflict.cloudName} cloudPayload={gsyncConflict.cloudPayload} cloudStamp={gsyncConflict.cloudModified}
         localAction="Save to Cloud"          localHint="Keeps what is on this device and overwrites Drive"

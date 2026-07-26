@@ -326,6 +326,65 @@ second confirmation step states the exact counts about to be discarded. Cloud
 metadata is checked during manual sync, auto-sync (~15 s debounce after edits),
 browser focus and visibility change — no fixed-interval polling.
 
+## The copy that loses a conflict is kept, not deleted (3.79)
+
+Answering a sync conflict used to destroy the other side outright, and the confirm
+step said so: *"This cannot be undone from here. Cancel and use Backup to Local
+Drive first if you are unsure."* That advice only reaches someone who read it
+before the collision existed.
+
+`saveConflictCopy(contentText, whose)` now uploads the losing side to Drive as
+`<master> (conflicted copy from <whose> YYYY-MM-DD HH-MM).json`, in the master
+file's own folder (`getParentFolder`, so a copy is where the user will look for
+it). This is the Dropbox contract — `file (conflicted copy).ext` — and the same
+answer OneDrive gives with **Keep both** and Joplin with a conflict note.
+
+All four destructive answers call it: `gsyncAcceptCloud`, `gsyncAcceptLocal`,
+`cloudAheadUpdate`, `cloudAheadKeepMine`.
+
+- **It runs BEFORE the destructive write, and a throw abandons that write.** This
+  ordering *is* the feature. A copy written afterwards is absent from exactly the
+  run where writing it is what failed — the run that loses data. And a user told
+  the loser is kept answers the dialog more freely, so the promise has to be true
+  before anything is destroyed. `build/sync-push-stranded.test.mjs` asserts this
+  with a 500 on the multipart create: nothing may be applied, nothing uploaded,
+  and the error must surface. Swapping the two lines makes that block fail.
+- **`keepsLoser` is a `DirectionDialog` prop, not a constant.** The Drive conflict
+  paths keep the loser; the disk-import path (`ImportDirectionDialog`) does not.
+  It defaults to `false`, so a caller that forgets it understates its own safety
+  rather than overstating it.
+- **The confirm panel turns amber and reads "This leaves the screen:"** instead of
+  red and "This will be discarded:". A red danger box that is not dangerous
+  teaches the user to click through red boxes.
+- Filenames are built from `getFullYear/getMonth/getDate/getHours/getMinutes`, not
+  from `toLocaleString`. Drive rejects `/` in a name and locale-formatted dates
+  are full of them.
+- The `uploads` / `creates` split in the test harness is deliberate: a conflict
+  copy is a new file, an upload overwrites the master. Pooling them would make
+  "did it overwrite the master?" unanswerable.
+
+## A dialog must outrank the panel that raises it (3.79)
+
+The `gsyncCloudAhead` dialog ("Save needs a decision") sat at `zIndex: 6000`
+while `SyncPanel` — the Sync Manager, where **Save to Cloud** is pressed — sits at
+`9700`. So the only ask in the entire sync flow rendered *underneath* the thing
+that raised it. Chromium at 390×844 reported all three of its buttons covered by
+the panel's own content: present in the DOM, unanswerable on screen. Now `9850`.
+
+The sibling `DirectionDialog` was already `9800`, above the panel, which is why
+this never showed there.
+
+- **jsdom cannot paint, but the numbers are the bug.** The regression test reads
+  both elements' inline `zIndex` and asserts dialog > panel. No layout engine
+  needed.
+- **Bounds checks would not have caught it.** Every button was inside the
+  viewport. `document.elementFromPoint` at each button's centre is the question
+  that matters, and it is now part of the browser check.
+- Known and NOT fixed here: the ⛶ Full screen control (`src/App.jsx:13835`) is
+  `zIndex: 9999`, above every modal, and paints over dialog prose. It covers text,
+  not buttons. It predates this work and affects every modal, so correcting it
+  means sweeping them all — its own change, not a rider on this one.
+
 ## Task attachment previews (3.76.x, re-implemented in source in 3.77.0)
 
 `taskImages(task)` is the single definition of "images this task owns":

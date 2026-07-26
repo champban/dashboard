@@ -1,5 +1,59 @@
 # Changelog
 
+## 3.79.0 — the copy that loses is kept, Dropbox-style — 2026-07-26
+
+`APP_VERSION` unchanged. Asked for as: *"make it like Dropbox, and check iPhone also."*
+
+### Added
+
+- **The side that loses a sync conflict is uploaded to Drive instead of being deleted.**
+  `<master> (conflicted copy from this device|Google Drive YYYY-MM-DD HH-MM).json`, filed
+  in the master file's own folder. Dropbox writes `file (conflicted copy).ext`, OneDrive
+  offers **Keep both**, Joplin creates a conflict note; this app discarded the loser and
+  told the user, at the moment of the overwrite, that they should have taken a backup
+  first. All four destructive answers now write the copy: taking the cloud copy or
+  overwriting the cloud, from either the "Both copies changed" dialog or "Save needs a
+  decision".
+
+  **The copy goes up before anything is destroyed, and a failure to write it cancels the
+  destruction.** A copy written afterwards would be missing from exactly the run where
+  writing it is what failed. Tested with a 500 on the create: nothing applied, nothing
+  uploaded, error surfaced.
+
+### Fixed
+
+- **"Save needs a decision" was unanswerable when raised from the Sync Manager.** The
+  dialog was `zIndex: 6000`; the Sync Manager panel that hosts the **Save to Cloud**
+  button is `9700`. Measured in Chromium at 390×844, all three of the dialog's buttons
+  came back covered by the panel's own content — the one ask in the whole sync flow, and
+  a tap could not reach it. Now `9850`. The sibling conflict dialog was already `9800`,
+  above the panel, which is why this only ever affected this one.
+
+### Changed
+
+- The confirm step no longer says *"This cannot be undone from here."* It names the
+  conflicted-copy file and says the copy is kept. Its panel is amber and headed **"This
+  leaves the screen:"** rather than red and **"This will be discarded:"** — a red danger
+  box that is not dangerous teaches people to click through red boxes. `keepsLoser` is a
+  prop defaulting to `false`, so the disk-import dialog (which keeps no copy) still tells
+  the truth.
+- The footnote on "Save needs a decision" no longer claims *"'Later' is the only one that
+  loses nothing"* — it stopped being true once the loser started being kept.
+
+### Verified
+
+- 82 test assertions across six files, up from 65. Sixteen new ones cover the conflict
+  copy: its name, that it has no `/` in it, that it holds the work that left the screen,
+  that it lands beside the master, that the master is not touched on a pull, that the copy
+  precedes the overwrite, and that a failed copy destroys nothing.
+- Real Chromium at 390×844 (iPhone 14), against the packaged `index.html`: both conflict
+  dialogs and the confirm step reached, no horizontal page scroll, every card inside the
+  844px screen and not internally clipped, and every button ≥44px tall **and receiving its
+  own tap** via `elementFromPoint` — the check that caught the z-index bug, which bounds
+  checks alone had passed.
+- Harness `LEN 25129 / NODES 141` unchanged, `audit.py` 0 blockers, packager 6/6 CSP PASS,
+  es2019 guard `??` 0 and `?.[` 0.
+
 ## 3.78.0 — another device's save applies itself — 2026-07-26
 
 `APP_VERSION` unchanged. Reported as: *"if another device saved, changes will apply
