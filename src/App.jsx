@@ -11203,7 +11203,7 @@ function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onO
             : online                  ? "#22c55e" : theme.textMuted;
   return (
     <button onClick={onOpen} aria-label="Cloud sync status"
-      title={`Cloud file: ${gsync.fileName||"—"}\n📱 This device · ${syncStamp(dataLastUpdated)}\n☁️ Cloud file · ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
+      title={`Cloud file: ${gsync.fileName||"—"}\n💾 This browser · ${syncStamp(dataLastUpdated)}\n☁️ Cloud file · ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
       style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,padding:big?"6px 10px":"5px 8px",
         borderRadius:99,border:`1px solid ${theme.border}`,background:theme.surface,
         cursor:"pointer",touchAction:"manipulation"}}>
@@ -11221,6 +11221,7 @@ function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onO
 
 function SyncPanel({
   gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote, dataLastUpdated,
+  diskFileName, diskSavedAt, onSaveToDisk, onOpenFromDisk,
   onConnect, onDisconnect, onSyncNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
 }) {
@@ -11346,7 +11347,7 @@ function SyncPanel({
               📄 {gsync.fileName||"—"}
             </div>
             {[
-              ["📱 This device",  syncStamp(dataLastUpdated)],
+              ["💾 This browser",  syncStamp(dataLastUpdated)],
               ["☁️ Cloud file",   syncStamp(gsync.lastCloudModified)],
               ["🔄 Last checked", syncStamp(gsync.lastSyncAt)],
             ].map(([label, value])=>(
@@ -11357,6 +11358,51 @@ function SyncPanel({
             ))}
           </div>
         )}
+        {/* THIS BROWSER — the live data.
+            This box used to be headed "💻 This device (local)" with a filename
+            under it, and the filename was fiction: it just mirrored the Drive
+            name, and its own caption admitted "Data lives in this browser". The
+            📄 plus a name read as "there is a file on my disk", which made three
+            genuinely different places look like two. No filename here now,
+            because there is no file — just the data and when it last changed. */}
+        <div style={box}>
+          <div style={label}>💾 This browser — live data</div>
+          <div style={{fontSize:12.5,fontWeight:700,color:"var(--c-text)"}}>
+            {syncStamp(dataLastUpdated)}
+          </div>
+          <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:4,lineHeight:1.5}}>
+            Every edit is written here first — this is the copy the app reads. It is
+            storage inside this browser, not a file, so clearing site data or
+            removing the home-screen icon removes it. Keep a copy on Drive or on disk.
+          </div>
+        </div>
+
+        {/* FILE ON DISK — the third place, previously absent from this panel
+            entirely even though the app can read and write one. Showing it is the
+            point: a .json on disk is a snapshot taken at one moment and never
+            updated again, which is exactly the thing that gets mistaken for a
+            live copy. */}
+        <div style={box}>
+          <div style={label}>📄 File on disk</div>
+          {diskFileName ? (
+            <>
+              <div style={{fontSize:12.5,fontWeight:700,color:"var(--c-text)",wordBreak:"break-all"}}>{diskFileName}</div>
+              <div style={{fontSize:10.5,color:"var(--c-text)",fontWeight:700,marginTop:2,fontVariantNumeric:"tabular-nums"}}>
+                Saved {syncStamp(diskSavedAt)}
+              </div>
+            </>
+          ) : (
+            <div style={{fontSize:11.5,fontWeight:700,color:"var(--c-text-muted)"}}>No file saved this session</div>
+          )}
+          <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:4,lineHeight:1.5}}>
+            A one-off snapshot. It does <strong>not</strong> update when you edit, and
+            Auto-sync never touches it — only Google Drive is kept current.
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:7}}>
+            {onSaveToDisk && <button onClick={onSaveToDisk} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>💾 Save a copy</button>}
+            {onOpenFromDisk && <button onClick={onOpenFromDisk} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>📂 Open a file</button>}
+          </div>
+        </div>
         {!gsyncSignedIn ? (
           <div style={{textAlign:"center",padding:"10px 0"}}>
             <p style={{fontSize:12,color:"var(--c-text-muted)",marginBottom:12,lineHeight:1.6}}>
@@ -11418,15 +11464,6 @@ function SyncPanel({
                 </div>
               )}
               {files?.length===0 && <div style={{marginTop:7,fontSize:10,color:"var(--c-text-muted)",lineHeight:1.45}}>With Google’s <code>drive.file</code> permission, only JSON files created by or previously opened with My Todo Planner can appear here. Create a new sync file if your other Drive files are not listed.</div>}
-            </div>
-
-            {/* LOCAL SIDE */}
-            <div style={box}>
-              <div style={label}>💻 This device (local)</div>
-              <div style={{fontSize:12.5,fontWeight:700,color:"var(--c-text)",wordBreak:"break-all"}}>📄 {gsync.localName||gsync.fileName||"My-Todo-Planner.json"}</div>
-              <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:4,lineHeight:1.5}}>
-                Data lives in this browser. The name mirrors the Drive file. (Browsers can't open a local folder path for security reasons.)
-              </div>
             </div>
 
             {/* SYNC CONTROLS */}
@@ -12454,8 +12491,18 @@ export default function App() {
 
   // switch the linked file to a different one the user picks (keeps auth)
   const gsyncRelink = async (fileId, fileName) => {
+    // Clearing both marks is deliberate: you have just pointed at a file whose
+    // contents this device has never compared, so the next check must see BOTH sides
+    // as changed and ask which way to go rather than quietly overwriting a file you
+    // adopted. lastPushedStamp goes with them for the same reason.
     await persistGsync({ ...gsync, fileId, fileName, localName: fileName,
-      lastSyncAt:0, lastCloudModified:"" });
+      lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
+    // ...but nothing used to trigger that check, so the panel sat on
+    // "Cloud file: never / Last checked: never" indefinitely and the only way out was
+    // to guess and press Save to Cloud. Reconcile straight away instead. Deferred a
+    // tick because gsyncNow reads gsync from state, which persistGsync has only just
+    // scheduled — the same pattern importUseLocal already uses for its push.
+    setTimeout(()=>{ gsyncNow(); }, 350);
   };
 
   // fully unlink the file (but stay signed in)
@@ -13748,13 +13795,21 @@ export default function App() {
       {showCloudSync&&<CloudSyncModal onClose={()=>setShowCloudSync(false)} openFileRef={openFileRef}
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError} gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()}
         onConnect={gsyncConnect} onDisconnect={gsyncDisconnect} onPushNow={()=>gsyncPush({})} onPullNow={()=>gsyncPull({})}
-        onLinkFile={async(fileId,fileName)=>{ await persistGsync({...gsync,fileId,fileName}); }}
+        onLinkFile={async(fileId,fileName)=>{
+          // Recorded only the pairing before, leaving lastCloudModified/lastSyncAt
+          // untouched — so a freshly linked file read as "never checked" forever.
+          // Same contract as gsyncRelink: no reconciliation marks, then reconcile.
+          await persistGsync({...gsync, fileId, fileName, lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null});
+          setTimeout(()=>{ gsyncNow(); }, 350);
+        }}
         listFiles={()=>GDrive.listFiles()} />}
       {gsyncPanel && <SyncPanel
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError}
         gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()} gsyncAuto={gsyncAuto}
         onConnect={gsyncConnect} onDisconnect={()=>{gsyncDisconnect();setGsyncPanel(true);}}
         onSyncNow={gsyncNow} gsyncNote={gsyncNote} dataLastUpdated={dataLastUpdated}
+        diskFileName={fileHandle?.name || lastFileName || ""} diskSavedAt={lastSavedTime}
+        onSaveToDisk={handleSaveAs} onOpenFromDisk={handleOpenFilePicker}
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
         listFiles={()=>GDrive.listFiles()}
         minimized={gsyncPanelMin} onToggleMin={()=>setGsyncPanelMin(m=>!m)}
@@ -14241,7 +14296,7 @@ export default function App() {
                             <>
                               <div style={{fontSize:11.5,fontWeight:700,color:theme.text,wordBreak:"break-all",marginBottom:2}}>📄 {gsync.fileName}</div>
                               <div style={{fontSize:9.5,color:theme.textMuted,marginBottom:7,display:"grid",gap:1}}>
-                                <div>📱 This device · {syncStamp(dataLastUpdated)}</div>
+                                <div>💾 This browser · {syncStamp(dataLastUpdated)}</div>
                                 {cloudRel&&<div>☁️ Cloud file · {cloudRel}</div>}
                                 {rel&&<div>🔄 Last checked · {rel}</div>}
                               </div>

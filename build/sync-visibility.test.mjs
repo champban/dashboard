@@ -150,7 +150,7 @@ const HAS_CLOCK = /\b\d{1,2}:\d{2}(:\d{2})?\s?([AP]M)?/i;
     // The tooltip is where all three facts live in the compact layout.
     const tip = chip.getAttribute('title') || '';
     check('chip tooltip names the cloud file', tip.includes('my-planner.json'), tip.slice(0, 80));
-    for (const [what, stamp] of [['This device', LOCAL_STAMP], ['Cloud file', CLOUD_STAMP]]) {
+    for (const [what, stamp] of [['This browser', LOCAL_STAMP], ['Cloud file', CLOUD_STAMP]]) {
       const hhmm = new Date(stamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       check(`tooltip carries the ${what} time (${hhmm})`, tip.includes(hhmm), tip.replace(/\n/g, ' | '));
     }
@@ -168,8 +168,24 @@ const HAS_CLOCK = /\b\d{1,2}:\d{2}(:\d{2})?\s?([AP]M)?/i;
     check('tapping the chip opens the sync panel', /Cloud sync|GOOGLE DRIVE|Sync/i.test(body));
     if (process.env.DBG) console.log('       panel body:', JSON.stringify(body.slice(0, 400)));
     check('panel lists this device / cloud file / last checked together',
-      body.includes('This device') && body.includes('Cloud file') && body.includes('Last checked'),
+      body.includes('This browser') && body.includes('Cloud file') && body.includes('Last checked'),
       'the three facts were never shown side by side');
+
+    // Three storage locations, three labelled boxes. The middle one used to be
+    // headed "This device (local)" with a filename under it that just mirrored the
+    // Drive name — so browser storage and a file on disk looked like one place.
+    check('names all three storage locations distinctly',
+      /Google Drive/i.test(body) && /This browser/i.test(body) && /File on disk/i.test(body),
+      'boxes seen: ' + ['Google Drive','This browser','File on disk'].filter(x=>new RegExp(x,'i').test(body)).join(', '));
+    check('browser storage is described as storage, not as a file',
+      /copy the app reads|not a file/i.test(body));
+    check('the disk snapshot warns that it does not update',
+      /does not update|one-off snapshot/i.test(body));
+    check('one name per location — "This device" is no longer used alongside "This browser"',
+      !/This device/.test(body), 'two labels for the same storage location');
+    check('no fictional filename under the browser-storage box',
+      !/This browser[\s\S]{0,80}my-planner\.json/i.test(body),
+      'the mirrored Drive name is back under browser storage');
   }
 }
 
