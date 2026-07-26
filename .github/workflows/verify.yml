@@ -1,0 +1,62 @@
+# Runs the committed build cycle on every pull request.
+#
+# The check that matters most here is "index.html matches the committed source".
+# index.html is a generated artifact — the whole app ships as that one file — and
+# nothing previously stopped a PR from changing src/App.jsx without rebuilding, or
+# from hand-editing index.html. Either would ship something no source produces.
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20' # package.json engines: >=20
+          cache: npm
+
+      # ci, not install: the lockfile is the point. LEN/NODES in the harness move
+      # with the jsdom version, so an unpinned install makes the baseline meaningless.
+      - run: npm ci
+
+      # vite build -> jsdom harness -> audit.py (0 blockers) -> packager (6 CSP hashes)
+      - name: Build, harness, audit, package
+        run: npm run verify
+
+      - name: Regression tests
+        run: npm test
+
+      - name: index.html matches the committed source
+        run: |
+          if ! git diff --quiet -- index.html BUILD-MANIFEST.json; then
+            echo "::error::index.html is GENERATED and does not match src/ + build/ on this branch. Run 'npm run verify' and commit the result."
+            git diff --stat -- index.html BUILD-MANIFEST.json
+            exit 1
+          fi
+          echo "index.html reproduces byte-for-byte from source"
+
+      # build.target is es2019 + safari13 for a reason: older iOS Safari cannot parse
+      # these and renders a blank page rather than failing loudly.
+      - name: es2019 guard
+        run: |
+          nullish=$(grep -c '??' index.html || true)
+          optional=$(grep -c '?\.\[' index.html || true)
+          echo "nullish-coalescing lines: $nullish   optional-index lines: $optional"
+          if [ "$nullish" != "0" ] || [ "$optional" != "0" ]; then
+            echo "::error::es2019 guard failed — '??' or '?.[' reached the shipped bundle; older iOS Safari will render nothing."
+            exit 1
+          fi
