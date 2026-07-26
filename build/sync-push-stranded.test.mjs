@@ -17,6 +17,11 @@
 // The decision is now `dataLastUpdated !== lastPushedStamp` — the stamp that was last
 // actually uploaded, on this device's own clock.
 //
+// And a save COMMITS WHAT IS ON SCREEN AT THAT MOMENT: the stamp it writes is "now", in
+// the payload, in dataLastUpdated and in lastPushedStamp alike. Leaving dataLastUpdated
+// at the older edit time made a successful save read as a failure — "This browser 19 hr
+// ago" beside "Google Drive 3 min ago".
+//
 // Run: node build/sync-push-stranded.test.mjs   (needs ./test-bundle.js)
 
 import fs from 'node:fs';
@@ -33,7 +38,7 @@ const FILE_ID = 'CLOUD-1';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
-function boot({ lastPushedStamp, cloudMoved }) {
+function boot({ lastPushedStamp, cloudMoved, auto = false }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -78,7 +83,7 @@ function boot({ lastPushedStamp, cloudMoved }) {
     lastCloudModified: CLOUD_MTIME,
     ...(lastPushedStamp === undefined ? {} : { lastPushedStamp }),
   }));
-  store.set(p('lifeplanner-config-v1'), JSON.stringify({ gsyncConnected: true, gsyncAuto: false }));
+  store.set(p('lifeplanner-config-v1'), JSON.stringify({ gsyncConnected: true, gsyncAuto: auto }));
 
   const shim = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -140,11 +145,33 @@ function boot({ lastPushedStamp, cloudMoved }) {
 }
 
 const settle = (ms = 500) => new Promise((r) => setTimeout(r, ms));
+// The profile's task list as it stands in storage. applyPayloadLive writes through to
+// it, so this answers "was the download applied?" without depending on which tab or
+// modal happens to be rendered.
+const stored = (store) => String(store.get(`${PROFILE}::lifeplanner-personal-v1`) || '');
 const fails = [];
 const check = (label, cond, detail = '') => {
   console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${label}${!cond && detail ? ' — ' + detail : ''}`);
   if (!cond) fails.push(label);
 };
+
+// Opens the Sync Manager and signs in, stopping short of pressing anything. The panel
+// shows only a "Connect Google Drive" prompt until there is a live token, and this
+// environment starts without one.
+async function connectDrive(w) {
+  const chip = [...w.document.querySelectorAll('button')]
+    .find((b) => b.getAttribute('aria-label') === 'Cloud sync status');
+  if (!chip) return false;
+  chip.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await settle(400);
+  const connect = [...w.document.querySelectorAll('button')]
+    .find((b) => /Connect Google Drive/i.test(b.textContent || ''));
+  if (connect) {
+    connect.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle(600);
+  }
+  return true;
+}
 
 async function pressSaveToCloud(w) {
   const chip = [...w.document.querySelectorAll('button')]
@@ -192,13 +219,19 @@ async function pressSaveToCloud(w) {
     }
     check('the upload carries this device\'s data', !!sent && JSON.stringify(sent).includes('EditedOnPhone'),
       sent ? JSON.stringify(sent).slice(0, 90) : 'could not parse the uploaded body');
-    check('the upload carries the local edit stamp', !!sent && sent.dataLastUpdated === LOCAL_EDIT,
+    // A save commits what is on screen AT THE MOMENT OF THE SAVE, so the stamp that
+    // goes up is that moment — not the older edit time the data happened to carry.
+    check('the upload is stamped with the moment of the save',
+      !!sent && sent.dataLastUpdated === new Date(NOW).toISOString(),
       sent ? String(sent.dataLastUpdated) : '');
   }
 
   const rec = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`));
-  check('lastPushedStamp is recorded after the push', rec.lastPushedStamp === LOCAL_EDIT,
-    JSON.stringify(rec.lastPushedStamp));
+  check('lastPushedStamp matches the moment of the save',
+    rec.lastPushedStamp === new Date(NOW).toISOString(), JSON.stringify(rec.lastPushedStamp));
+  check('the browser time is refreshed too, so nothing reads as stale',
+    store.get(`${PROFILE}::lifeplanner-data-updated-v1`) === new Date(NOW).toISOString(),
+    JSON.stringify(store.get(`${PROFILE}::lifeplanner-data-updated-v1`)));
 }
 
 // ── nothing changed locally: "Save to Cloud" must STILL upload ───────────────
@@ -222,22 +255,101 @@ async function pressSaveToCloud(w) {
   const rec = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`));
   check('the cloud-file stamp moves forward', rec.lastCloudModified === new Date(NOW).toISOString(),
     JSON.stringify(rec.lastCloudModified));
+
+  // The rule, stated by the user: pressing save commits what is on screen AT THAT
+  // MOMENT, so the browser's own time must become that moment — not stay at the old
+  // edit time. Leaving it stale is what made a successful save look like a failure:
+  // "This browser 19 hr ago" beside "Google Drive 3 min ago".
+  const browserStamp = store.get(`${PROFILE}::lifeplanner-data-updated-v1`);
+  check('the browser time is refreshed to the moment of the save',
+    browserStamp === new Date(NOW).toISOString(),
+    `still ${JSON.stringify(browserStamp)} — expected the save moment ${new Date(NOW).toISOString()}`);
+  check('and it equals what was recorded as pushed', browserStamp === rec.lastPushedStamp,
+    `browser ${browserStamp} vs pushed ${rec.lastPushedStamp}`);
+
+  // Same value in the uploaded body, so the file agrees with both.
+  let sent = null;
+  try { sent = JSON.parse(uploads[uploads.length - 1]); } catch {}
+  check('the uploaded file carries that same stamp', !!sent && sent.dataLastUpdated === browserStamp,
+    sent ? String(sent.dataLastUpdated) : 'could not parse the body');
 }
 
 // ── the ONE case that must still refuse: the cloud moved without us seeing it ──
 // Overwriting there loses another device's work, so it asks instead of uploading.
 {
-  console.log('\n--- cloud moved since this device last looked ---');
-  const { window, uploads, errors, restore } = boot({ lastPushedStamp: LOCAL_EDIT, cloudMoved: true });
+  // Cloud moved, and THIS device has nothing unsaved (lastPushedStamp === the local
+  // edit). Until 3.78 this raised a modal — whose own first line said "This device has
+  // no unsaved edits, so updating is safe". A dialog that argues for the button it is
+  // asking you to press is friction, not consent, so the safe case now applies itself.
+  //
+  // This block used to assert the modal, and passed for the wrong reason after the
+  // behaviour changed: the new toast reads "Updated from cloud — another device saved",
+  // which matched the old /Another device saved/i pattern. The assertions below name the
+  // dialog's own chrome instead, so they cannot be satisfied by a status message.
+  console.log('\n--- cloud moved, nothing unsaved here: apply it, do not ask ---');
+  {
+    const { window, store, uploads, errors, restore } = boot({ lastPushedStamp: LOCAL_EDIT, cloudMoved: true });
+    await settle();
+    restore();
+    if (errors.length) check('no runtime errors', false, errors[0]);
+    await pressSaveToCloud(window);
+    const body = window.document.body.textContent || '';
+    check('does NOT overwrite the newer cloud copy', uploads.length === 0,
+      `${uploads.length} upload(s) — another device's work would have been lost`);
+    check('does not put a decision in the way', !/Save needs a decision|Take the cloud copy/i.test(body),
+      body.slice(0, 160));
+    // Probed in storage, not in the DOM: with the Sync Manager open the task list is
+    // not on screen either way, so a DOM check would pass whether or not the download
+    // was ever applied. The cloud stub serves `personal: []`.
+    check('applies the cloud copy to browser storage', !/EditedOnPhone/.test(stored(store)),
+      'the local task is still stored, so the download was never applied');
+    check('and says so', /Updated from cloud/i.test(body), body.slice(0, 160));
+  }
+
+  // The genuine collision: cloud moved AND this device holds an edit that never went up
+  // (no lastPushedStamp). Auto-applying here would discard local work, so this is the
+  // one case that still asks. It is the guard that keeps "apply automatically" from
+  // becoming "lose whichever copy arrives second".
+  console.log('\n--- cloud moved AND local has unsaved edits: must ask ---');
+  {
+    const { window, store, uploads, errors, restore } = boot({ cloudMoved: true });
+    await settle();
+    restore();
+    if (errors.length) check('no runtime errors', false, errors[0]);
+    await pressSaveToCloud(window);
+    const body = window.document.body.textContent || '';
+    check('does NOT silently overwrite a newer cloud copy', uploads.length === 0,
+      `${uploads.length} upload(s) — another device's work would have been lost`);
+    check('does NOT silently discard the local edit either', /EditedOnPhone/.test(stored(store)),
+      'the stored task vanished — the cloud copy was applied over unsaved work');
+    check('asks which copy to keep instead', /Save needs a decision/i.test(body), body.slice(0, 160));
+    check('and offers both directions', /Take the cloud copy/i.test(body) && /overwrite the cloud/i.test(body),
+      body.slice(0, 200));
+  }
+}
+
+// ── the same rule on the auto-sync path, which is where it matters most ─────────
+// Nobody presses anything here: the tab regains focus, gsyncNow reconciles, and the
+// other device's save has to land in browser storage on its own. This is the scenario
+// the behaviour was reported against — "if another device saved, apply it, do not stop
+// to ask" — and the Save-press blocks above cannot cover it, because they go through
+// gsyncSaveNow rather than gsyncNow.
+{
+  console.log('\n--- auto-sync, cloud moved, nothing unsaved here: applies on focus ---');
+  const { window, store, uploads, errors, restore } = boot({ lastPushedStamp: LOCAL_EDIT, cloudMoved: true, auto: true });
   await settle();
   restore();
   if (errors.length) check('no runtime errors', false, errors[0]);
-  await pressSaveToCloud(window);
-  check('does NOT silently overwrite a newer cloud copy', uploads.length === 0,
-    `${uploads.length} upload(s) — another device's work would have been lost`);
+  check('the local edit starts out in storage', /EditedOnPhone/.test(stored(store)));
+  await connectDrive(window);
+  window.dispatchEvent(new window.Event('focus'));
+  await settle(900);
   const body = window.document.body.textContent || '';
-  check('asks which copy to keep instead', /choose which copy|Another device saved|Update now|overwrite/i.test(body),
-    body.slice(0, 140));
+  check('brings the other device\'s save into browser storage', !/EditedOnPhone/.test(stored(store)),
+    'the local task is still stored — the cloud change never arrived');
+  check('without asking', !/Save needs a decision|Take the cloud copy/i.test(body), body.slice(0, 160));
+  check('and without pushing anything back up', uploads.length === 0,
+    `${uploads.length} upload(s) — it should have pulled, not pushed`);
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

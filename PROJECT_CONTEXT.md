@@ -141,31 +141,44 @@ I ask to save whatever shows on the screen to the Google Drive file, but now it 
 working like that."*
 
 `gsyncSaveNow` refuses exactly one thing: a cloud file that has moved since this device
-last looked, because uploading over it loses another device's work. That raises the
-existing direction dialog, where "keep this device and overwrite the cloud" completes the
-save. Nothing else refuses — least of all "nothing changed locally".
+last looked **while this device also holds unsaved edits**, because then one copy has to
+lose. That raises the direction dialog, where "keep this device and overwrite the cloud"
+completes the save. Nothing else refuses — least of all "nothing changed locally".
+
+A cloud that moved while this device changed nothing is **not** that case: the other
+device's save comes down, the two sides then agree, and that is what pressing save was
+for. See the auto-apply section below.
 
 `gsyncPush` is not the answer either: it uploads with **no** cloud check at all.
 
-## `dataLastUpdated` is a data version, not "when you edited here"
+## A save commits the screen, and stamps that moment (3.77.x)
 
-It travels **with the data**. Opening a file seeds it from `parsed.dataLastUpdated ||
-parsed.savedAt`, so a profile opened from Drive carries the stamp of whichever device
-actually did the editing. Labelling it "This browser · edited" therefore claimed
-something that can be false, and invited comparison against Drive's `modifiedTime`,
-which measures a different thing entirely (when the file was written).
+`pushPayload()` is the single place a save's timestamp is decided:
 
-The vocabulary, on every surface:
+```js
+const stamp = new Date().toISOString();
+return { stamp, payload: { ...buildSavePayload(), dataLastUpdated: stamp } };
+```
 
-| shown as | value | means |
-|---|---|---|
-| 💾 On screen now · data version | `dataLastUpdated` | the version of the data currently loaded |
-| ☁️ Google Drive · file written | `gsync.lastCloudModified` | when Drive last received an upload |
-| 🔄 Last checked | `gsync.lastSyncAt` | when the two were last compared |
-| **✓ Google Drive has this version** | `dataLastUpdated === lastPushedStamp` | **the answer** |
+That one value goes to **three** places on every successful upload — the payload field,
+`dataLastUpdated` (via `setDataLastUpdated`), and `gsync.lastPushedStamp`. They cannot
+drift apart, and the verdict line is green the instant the save lands.
 
-Never print the first two adjacent without the verdict. They are different clocks, they
-rarely match, and a mismatch reads as "it did not save" when nothing is wrong.
+**`dataLastUpdated` means "when this browser last saved", not "when the data changed".**
+It was the latter, which is technically defensible and made the screen lie: pressing Save
+to Cloud left the browser row reading `19 hr ago` beside a Drive row reading `3 min ago`,
+which is indistinguishable from a save that failed. The user's rule, and the one to keep:
+*pressing save commits what is on screen at that moment, so both times become that
+moment.*
+
+Consequences worth knowing:
+
+- Both rows use the **same verb** — "saved" — because they are meant to match. A browser
+  time ahead of the Drive time means unsaved changes, and the panel says so.
+- Do not re-derive the verdict by comparing those two times. It is
+  `dataLastUpdated === lastPushedStamp` — one clock, exact.
+- The file on disk is a **manual backup only**. Nothing depends on it, Auto-sync never
+  touches it, and it may simply not exist. Say that where it is shown.
 
 ## There are THREE places data lives — name all three (3.77.x)
 
@@ -196,6 +209,41 @@ a conflict, not silently overwrite it — and then **trigger a reconcile**, beca
 used to, so the panel sat on "Cloud file: never / Last checked: never" indefinitely with
 no way out but to guess.
 
+## Another device's save applies itself; only a collision asks (3.78)
+
+The rule, in the user's words: *"if another device saved, changes apply automatically to
+the local storage of the web browser. No need to ask immediately."*
+
+`cloudChanged && !localChanged` → **download and apply, no dialog.** Both the auto-sync
+reconciler (`gsyncNow`, which also runs on focus and `visibilitychange`) and the explicit
+Save press (`gsyncSaveNow`) take this path. The toast reads "Updated from cloud — another
+device saved"; the Auto-sync caption says it brings a save in, so the behaviour is
+discoverable rather than surprising.
+
+`cloudChanged && localChanged` → **still asks.** Nothing else may. That ordering is the
+whole safety argument: 3.75 and earlier applied *any* cloud change silently, including one
+that landed on top of unsaved local edits, which is what the dialog was added to stop. The
+dialog was then applied to both cases, and the safe one did not need it.
+
+Consequences that are easy to get wrong:
+
+- The dialog's own first line used to read *"This device has no unsaved edits, so updating
+  is safe"* — a dialog that argues for the button it is asking you to press. If a prompt
+  can explain why the answer is obvious, do not show the prompt.
+- Reaching that dialog now means taking the cloud copy **discards this device's unsaved
+  changes**, so "Update now" lost its green. Both directional answers lose something;
+  only "Later" loses nothing. Do not restore a reassuring colour to either.
+- It is titled **"Save needs a decision"**, deliberately not "Both copies changed" —
+  that is `gsyncConflict`'s title, which the auto-sync path raises for the same
+  situation. Two dialogs, one situation, reached from different buttons.
+- A test that asserted the modal passed for the **wrong reason** after this change: the
+  new toast contains "another device saved", which matched the old
+  `/Another device saved/i` probe. Assert on dialog chrome, never on wording a status
+  message can also contain.
+- Assert "was it applied?" against **browser storage**, not the DOM. With the Sync
+  Manager open the task list is not rendered either way, so a DOM probe passes whether
+  or not the download landed.
+
 ## Sync time has to be visible, and absolute (3.77.x)
 
 Three separate facts, and the answer to "is my copy the same as the cloud's?" needs all
@@ -203,8 +251,8 @@ three side by side. `syncStamp()` is the single formatter for every one of them:
 
 | line | source | means |
 |---|---|---|
-| 📱 This device | `dataLastUpdated` | when the data here last changed |
-| ☁️ Cloud file | `gsync.lastCloudModified` | the Drive `modifiedTime` at the last check |
+| 💾 This browser | `dataLastUpdated` | when this browser last **saved** — see the section above; it was "when the data changed", and that made the screen lie |
+| ☁️ Google Drive | `gsync.lastCloudModified` | the Drive `modifiedTime` at the last check |
 | 🔄 Last checked | `gsync.lastSyncAt` | when the two were last compared |
 
 Rules learned from getting each of these wrong:
