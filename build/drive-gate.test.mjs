@@ -211,6 +211,16 @@ if (fileBtn) {
 
   // The config carrying gsyncConnected must be scoped too, and must not be a
   // DEFAULT_CONFIG blob written over the file's own settings.
+  // The file's own edit stamp must land in the new profile, or "Data updated" is
+  // blank right after opening from Drive even though the file states when its
+  // contents changed. This PAYLOAD carries only savedAt — the pre-existing shape —
+  // so it also proves the fallback for files written before dataLastUpdated existed.
+  const duKey = [...store.keys()].find((k) => /^profile-\d+::lifeplanner-data-updated/.test(k));
+  check("the file's edit stamp is carried into the profile", !!duKey && store.get(duKey) === PAYLOAD.savedAt,
+    duKey ? `stored ${JSON.stringify(store.get(duKey))}, file says ${JSON.stringify(PAYLOAD.savedAt)}` : 'no stamp written at all');
+  check('the stamp is stored raw, not JSON-quoted', !!duKey && !store.get(duKey).startsWith('"'),
+    duKey ? store.get(duKey) : '');
+
   const cKeys = [...store.keys()].filter((k) => /lifeplanner-config/.test(k));
   const cScoped = cKeys.filter((k) => /^profile-\d+::/.test(k));
   check('config written only under the new profile', cScoped.length === 1 && cKeys.length === cScoped.length,
