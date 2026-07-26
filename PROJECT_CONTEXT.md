@@ -324,7 +324,58 @@ Drive; both-sides-changed sync). It compares Drive `modifiedTime` with local
 that direction, always offers **Local → Cloud** and **Cloud → Local**, and a
 second confirmation step states the exact counts about to be discarded. Cloud
 metadata is checked during manual sync, auto-sync (~15 s debounce after edits),
-browser focus and visibility change — no fixed-interval polling.
+browser focus and visibility change, and — since 3.80 — a 10 s metadata poll while
+auto-sync is on and the tab is visible.
+
+## "Matched" means the data, not the clocks (3.80)
+
+Every other answer in the sync layer came from stamps:
+`dataLastUpdated === lastPushedStamp` means *"this device uploaded its own latest
+edit"*. It cannot see that **another** device saved, so a device could sit on a green
+"✓ Google Drive has what is on screen" while the cloud held work it had never heard
+of. Nothing had asked the cloud.
+
+`dataFingerprint(payload)` + `gsyncCheckNow()` answer the real question by
+downloading the file and comparing content.
+
+- **Exact string equality of `canonicalJSON`, not a hash.** Both payloads are already
+  in memory when the question is asked, so there is no reason to accept even a
+  negligible collision rate. Object key order is normalised away; **array order is
+  not** — the order of tasks is something the user arranged.
+- **`COMPARED_KEYS` is a deliberate subset.** Excluded: `savedAt` and
+  `dataLastUpdated` (clocks), `appVersion` (two devices on different builds are not
+  out of sync), `fileName`, `profile` (ids are minted per device even for the same
+  synced file), `tabReads` (what *this* device has looked at) and `activity` (an
+  append-only log each device writes its own entries to). Include any of them and
+  "matched" becomes unreachable — a permanent false alarm is worse than no readout.
+- **Content equality cannot say which WAY a difference points**, so direction still
+  comes from the stamps. When the content differs and both stamps insist nothing
+  moved, the stamps are what is wrong: that case raises the conflict dialog, because
+  picking a direction there means guessing whose work to destroy. No code path had
+  been able to detect that state before — they all believed the stamps and reported
+  "already up to date".
+- **A check never writes on its own account.** Matched heals the stamps and stops;
+  one-sided differences sync in that direction (3.78 for incoming); two-sided goes to
+  the dialog with its conflicted copy (3.79).
+- **The round-trip test is the load-bearing one.** `build/sync-content-check.test.mjs`
+  saves, serves the uploaded bytes back as the cloud file, and checks. A hand-built
+  "matching" fixture would not catch `savedAt` leaking into the comparison; only a
+  real save/download cycle does.
+- **`✓ Matched` with the tick is what assertions look for.** The button reads "Check
+  now — matched or not?", so it is on screen the whole time and a bare `/matched/i`
+  passes before any check has run.
+
+### The 10 s poll, and what turns it off
+
+The app's first fixed-interval poll, deliberately the cheap half: `getMeta` only, with
+the download reserved for when the metadata says the file moved. Before it, another
+device's save was noticed on focus/`visibilitychange` or 15 s after a local edit — so a
+device left open on a desk noticed nothing at all.
+
+It stops when **auto-sync is off** (that switch means "manual only", and a poll would
+make it a lie), when the **tab is hidden** (a phone in a pocket polling Drive spends
+battery on an answer nobody is reading, and focus re-checks on return), and while a
+**decision dialog is open**, so the question cannot change under the user.
 
 ## A date field's tap target is the date input itself (3.79.1)
 

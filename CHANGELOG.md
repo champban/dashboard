@@ -1,5 +1,65 @@
 # Changelog
 
+## 3.80.0 — Check now: matched or not, by the data — 2026-07-26
+
+`APP_VERSION` unchanged. Asked for as: a refresh button that says whether the screen and
+the cloud differ, a re-check every 10 s while they do, on phone and PC alike, and both
+sides changed handled by the standard already agreed.
+
+### Added
+
+- **🔄 "Check now — matched or not?"** in the Sync Manager, above Save to Cloud, 44px
+  tall. It downloads the cloud file and compares the actual data. Matched says so and
+  stops; a one-sided difference is synced in that direction; a two-sided difference goes
+  to the existing conflict dialog, which keeps the losing copy as a conflicted copy
+  (3.79). **A check never writes on its own account.**
+- **A matched/unmatched line that means it.** The line above it —
+  `✓ Google Drive has what is on screen` — is stamp bookkeeping: it answers "did *this*
+  device upload its own latest edit" and is blind to another device's save. The new line
+  appears only once a check has run, so it never claims to know something it has not
+  looked at.
+- **A 10 s poll** while auto-sync is on and the tab is visible: `getMeta` only, with the
+  download reserved for when the metadata says the file moved. Before this, another
+  device's save was noticed on focus/`visibilitychange` or 15 s after a local edit, so a
+  device left open on a desk noticed nothing at all. It stops when auto-sync is off —
+  that switch means "manual only" and a poll would make it a lie — when the tab is
+  hidden, and while a decision dialog is open.
+- `build/sync-content-check.test.mjs`.
+
+### Fixed
+
+- **A difference no code path could previously see.** When the content differs but both
+  stamps say nothing moved, every existing path believed the stamps and reported "already
+  up to date". Content comparison finds it; and since content equality cannot say which
+  *way* a difference points, that case raises the conflict dialog rather than guessing —
+  picking a direction there means guessing whose work to destroy.
+- **The stale ⚠ on a device that was genuinely in sync.** If the content matches, the
+  check heals `lastPushedStamp` / `lastCloudModified`, so the panel stops insisting a
+  synced device is unsynced. Verified to upload nothing while doing it.
+
+### Notes
+
+- `COMPARED_KEYS` is deliberately a subset of the payload. Excluded: `savedAt` and
+  `dataLastUpdated` (clocks, not content), `appVersion` (two devices on different builds
+  are not out of sync), `fileName`, `profile` (ids are minted per device even for the same
+  synced file), `tabReads` and `activity` (per-device). Including any of them would make
+  "matched" unreachable, and a permanent false alarm is worse than no readout.
+- **3.78 is unchanged**: a cloud change with nothing unsaved here still applies itself
+  without asking. The request also described pressing a notification before the screen
+  changes, which would undo that; the press is kept for the only case where something can
+  be lost, which is the conflict dialog that already exists.
+
+### Verified
+
+- 116 assertions across eight files, up from 93. The load-bearing one is a round trip:
+  save, serve the uploaded bytes back as the cloud file, check — matched, with no further
+  upload. A hand-built "matching" fixture cannot catch `savedAt` leaking into the
+  comparison; only a real save/download cycle can.
+- The two poll blocks are each other's control: auto-sync on must reach Drive with nobody
+  pressing anything, auto-sync off must not reach it at all.
+- Harness `LEN 25129 / NODES 141` unchanged, `audit.py` 0 blockers, packager 6/6 CSP PASS,
+  es2019 guard `??` 0 and `?.[` 0.
+
 ## 3.79.1 — date fields are pickable on a phone — 2026-07-26
 
 `APP_VERSION` unchanged. Reported from an iPhone as *"cannot pick a date in any field that

@@ -11,7 +11,7 @@
     "audit": "python3 build/audit.py src/App.jsx",
     "package": "node build/pipeline.mjs package",
     "scan-secrets": "node build/secret-scan.mjs --selftest && node build/secret-scan.mjs",
-    "test": "npm run test-bundle && node build/n104.test.mjs && node build/n104-p2-race.test.mjs && node build/fab-stack.test.mjs && node build/drive-gate.test.mjs && node build/sync-visibility.test.mjs && node build/sync-push-stranded.test.mjs && node build/date-picker-target.test.mjs",
+    "test": "npm run test-bundle && node build/n104.test.mjs && node build/n104-p2-race.test.mjs && node build/fab-stack.test.mjs && node build/drive-gate.test.mjs && node build/sync-visibility.test.mjs && node build/sync-push-stranded.test.mjs && node build/date-picker-target.test.mjs && node build/sync-content-check.test.mjs",
     "verify": "npm run build && npm run harness && npm run audit && npm run package"
   },
   "dependencies": {
