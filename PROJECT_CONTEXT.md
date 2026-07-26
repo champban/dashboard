@@ -324,7 +324,109 @@ Drive; both-sides-changed sync). It compares Drive `modifiedTime` with local
 that direction, always offers **Local → Cloud** and **Cloud → Local**, and a
 second confirmation step states the exact counts about to be discarded. Cloud
 metadata is checked during manual sync, auto-sync (~15 s debounce after edits),
-browser focus and visibility change — no fixed-interval polling.
+browser focus and visibility change, and — since 3.80 — a 10 s metadata poll while
+auto-sync is on and the tab is visible.
+
+## Save to Cloud is in the header, and it asks (3.81)
+
+The one action that stops work being stranded on a single device was three taps deep —
+⋯ More → Sync Manager → scroll. On a phone that meant no visible answer to "is my work
+safe yet?".
+
+- **In the header row, not the corner column.** That column of floating controls already
+  collided with itself once (3.77.x); a fifth member is not the way. It sits beside the
+  chip that reports the state it changes.
+- **Amber when this screen holds something Drive does not, green when it does not.** The
+  colour is the feature: the header answers whether the button needs pressing *before*
+  it is pressed. It reads `localUnsynced()`, so it is the data talking, not a clock.
+- **It carries the word "Save" even on a phone.** An amber square with a cloud in it is
+  visible but not self-explanatory, and being clearly visible was the point. Measured at
+  390px in Chromium: the header still does not scroll sideways with the label in.
+- **Both Save to Cloud buttons — header and panel — go through the same confirm.** One
+  label doing two different things depending on where it was pressed is a trap for the
+  user and for anyone reading the tests. The panel's button therefore also asks now, and
+  the test helpers answer the confirm as part of "pressing save".
+- The confirm says which of the two situations you are in, and that a save may **stop and
+  ask** rather than overwrite — otherwise "Yes" reads as "yes, overwrite whatever is
+  there", which is not what `gsyncSaveNow` does.
+
+Known and NOT fixed here: with both top banners showing, **"Back up now" overlaps
+"💾 Save Now"**. Reproduced identically on the pre-change build, so it is excluded from
+the header-overlap check by name rather than allowed to mask a new overlap.
+
+## "Matched" means the data, not the clocks (3.80)
+
+Every other answer in the sync layer came from stamps:
+`dataLastUpdated === lastPushedStamp` means *"this device uploaded its own latest
+edit"*. It cannot see that **another** device saved, so a device could sit on a green
+"✓ Google Drive has what is on screen" while the cloud held work it had never heard
+of. Nothing had asked the cloud.
+
+`dataFingerprint(payload)` + `gsyncCheckNow()` answer the real question by
+downloading the file and comparing content.
+
+- **Exact string equality of `canonicalJSON`, not a hash.** Both payloads are already
+  in memory when the question is asked, so there is no reason to accept even a
+  negligible collision rate. Object key order is normalised away; **array order is
+  not** — the order of tasks is something the user arranged.
+- **`COMPARED_KEYS` is a deliberate subset.** Excluded: `savedAt` and
+  `dataLastUpdated` (clocks), `appVersion` (two devices on different builds are not
+  out of sync), `fileName`, `profile` (ids are minted per device even for the same
+  synced file), `tabReads` (what *this* device has looked at) and `activity` (an
+  append-only log each device writes its own entries to). Include any of them and
+  "matched" becomes unreachable — a permanent false alarm is worse than no readout.
+- **Content equality cannot say which WAY a difference points**, so direction still
+  comes from the stamps. When the content differs and both stamps insist nothing
+  moved, the stamps are what is wrong: that case raises the conflict dialog, because
+  picking a direction there means guessing whose work to destroy. No code path had
+  been able to detect that state before — they all believed the stamps and reported
+  "already up to date".
+- **A check never writes on its own account.** Matched heals the stamps and stops;
+  one-sided differences sync in that direction (3.78 for incoming); two-sided goes to
+  the dialog with its conflicted copy (3.79).
+- **The round-trip test is the load-bearing one.** `build/sync-content-check.test.mjs`
+  saves, serves the uploaded bytes back as the cloud file, and checks. A hand-built
+  "matching" fixture would not catch `savedAt` leaking into the comparison; only a
+  real save/download cycle does.
+- **`✓ Matched` with the tick is what assertions look for.** The button reads "Check
+  now — matched or not?", so it is on screen the whole time and a bare `/matched/i`
+  passes before any check has run.
+
+### The 10 s poll, and what turns it off
+
+The app's first fixed-interval poll, deliberately the cheap half: `getMeta` only, with
+the download reserved for when the metadata says the file moved. Before it, another
+device's save was noticed on focus/`visibilitychange` or 15 s after a local edit — so a
+device left open on a desk noticed nothing at all.
+
+It stops when **auto-sync is off** (that switch means "manual only", and a poll would
+make it a lie), when the **tab is hidden** (a phone in a pocket polling Drive spends
+battery on an answer nobody is reading, and focus re-checks on return), and while a
+**decision dialog is open**, so the question cannot change under the user.
+
+## A date field's tap target is the date input itself (3.79.1)
+
+`DateInput` backs all 16 date fields, so it is a single point of failure for "can the
+user enter a date at all". Its native `<input type="date">` used to be `20×20` with
+`pointerEvents: "none"`, reachable only via `showPicker()` from a ~20px 📅 button
+flush against a full-height text input. Apple's minimum is 44px; that target was
+890px², 46% of it. On a phone a near miss focuses the text field and iOS opens the
+numeric keypad — which is how the bug was reported.
+
+- **The date input is the target now**: 44px wide, full field height, `pointerEvents`
+  live. Tapping it opens the picker through ordinary tap handling on every iOS
+  version, with no dependency on `showPicker()` (late in Safari, and it throws on
+  inputs it considers unrendered). `showPicker()` is still called on click because
+  desktop Chrome opens the picker only from its own calendar glyph, which is
+  invisible here.
+- **The 📅 is a `pointerEvents: "none"` span, not a button.** Exactly one
+  hit-testable layer in that 44px — two is what produced the miss.
+- The text input reserves `paddingRight: 46`, which must stay ≥ the overlay width or
+  typed text slides underneath it. `build/date-picker-target.test.mjs` asserts that
+  relationship rather than the constant.
+- That test also asserts **date fields were found at all**. An empty query would make
+  every other assertion pass by having nothing to check — the same vacuous-pass trap
+  the browser check hit while measuring the sync dialogs.
 
 ## The copy that loses a conflict is kept, not deleted (3.79)
 

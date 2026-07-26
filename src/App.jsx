@@ -619,6 +619,46 @@ const GDRIVE_CLIENT_ID = "369687041884-heue2bffon430f0kfaetcp8mv8kbh8q2.apps.goo
 const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified, lastPushedStamp}
 
+// ─── Is what is on screen the same data as what is in the cloud file? ─────────
+//
+// Everything else in the sync layer answers a narrower question from stamps:
+// `dataLastUpdated === lastPushedStamp` means "this device uploaded its own latest
+// edit". It cannot see that ANOTHER device saved something, so a device could sit on
+// a green "✓ Google Drive has what is on screen" while the cloud held work it had
+// never heard of. Nothing had asked the cloud.
+//
+// This compares the content itself. Exact string equality of a canonical form, not a
+// hash — both payloads are already in memory when the question is asked, so there is
+// no reason to accept even a negligible collision rate.
+//
+// Object key order is normalised away; ARRAY order is not, because the order of tasks
+// is something the user arranged and changing it is a real change.
+function canonicalJSON(v){
+  if (v === undefined) return "null";
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return "[" + v.map(canonicalJSON).join(",") + "]";
+  return "{" + Object.keys(v).filter(k=>v[k]!==undefined).sort()
+    .map(k=>JSON.stringify(k) + ":" + canonicalJSON(v[k])).join(",") + "}";
+}
+// What counts as "the data". Deliberately not the whole payload:
+//   savedAt, dataLastUpdated  — clocks, not content
+//   appVersion                — two devices on different builds are not out of sync
+//   fileName                  — the local disk name, per device
+//   profile                   — ids are minted per device, even for the same synced file
+//   tabReads                  — which tabs THIS device has looked at
+//   activity                  — an append-only log each device writes its own entries to
+//   version                   — the schema number, not user data
+// Including any of those would make "matched" almost unreachable and turn the readout
+// into noise the user learns to ignore, which is worse than not having it.
+const COMPARED_KEYS = ["personal","work","events","notes","customTabs","widgetOrder",
+  "eventTypes","calViews","ganttViews","timelineViews","groupColors","tabOrder","config"];
+function dataFingerprint(payload){
+  if (!payload || typeof payload !== "object") return "";
+  const picked = {};
+  for (const k of COMPARED_KEYS) if (payload[k] !== undefined) picked[k] = payload[k];
+  return canonicalJSON(picked);
+}
+
 // One definition of "when did this happen", used by every sync surface.
 // Every one of them used to print a relative age only — "5 min ago" — and the sole
 // absolute form was a bare toLocaleDateString() once past 24 hours, which drops the
@@ -1229,7 +1269,8 @@ function applyEditWithRecur(list, updated, defaultStatus) {
 // ─── N39: DateInput — a date field you can TYPE into as well as pick from ────
 // Accepts: 2026-07-14 · 14/07/2026 · 14-07-2026 · 14 Jul 2026 · 20260714
 // Also accepts natural language ("tomorrow", "พรุ่งนี้", "+3d") via parseNLPDate.
-// Shows a 📅 button that opens the browser's native picker.
+// A transparent native date input sits in the field's right 44px and opens the
+// browser's own picker; the 📅 glyph under it is decoration, not a control.
 function normalizeTypedDate(raw){
   if(!raw) return "";
   const s = String(raw).trim();
@@ -1263,16 +1304,37 @@ function DateInput({ value, onChange, style={}, placeholder="YYYY-MM-DD or 14/07
         onChange={e=>{setText(e.target.value); if(bad) setBad(false);}}
         onBlur={e=>commit(e.target.value)}
         onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); commit(e.currentTarget.value); e.currentTarget.blur(); } }}
-        style={{...style, paddingRight:32, borderColor: bad ? "#ef4444" : style.borderColor||style.border||undefined,
+        style={{...style, paddingRight:46, borderColor: bad ? "#ef4444" : style.borderColor||style.border||undefined,
           ...(bad?{border:"1.5px solid #ef4444"}:{})}}/>
-      {/* hidden native picker, opened by the calendar button */}
+      {/* The native picker IS the tap target now.
+          It used to be a 20x20 opacity:0 input with pointerEvents:"none", reachable
+          only through a 📅 button that measured about 17x17 — fontSize 13 plus 2px of
+          padding — pressed against the right edge of a full-height text field. Apple's
+          minimum is 44. On a phone a near miss lands on the text field instead, and iOS
+          answers with the numeric keypad: exactly the state the bug report arrived in,
+          "cannot pick a date" with a half-typed "9" and a keypad on screen.
+
+          Making the date input itself the target opens the wheel on every iOS version
+          through plain tap handling, with no dependency on showPicker() — which Safari
+          was late to and which throws on inputs it considers unrendered. showPicker is
+          still called on click, because desktop Chrome does NOT open the picker when the
+          text area of a date input is clicked, only its own calendar glyph, and that
+          glyph is invisible here. Between the two, every platform has a way in.
+
+          44px wide, full field height, and it only covers padding — the text input
+          reserves 46px on the right, so nothing typed ever sits underneath it. */}
       <input ref={pickRef} type="date" value={value||""} disabled={disabled} tabIndex={-1}
+        aria-label="Pick a date"
         onChange={e=>{ setBad(false); setText(e.target.value); onChange(e.target.value); }}
-        style={{position:"absolute",right:6,width:20,height:20,opacity:0,pointerEvents:"none"}}/>
-      <button type="button" disabled={disabled} title="Open the calendar picker"
-        onClick={()=>{ const el=pickRef.current; if(!el) return; if(el.showPicker) el.showPicker(); else el.click(); }}
-        style={{position:"absolute",right:4,background:"transparent",border:"none",cursor:disabled?"default":"pointer",
-          fontSize:13,opacity:disabled?0.3:0.6,padding:2,lineHeight:1}}>📅</button>
+        onClick={e=>{ const el=e.currentTarget; if(el.showPicker){ try{ el.showPicker(); }catch{} } }}
+        style={{position:"absolute",right:0,top:0,bottom:0,width:44,opacity:0,margin:0,padding:0,
+          border:"none",background:"transparent",cursor:disabled?"default":"pointer",
+          WebkitAppearance:"none",appearance:"none"}}/>
+      {/* Affordance only. The transparent input above it takes every tap, so this must
+          not: a second hit-testable layer in the same 44px would reintroduce the miss. */}
+      <span aria-hidden="true" style={{position:"absolute",right:0,top:0,bottom:0,width:44,
+        display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,
+        opacity:disabled?0.3:0.6,pointerEvents:"none"}}>📅</span>
       {bad && <span style={{position:"absolute",left:0,top:"100%",fontSize:9,color:"#ef4444",fontWeight:700,marginTop:2,whiteSpace:"nowrap"}}>Invalid date format</span>}
     </div>
   );
@@ -11215,7 +11277,7 @@ function RecurringDoneModal({ task, onConfirmAndSave, onMarkDoneOnly, onCancel }
 // its own interval, for two reasons: the age has to keep moving (an age computed once
 // per render and never re-triggered is what made the panel freeze at whatever it said
 // when it opened), and ticking App itself every 15s would re-render the entire tree.
-function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onOpen }) {
+function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, unsynced, theme, big, onOpen }) {
   const [, tick] = React.useState(0);
   React.useEffect(()=>{ const t=setInterval(()=>tick(n=>n+1), 15000); return ()=>clearInterval(t); },[]);
   const dot = gsyncStatus==="syncing" ? "#f59e0b"
@@ -11223,7 +11285,7 @@ function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onO
             : online                  ? "#22c55e" : theme.textMuted;
   return (
     <button onClick={onOpen} aria-label="Cloud sync status"
-      title={`${gsync.fileName||"—"}\n${(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "✓ Google Drive has what is on screen" : "⚠ not saved to Drive yet"}\n💾 This browser · saved ${syncStamp(dataLastUpdated)}\n☁️ Google Drive · saved ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
+      title={`${gsync.fileName||"—"}\n${unsynced ? "⚠ not saved to Drive yet" : "✓ Google Drive has what is on screen"}\n💾 This browser · saved ${syncStamp(dataLastUpdated)}\n☁️ Google Drive · saved ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
       style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,padding:big?"6px 10px":"5px 8px",
         borderRadius:99,border:`1px solid ${theme.border}`,background:theme.surface,
         cursor:"pointer",touchAction:"manipulation"}}>
@@ -11240,9 +11302,9 @@ function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onO
 }
 
 function SyncPanel({
-  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote, dataLastUpdated,
+  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote, gsyncMatch, dataLastUpdated, unsynced,
   diskFileName, diskSavedAt, onSaveToDisk, onOpenFromDisk,
-  onConnect, onDisconnect, onSyncNow, onSetAuto, onOpenFolder,
+  onConnect, onDisconnect, onSyncNow, onCheckNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
 }) {
   const [pos, setPos] = React.useState(()=>({ x: Math.max(12, window.innerWidth - 372), y: 76 }));
@@ -11375,7 +11437,10 @@ function SyncPanel({
                 State the verdict instead, from the same exact comparison the push
                 decision uses, so the answer and the behaviour cannot disagree. */}
             {(()=>{
-              const pushed = !!dataLastUpdated && dataLastUpdated === gsync.lastPushedStamp;
+              // The data, not the clock. This line used to read dataLastUpdated ===
+              // lastPushedStamp, which is only true when every edit path remembered to
+              // bump dataLastUpdated — and one that forgot made this claim a lie.
+              const pushed = !unsynced;
               const verdict = !dataLastUpdated ? ["", "no data yet", "var(--c-text-muted)"]
                 : pushed                       ? ["✓ ", "Google Drive has what is on screen", "#16a34a"]
                 : gsync.lastPushedStamp        ? ["⚠ ", "not saved to Drive yet", "#d97706"]
@@ -11396,10 +11461,28 @@ function SyncPanel({
                     fontSize:11,fontWeight:800,color:verdict[2]}}>
                     {verdict[0]}{verdict[1]}
                   </div>
+                  {/* The line above is stamp bookkeeping: "did THIS device upload its own
+                      latest edit". It cannot see another device's save. This one is the
+                      real comparison — the cloud file downloaded and its content checked
+                      against the screen — and it only appears once a check has run, so it
+                      never claims to know something it has not looked at. */}
+                  {gsyncMatch && (
+                    <div style={{marginTop:4,paddingTop:5,borderTop:"1px solid var(--c-border)",
+                      fontSize:11,fontWeight:800,lineHeight:1.4,
+                      color: gsyncMatch.state==="matched" ? "#16a34a"
+                        : gsyncMatch.state==="error"      ? "#dc2626" : "#d97706"}}>
+                      {gsyncMatch.state==="matched" ? "✓ " : gsyncMatch.state==="error" ? "✕ " : "⚠ "}
+                      {gsyncMatch.msg}
+                      <span style={{display:"block",fontWeight:600,color:"var(--c-text-muted)",fontSize:9.5,marginTop:2}}>
+                        content checked · {syncStamp(gsyncMatch.at)}
+                      </span>
+                    </div>
+                  )}
                   <div style={{fontSize:9.5,color:"var(--c-text-muted)",lineHeight:1.45}}>
                     Both times move when you save, so after a save they read the same. If the
                     browser time is ahead of Drive, this screen holds changes that are not on
-                    Drive yet — press Save to Cloud. The line above is the short answer.
+                    Drive yet — press Save to Cloud. Press Check now to compare the actual
+                    data rather than the clocks.
                   </div>
                 </>
               );
@@ -11519,11 +11602,26 @@ function SyncPanel({
             {/* SYNC CONTROLS */}
             {linked && (
               <>
-                <button onClick={async()=>{setBusy(true);await onSyncNow();setBusy(false);}} disabled={busy||gsyncStatus==="syncing"}
-                  style={{width:"100%",marginBottom:9,display:"flex",alignItems:"center",justifyContent:"center",gap:8,
-                    ...smallBtn("#166534","#fff"),padding:"10px 0",fontSize:12.5,opacity:(busy||gsyncStatus==="syncing")?.75:1}}>
+                {/* Reads, never writes on its own account: it downloads the cloud file
+                    and compares. What happens next depends on the answer — matched says
+                    so and stops, one-sided differences are synced in that direction, and
+                    a two-sided difference goes to the dialog. Above Save to Cloud and
+                    44px tall because on a phone it is the safe button of the two, and the
+                    one a user reaches for when they are unsure what state they are in. */}
+                <button onClick={async()=>{setBusy(true);await onCheckNow();setBusy(false);}}
+                  disabled={busy||gsyncStatus==="syncing"} title="Compare this screen with the cloud file"
+                  style={{width:"100%",marginBottom:8,minHeight:44,display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+                    ...smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)"),
+                    padding:"10px 0",fontSize:12.5,opacity:(busy||gsyncStatus==="syncing")?.75:1}}>
                   <span style={{display:"inline-block",fontSize:15,
                     animation:(busy||gsyncStatus==="syncing")?"spin 0.9s linear infinite":"none"}}>🔄</span>
+                  {(busy||gsyncStatus==="syncing")?"Checking…":"Check now — matched or not?"}
+                </button>
+                <button onClick={async()=>{setBusy(true);await onSyncNow();setBusy(false);}} disabled={busy||gsyncStatus==="syncing"}
+                  style={{width:"100%",marginBottom:9,minHeight:44,display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+                    ...smallBtn("#166534","#fff"),padding:"10px 0",fontSize:12.5,opacity:(busy||gsyncStatus==="syncing")?.75:1}}>
+                  <span style={{display:"inline-block",fontSize:15,
+                    animation:(busy||gsyncStatus==="syncing")?"spin 0.9s linear infinite":"none"}}>💾</span>
                   {(busy||gsyncStatus==="syncing")?"Syncing…":"Save to Cloud"}
                 </button>
                 {/* What the last sync actually did. "Synced · 25 min ago" on its own
@@ -11932,7 +12030,7 @@ export default function App() {
   const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
   const [showCloudSync, setShowCloudSync] = useState(false);
   // ── Google Drive sync state ────────────────────────────────────────────────
-  const [gsync, setGsync] = useState({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
+  const [gsync, setGsync] = useState({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null, lastPushedFp:null });
   const gsyncProfRef = useRef(null); // set once activeProfileId exists (below)
   const gsyncAutoRef = useRef(false); // N93: guards one silent auto-signin per mount
   const [gsyncSignedIn, setGsyncSignedIn] = useState(false);
@@ -11948,6 +12046,17 @@ export default function App() {
   // no prompt at all; the user now chooses. {cloudModified, cloudText}
   const [gsyncCloudAhead, setGsyncCloudAhead] = useState(null);
   const note = (kind, text) => setGsyncNote({ kind, text, at: Date.now() });
+  // The result of the last real content comparison — see dataFingerprint. Separate
+  // from gsyncStatus, which reports what the last OPERATION did; this reports what the
+  // two copies currently are. {state, at, msg} where state is one of
+  // matched | local | cloud | both | unknown | error.
+  const [gsyncMatch, setGsyncMatch] = useState(null);
+  // The header's Save to Cloud asks first. The one inside the Sync Manager does not:
+  // getting there is already three deliberate taps, whereas the header button sits a
+  // few pixels from the notification bell and the search icon, and this one overwrites
+  // a file other devices read.
+  const [confirmCloudSave, setConfirmCloudSave] = useState(false);
+  const gsyncChecking = useRef(false);
   const [importConflict, setImportConflict] = useState(null); // N107: {parsed, fileName, handle, cloud:{payload,modifiedTime}}
   const [gsyncAuto, setGsyncAuto] = useState(true);      // auto-push on edits
   const [gsyncPanel, setGsyncPanel] = useState(false);   // floating panel open
@@ -12403,7 +12512,7 @@ export default function App() {
     if (gsyncProfRef.current !== activeProfileId) {
       gsyncProfRef.current = activeProfileId;
       if (gsyncTimer.current) clearTimeout(gsyncTimer.current);
-      setGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
+      setGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null, lastPushedFp:null });
       setGsyncStatus("idle");
       gsyncAutoRef.current = false;
       // N96: keep the Google login across profiles (same person, different data).
@@ -12495,6 +12604,7 @@ export default function App() {
       // Keep the payload object: its dataLastUpdated is exactly what went into the
       // file, and that is what lastPushedStamp has to record.
       const { stamp, payload } = pushPayload();
+      const pushedFp = dataFingerprint(payload);
       const content = JSON.stringify(payload, null, 2);
       let meta;
       if (gsync.fileId) meta = await GDrive.updateFile(gsync.fileId, content);
@@ -12506,7 +12616,7 @@ export default function App() {
       await persistGsync({ ...gsync, fileId:meta.id, fileName:meta.name,
         localName: gsync.localName || meta.name,   // keep both sides on the same name
         lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced"); setGsyncError("");
       if(!silent) note("saved","Saved to cloud");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
@@ -12530,9 +12640,11 @@ export default function App() {
         return;
       }
       const text = await GDrive.download(gsync.fileId);
-      const stamp = await applyPayloadLive(JSON.parse(text));
+      const adopted = JSON.parse(text);
+      const pushedFp = dataFingerprint(adopted);
+      const stamp = await applyPayloadLive(adopted);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Pull failed"); }
     finally { gsyncBusy.current = false; }
@@ -12562,7 +12674,7 @@ export default function App() {
     // as changed and ask which way to go rather than quietly overwriting a file you
     // adopted. lastPushedStamp goes with them for the same reason.
     await persistGsync({ ...gsync, fileId, fileName, localName: fileName,
-      lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
+      lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null, lastPushedFp:null });
     // ...but nothing used to trigger that check, so the panel sat on
     // "Cloud file: never / Last checked: never" indefinitely and the only way out was
     // to guess and press Save to Cloud. Reconcile straight away instead. Deferred a
@@ -12585,7 +12697,7 @@ export default function App() {
 
   const gsyncUnlink = async () => {
     if (gsyncTimer.current) clearTimeout(gsyncTimer.current);
-    await persistGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null });
+    await persistGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null, lastPushedFp:null });
     setGsyncStatus("idle");
   };
 
@@ -12620,7 +12732,7 @@ export default function App() {
       // push" — that is what un-sticks an install already in the stranded state. Safe,
       // because if the cloud has genuinely moved too then cloudChanged is true as well
       // and the conflict dialog asks instead of overwriting.
-      const localChanged = !!dataLastUpdated && dataLastUpdated !== gsync.lastPushedStamp;
+      const localChanged = localUnsynced();
 
       if (cloudChanged && localChanged) {
         // Genuine conflict — both sides moved since the last sync. Ask once,
@@ -12657,17 +12769,20 @@ export default function App() {
         // local edits. The conflict case above still asks, and still asks first — that
         // ordering is what makes this branch safe.
         const text = await GDrive.download(gsync.fileId);
-        const stamp = await applyPayloadLive(JSON.parse(text));
+        const adopted = JSON.parse(text);
+        const pushedFp = dataFingerprint(adopted);
+        const stamp = await applyPayloadLive(adopted);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "",
-          lastPushedStamp: stamp });
+          lastPushedStamp: stamp, lastPushedFp: pushedFp });
         setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
       } else if (localChanged) {
         // Only local moved — safe to push, nothing cloud-side to lose.
         const { stamp, payload } = pushPayload();
+        const pushedFp = dataFingerprint(payload);
         const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
         setDataLastUpdated(stamp);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
-          lastPushedStamp: stamp });
+          lastPushedStamp: stamp, lastPushedFp: pushedFp });
         setGsyncStatus("synced"); note("saved","Saved to cloud");
       } else {
         // Nothing changed on either side. Still stamp lastSyncAt: the check really
@@ -12710,7 +12825,7 @@ export default function App() {
       const cloudChanged = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
       // Same test gsyncNow uses: has this device produced anything that has not been
       // uploaded? Both sides of it come from this device's clock.
-      const localChanged = !!dataLastUpdated && dataLastUpdated !== gsync.lastPushedStamp;
+      const localChanged = localUnsynced();
       if (cloudChanged && localChanged) {
         const text = await GDrive.download(gsync.fileId);
         setGsyncCloudAhead({ cloudModified: meta.modifiedTime || "", cloudText: text });
@@ -12723,20 +12838,23 @@ export default function App() {
         // rather than overwriting it; afterwards both copies agree, which is what
         // pressing save is for. Not a refusal, and not a question.
         const text = await GDrive.download(gsync.fileId);
-        const stamp = await applyPayloadLive(JSON.parse(text));
+        const adopted = JSON.parse(text);
+        const pushedFp = dataFingerprint(adopted);
+        const stamp = await applyPayloadLive(adopted);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "",
-          lastPushedStamp: stamp });
+          lastPushedStamp: stamp, lastPushedFp: pushedFp });
         setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
         return;
       }
       // Upload regardless of whether anything changed locally. Pressing save and
       // getting a fresh upload is the whole contract of the button.
       const { stamp, payload } = pushPayload();
+      const pushedFp = dataFingerprint(payload);
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt: Date.now(),
         lastCloudModified: updated.modifiedTime || "",
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced"); note("saved","Saved to cloud");
     } catch (e) {
       setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed");
@@ -12772,6 +12890,134 @@ export default function App() {
     return (made && made.name) || name;
   };
 
+  // ── "Check now": compare the CONTENT, then act on what it says ─────────────
+  //
+  // Content equality answers matched/unmatched exactly. It cannot say which WAY an
+  // inequality points, so direction still comes from the stamps. And when the content
+  // differs while both stamps insist nothing moved, the stamps are what is wrong —
+  // that case asks, because guessing a direction there is guessing which device's
+  // work to destroy.
+  const gsyncCheckNow = async ({ silent = false } = {}) => {
+    if (gsyncChecking.current || gsyncBusy.current) return null;
+    if (!gsync.fileId) return null;
+    // Never opens a sign-in popup: this also runs on a timer, and Safari blocks a
+    // popup that is not inside a real tap anyway.
+    if (!GDrive.isSignedIn()) return null;
+    gsyncChecking.current = true;
+    if (!silent) setGsyncStatus("syncing");
+    try {
+      const meta = await GDrive.getMeta(gsync.fileId);
+      if (meta.trashed) throw new Error("The cloud file was deleted.");
+      const text = await GDrive.download(gsync.fileId);
+      let cloudPayload = null;
+      try { cloudPayload = JSON.parse(text); } catch { cloudPayload = null; }
+      if (!cloudPayload) throw new Error("The cloud file is not readable JSON.");
+      const localPayload = buildSavePayload();
+      const same = dataFingerprint(cloudPayload) === dataFingerprint(localPayload);
+      const cloudMoved = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
+      const localMoved = localUnsynced();
+
+      if (same) {
+        // Matched — and heal the stamps while here. They are what the panel's green
+        // line reads, so leaving them stale means a device that IS in sync keeps
+        // insisting it is not. Nothing is uploaded: the copies already agree.
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(),
+          lastCloudModified: meta.modifiedTime || gsync.lastCloudModified || "",
+          lastPushedStamp: dataLastUpdated || gsync.lastPushedStamp || null,
+          // Just proven identical, so this is exactly what the cloud holds. Recording
+          // it is what ends the stale "not saved to Drive yet" on a device that is in
+          // fact in sync — the stamps could be wrong, this cannot.
+          lastPushedFp: dataFingerprint(localPayload) });
+        setGsyncMatch({ state:"matched", at:Date.now(),
+          msg:"Matched — this screen and the cloud file hold the same data" });
+        setGsyncStatus("synced");
+        if (!silent) note("nochange","Matched — nothing to sync");
+        return "matched";
+      }
+
+      if (cloudMoved && localMoved) {
+        setGsyncMatch({ state:"both", at:Date.now(),
+          msg:"Unmatched both ways — each copy holds something the other does not" });
+        setGsyncConflict({ cloudText:text, cloudModified:meta.modifiedTime, cloudPayload,
+          cloudName: gsync.fileName||"cloud file", localPayload, localStamp: dataLastUpdated||null });
+        setGsyncStatus("idle");
+        note("later","Both copies changed — choose which one keeps the master file");
+        return "both";
+      }
+      if (cloudMoved) {
+        // 3.78: nothing here to lose, so it arrives without asking.
+        const adopted = cloudPayload;
+        const pushedFp = dataFingerprint(adopted);
+        const stamp = await applyPayloadLive(adopted);
+        await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
+          lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        setGsyncMatch({ state:"matched", at:Date.now(),
+          msg:"Matched — the other device's save was brought in" });
+        setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
+        return "cloud";
+      }
+      if (localMoved) {
+        // Only this device moved, so there is nothing cloud-side to lose. Same call
+        // gsyncNow makes, and "if unmatched it must get synced" is the ask.
+        const { stamp, payload } = pushPayload();
+        const pushedFp = dataFingerprint(payload);
+        const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
+        setDataLastUpdated(stamp);
+        await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
+          lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        setGsyncMatch({ state:"matched", at:Date.now(), msg:"Matched — this screen was uploaded" });
+        setGsyncStatus("synced"); note("saved","Saved to cloud");
+        return "local";
+      }
+
+      // Differs, yet neither stamp recorded a change. The bookkeeping is wrong and
+      // there is no honest way to pick a side from here, so hand it to the dialog —
+      // which shows both copies with their counts, and that is more than this knows.
+      setGsyncMatch({ state:"unknown", at:Date.now(),
+        msg:"Unmatched — the copies differ but neither side recorded a change" });
+      setGsyncConflict({ cloudText:text, cloudModified:meta.modifiedTime, cloudPayload,
+        cloudName: gsync.fileName||"cloud file", localPayload, localStamp: dataLastUpdated||null });
+      setGsyncStatus("idle");
+      note("later","The copies differ — choose which one keeps the master file");
+      return "unknown";
+    } catch (e) {
+      setGsyncMatch({ state:"error", at:Date.now(), msg: e.message||"Could not check the cloud file" });
+      setGsyncStatus("error"); setGsyncError(e.message||"Check failed");
+      if (!silent) note("error", e.message||"Check failed");
+      return "error";
+    } finally { gsyncChecking.current = false; }
+  };
+
+  // Every 10s, ask Drive whether the file moved; if it did — or if the last check left
+  // an unresolved difference — run the full content comparison.
+  //
+  // This is the app's first fixed-interval poll, and it is deliberately the cheap half:
+  // getMeta only, with the download reserved for when the metadata says something
+  // changed. Before this, another device's save was noticed on focus/visibilitychange
+  // or 15s after a local edit, so a device left open on a desk noticed nothing at all.
+  //
+  // Off when auto-sync is off — that switch means "manual only", and a poll would make
+  // it a lie. Off when the tab is hidden: a phone in a pocket polling Drive is battery
+  // spent on an answer nobody is looking at, and focus already re-checks on return.
+  // Off while a decision dialog is up, so the question cannot change under the user.
+  useEffect(()=>{
+    if (!gsyncAuto || !gsync.fileId) return;
+    const tick = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (!GDrive.isSignedIn()) return;
+      if (gsyncBusy.current || gsyncChecking.current) return;
+      if (gsyncConflict || gsyncCloudAhead) return;
+      try {
+        const meta = await GDrive.getMeta(gsync.fileId);
+        const moved = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
+        const unresolved = !!gsyncMatch && gsyncMatch.state !== "matched";
+        if (moved || unresolved) await gsyncCheckNow({ silent:true });
+      } catch {}
+    };
+    const t = setInterval(tick, 10000);
+    return ()=>clearInterval(t);
+  }, [gsyncAuto, gsync.fileId, gsync.lastCloudModified, gsyncMatch, gsyncConflict, gsyncCloudAhead]);
+
   const cloudAheadUpdate = async () => {
     const c = gsyncCloudAhead; if(!c) return;
     setGsyncCloudAhead(null); setGsyncStatus("syncing");
@@ -12779,9 +13025,11 @@ export default function App() {
       // Reached only when this device has unsaved edits, so taking the cloud copy
       // destroys them. Keep them on Drive first.
       await saveConflictCopy(JSON.stringify(buildSavePayload(), null, 2), "this device");
-      const stamp = await applyPayloadLive(JSON.parse(c.cloudText));
+      const adopted = JSON.parse(c.cloudText);
+      const pushedFp = dataFingerprint(adopted);
+      const stamp = await applyPayloadLive(adopted);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified,
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced"); note("pulled","Updated from cloud — this device's copy kept on Drive");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Update failed"); note("error", e.message||"Update failed"); }
   };
@@ -12802,10 +13050,11 @@ export default function App() {
       // decision was actually made about.
       if (c && c.cloudText) await saveConflictCopy(c.cloudText, "Google Drive");
       const { stamp, payload } = pushPayload();
+      const pushedFp = dataFingerprint(payload);
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced"); note("saved","Cloud replaced — the previous cloud copy kept beside it");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed"); }
   };
@@ -12815,9 +13064,11 @@ export default function App() {
     try {
       // Both sides moved, so this device's version is real work, not a stale copy.
       await saveConflictCopy(JSON.stringify(buildSavePayload(), null, 2), "this device");
-      const stamp = await applyPayloadLive(JSON.parse(gsyncConflict.cloudText));
+      const adopted = JSON.parse(gsyncConflict.cloudText);
+      const pushedFp = dataFingerprint(adopted);
+      const stamp = await applyPayloadLive(adopted);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:gsyncConflict.cloudModified,
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced"); note("pulled","Loaded the Drive copy — this device's copy kept on Drive");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Load failed"); note("error", e.message||"Load failed"); }
     setGsyncConflict(null);
@@ -12834,10 +13085,11 @@ export default function App() {
     try {
       if (gsyncConflict.cloudText) await saveConflictCopy(gsyncConflict.cloudText, "Google Drive");
       const { stamp, payload } = pushPayload();
+      const pushedFp = dataFingerprint(payload);
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
-        lastPushedStamp: stamp });
+        lastPushedStamp: stamp, lastPushedFp: pushedFp });
       setGsyncStatus("synced"); note("saved","Saved to cloud — the previous cloud copy kept beside it");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save to Cloud failed"); note("error", e.message||"Save to Cloud failed"); }
     setGsyncConflict(null);
@@ -12897,6 +13149,37 @@ export default function App() {
       overdueCount: [...personal,...work].filter(t=>isOverdue(t)).length,
     },
   });
+
+  // ── "Does this screen hold anything the cloud file does not?" ────────────────
+  //
+  // Asked of the DATA. It used to be asked of a clock: `dataLastUpdated !==
+  // lastPushedStamp`, where dataLastUpdated only moved where someone had remembered to
+  // call setDataLastUpdated. Any edit path that forgot the call was invisible to the
+  // entire sync layer — and being invisible did not merely mislabel things, it stopped
+  // the upload: localChanged is what decides whether to push at all, so the screen
+  // filled with changes while Drive kept the copy from 40 minutes earlier.
+  //
+  // Reported exactly that way, with one panel claiming "✓ Google Drive has what is on
+  // screen" two lines above its own "● Unsaved changes".
+  //
+  // lastPushedFp is written at every point where the two copies are known to agree: a
+  // successful upload, an adopted download, a file opened from Drive, and a content
+  // check that proved them equal. A record from before this field existed has none, and
+  // then the old timestamp test is used — wrong sometimes, which is what it always was,
+  // rather than newly wrong in the other direction.
+  //
+  // Memoised because it serialises the whole dataset; it must not run per render.
+  // ganttViews/timelineViews are read through a window mirror rather than state, so a
+  // change to only those is not seen here until something else moves — the explicit
+  // Check now compares the real payload and is unaffected.
+  const localFp = useMemo(()=>dataFingerprint(buildSavePayload()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [personal, work, events, notes, customTabs, config, widgetOrder, eventTypes,
+     calViews, groupColors, tabOrder, lang, activeProfileId]);
+  const localUnsynced = () => (gsync.lastPushedFp
+    ? localFp !== gsync.lastPushedFp
+    : (!!dataLastUpdated && dataLastUpdated !== gsync.lastPushedStamp));
+
 
   // ── Write JSON to file (File System Access API or download fallback) ───────
   const writeToHandle = async (handle, payload) => {
@@ -13241,6 +13524,9 @@ export default function App() {
           // The data came FROM this cloud file, so it is already "pushed" — without
           // this the first sync would upload an identical copy straight back.
           lastPushedStamp: openedStamp,
+          // Same reason as lastPushedStamp above: the screen was filled from this very
+          // file, so it already agrees with it.
+          lastPushedFp: dataFingerprint(parsed),
         });
       } catch {}
       const newProf = {
@@ -13980,15 +14266,20 @@ export default function App() {
           // Recorded only the pairing before, leaving lastCloudModified/lastSyncAt
           // untouched — so a freshly linked file read as "never checked" forever.
           // Same contract as gsyncRelink: no reconciliation marks, then reconcile.
-          await persistGsync({...gsync, fileId, fileName, lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null});
+          await persistGsync({...gsync, fileId, fileName, lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null, lastPushedFp:null});
           setTimeout(()=>{ gsyncNow(); }, 350);
         }}
         listFiles={()=>GDrive.listFiles()} />}
+      {/* onSyncNow opens the confirm rather than saving. Both Save to Cloud buttons —
+          the header one and this panel's — go through it: one label doing two different
+          things depending on where it was pressed is a trap for the user, and for
+          anyone reading the tests. */}
       {gsyncPanel && <SyncPanel
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError}
         gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()} gsyncAuto={gsyncAuto}
         onConnect={gsyncConnect} onDisconnect={()=>{gsyncDisconnect();setGsyncPanel(true);}}
-        onSyncNow={gsyncSaveNow} gsyncNote={gsyncNote} dataLastUpdated={dataLastUpdated}
+        onSyncNow={()=>setConfirmCloudSave(true)} onCheckNow={gsyncCheckNow} gsyncMatch={gsyncMatch}
+        gsyncNote={gsyncNote} dataLastUpdated={dataLastUpdated} unsynced={localUnsynced()}
         diskFileName={fileHandle?.name || lastFileName || ""} diskSavedAt={lastSavedTime}
         onSaveToDisk={handleSaveAs} onOpenFromDisk={handleOpenFilePicker}
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
@@ -14067,6 +14358,50 @@ export default function App() {
               conflicted copy, next to it — so neither answer loses data, only the
               master file changes. "Later" changes nothing at all and asks again at the
               next sync.
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmCloudSave && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",zIndex:9860,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setConfirmCloudSave(false)}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"var(--c-card2)",border:"1px solid var(--c-border)",borderRadius:14,
+              width:"100%",maxWidth:400,padding:"18px 20px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+              <span style={{fontSize:22}}>☁️</span>
+              <div style={{fontSize:15,fontWeight:800,color:"var(--c-text)"}}>Save to Cloud?</div>
+            </div>
+            <p style={{fontSize:12.5,color:"var(--c-text)",lineHeight:1.6,marginBottom:6}}>
+              Writes this screen, as it is now, to <strong>{gsync.fileName||"the cloud file"}</strong> on
+              Google Drive. Other devices read that file, so this is what they will see next.
+            </p>
+            {/* Says which of the two situations you are in before you commit. The header
+                button is coloured for the same reason, but a colour is not a sentence. */}
+            <div style={{fontSize:11.5,fontWeight:700,lineHeight:1.5,marginBottom:14,
+              color: localUnsynced() ? "#b45309" : "#16a34a"}}>
+              {localUnsynced()
+                ? "⚠ This screen holds changes that are not on Drive yet."
+                : "✓ Drive already has what is on screen — saving again changes nothing."}
+            </div>
+            <button onClick={async()=>{ setConfirmCloudSave(false); await gsyncSaveNow(); }}
+              style={{width:"100%",minHeight:44,padding:"12px 0",borderRadius:10,border:"none",
+                background:"#166534",color:"#fff",fontSize:13.5,fontWeight:800,cursor:"pointer",marginBottom:8}}>
+              Yes — save to Google Drive
+            </button>
+            <button onClick={()=>setConfirmCloudSave(false)}
+              style={{width:"100%",minHeight:44,padding:"11px 0",borderRadius:10,
+                border:"1.5px solid var(--c-border)",background:"var(--c-surface)",color:"var(--c-text)",
+                fontSize:13,fontWeight:800,cursor:"pointer"}}>
+              No — change nothing
+            </button>
+            {/* Not a promise that saving is safe: if the other device has also saved,
+                gsyncSaveNow stops and asks instead of overwriting it. Saying so here
+                keeps "Yes" from reading as "yes, overwrite whatever is there". */}
+            <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:9,lineHeight:1.45}}>
+              If another device has saved since this one last looked, this stops and asks
+              which copy to keep rather than overwriting it.
             </div>
           </div>
         </div>
@@ -14279,10 +14614,51 @@ export default function App() {
                 on a phone there was no way to tell whether the cloud copy was current
                 without opening ⋯ More → Sync Manager and reading a relative age. Same
                 shape of gap as the version chip. Tapping it opens the full panel. */}
-            {!!gsync.fileId && <SyncChip gsync={gsync} gsyncStatus={gsyncStatus}
+            {!!gsync.fileId && <SyncChip gsync={gsync} gsyncStatus={gsyncStatus} unsynced={localUnsynced()}
               online={gsyncSignedIn || GDrive.isSignedIn()} dataLastUpdated={dataLastUpdated}
               theme={theme} big={isTablet}
               onOpen={()=>{setGsyncPanel(true);setGsyncPanelMin(false);}}/>}
+
+            {/* Save to Cloud, in the header rather than only inside the Sync Manager.
+                It was three taps deep — ⋯ More → Sync Manager → scroll — which is a long
+                way for the one action that stops work being stranded on one device, and
+                it meant a phone gave no visible answer to "is my work safe yet?".
+
+                Not a fifth floating corner button: that column already collided with
+                itself once. It sits in the header row, beside the chip that reports the
+                state it changes.
+
+                Amber when this screen holds something Drive does not, green when it does
+                not — the colour is the whole point, so the header answers whether the
+                button needs pressing before it is pressed. */}
+            {!!gsync.fileId && (()=>{
+              // Not named `pending`: DirectionDialog has a `pending` state, and the
+              // audit's TDZ heuristic matches on the bare name across scopes. A false
+              // positive there costs nothing to avoid and keeps the warning list honest.
+              const notOnDrive = localUnsynced();
+              return (
+                <button onClick={()=>setConfirmCloudSave(true)}
+                  disabled={gsyncStatus==="syncing"}
+                  aria-label={notOnDrive?"Save to Cloud — this screen is not on Drive yet":"Save to Cloud — already up to date"}
+                  title={notOnDrive?"This screen holds changes that are not on Drive yet":"Drive already has what is on screen"}
+                  style={{minHeight:40,minWidth:40,display:"flex",alignItems:"center",gap:6,flexShrink:0,
+                    padding:isCompact?"0 9px":"0 12px",borderRadius:10,cursor:"pointer",touchAction:"manipulation",
+                    background: notOnDrive?"#d97706":"#166534", color:"#fff",
+                    border:"none", fontSize:12, fontWeight:800,
+                    opacity:gsyncStatus==="syncing"?.7:1}}>
+                  <span style={{fontSize:14,display:"inline-block",
+                    animation:gsyncStatus==="syncing"?"spin 0.9s linear infinite":"none"}}>
+                    {gsyncStatus==="syncing"?"🔄":"☁️"}
+                  </span>
+                  {/* A word, even on a phone. An amber square with a cloud in it is
+                      visible but not self-explanatory, and "make it clearly visible" was
+                      the point of moving it here. Measured at 390px: the header still
+                      does not scroll sideways with the label in. */}
+                  <span>{gsyncStatus==="syncing"?"Saving…":(isCompact?"Save":"Save to Cloud")}</span>
+                  {isCompact && notOnDrive && <span style={{width:7,height:7,borderRadius:"50%",background:"#fff"}}/>}
+                </button>
+              );
+            })()}
 
             {/* Search (tablet only in header) */}
             {isTablet&&<button onClick={()=>setShowSearch(true)}
@@ -14509,8 +14885,8 @@ export default function App() {
                                 {rel&&<div>🔄 Last checked · {rel}</div>}
                                 {/* The verdict, not two clocks to compare — see SyncPanel. */}
                                 <div style={{fontWeight:800,marginTop:2,
-                                  color: (!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "#16a34a" : "#d97706"}}>
-                                  {(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp)
+                                  color: localUnsynced() ? "#d97706" : "#16a34a"}}>
+                                  {(!localUnsynced())
                                     ? "✓ Google Drive has what is on screen" : "⚠ not saved to Drive yet"}
                                 </div>
                               </div>

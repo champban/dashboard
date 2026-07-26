@@ -206,8 +206,17 @@ async function pressSaveToCloud(w) {
     .find((b) => /Save to Cloud/i.test((b.textContent || '')));
   if (!save) return { opened: true, pressed: false };
   save.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
-  await settle(900);
-  return { opened: true, pressed: true };
+  await settle(500);
+  // Save to Cloud asks first now, from the header button and from this panel alike, so a
+  // press on its own writes nothing. Answering the confirm is part of "pressing save" —
+  // and every assertion below about what a save does depends on getting past it.
+  const yes = [...w.document.querySelectorAll('button')]
+    .find((b) => /Yes — save to Google Drive/i.test((b.textContent || '')));
+  if (yes) {
+    yes.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle(900);
+  }
+  return { opened: true, pressed: true, confirmed: !!yes };
 }
 
 // ── the reported state: a record with no lastPushedStamp (every existing install)
