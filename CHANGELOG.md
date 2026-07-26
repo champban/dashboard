@@ -1,5 +1,45 @@
 # Changelog
 
+## 3.79.1 — date fields are pickable on a phone — 2026-07-26
+
+`APP_VERSION` unchanged. Reported from an iPhone as *"cannot pick a date in any field that
+needs a date"*, with a screenshot showing the numeric keypad open over a half-typed `9`.
+
+### Fixed
+
+- **The native date picker could not be tapped.** `DateInput` backs all 16 date fields in
+  the app, and its `<input type="date">` was `20×20` with `pointerEvents: "none"` — so the
+  only route in was `showPicker()`, driven by a 📅 button measuring about 20px wide
+  (`fontSize: 13` plus 2px of padding) pressed against a full-height text input. Apple's
+  minimum tap target is 44. A near miss lands on the text field, and iOS answers with the
+  keypad, which is exactly the reported screenshot.
+
+  Measured in real Chromium at 390×844, before and after:
+
+  | | before | after |
+  |---|---|---|
+  | `input[type=date]` | 20×44, `pointerEvents: none` | **44×44, `pointerEvents: auto`** |
+  | centre of the target hits | the 📅 `BUTTON` | **`INPUT[date]`** |
+  | tap area | 890px² — **46% of Apple's minimum** | **1936px²** |
+  | typing still works | yes | yes |
+
+  The date input is now the tap target itself, so the picker opens through ordinary tap
+  handling on every iOS version rather than depending on `showPicker()`, which Safari came
+  to late and which throws on inputs it treats as unrendered. `showPicker()` is still
+  called on click, because desktop Chrome opens the picker only from its own calendar
+  glyph — invisible here — and not from the text area. The 📅 is now a
+  `pointerEvents: "none"` span: exactly one hit-testable layer in that 44px, since two is
+  what produced the original miss.
+
+### Added
+
+- `build/date-picker-target.test.mjs` — guards `pointerEvents`, the 44px width, that the
+  overlay spans the field, that the 📅 is decoration rather than a second target, and that
+  the text input reserves enough right padding that typed text cannot slide underneath.
+  Run against the pre-fix bundle it reports 8 failures, so it bites. It also asserts that
+  date fields were actually found, because an empty list would make every other assertion
+  pass by having nothing to check.
+
 ## 3.79.0 — the copy that loses is kept, Dropbox-style — 2026-07-26
 
 `APP_VERSION` unchanged. Asked for as: *"make it like Dropbox, and check iPhone also."*

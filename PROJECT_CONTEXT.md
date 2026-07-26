@@ -326,6 +326,30 @@ second confirmation step states the exact counts about to be discarded. Cloud
 metadata is checked during manual sync, auto-sync (~15 s debounce after edits),
 browser focus and visibility change — no fixed-interval polling.
 
+## A date field's tap target is the date input itself (3.79.1)
+
+`DateInput` backs all 16 date fields, so it is a single point of failure for "can the
+user enter a date at all". Its native `<input type="date">` used to be `20×20` with
+`pointerEvents: "none"`, reachable only via `showPicker()` from a ~20px 📅 button
+flush against a full-height text input. Apple's minimum is 44px; that target was
+890px², 46% of it. On a phone a near miss focuses the text field and iOS opens the
+numeric keypad — which is how the bug was reported.
+
+- **The date input is the target now**: 44px wide, full field height, `pointerEvents`
+  live. Tapping it opens the picker through ordinary tap handling on every iOS
+  version, with no dependency on `showPicker()` (late in Safari, and it throws on
+  inputs it considers unrendered). `showPicker()` is still called on click because
+  desktop Chrome opens the picker only from its own calendar glyph, which is
+  invisible here.
+- **The 📅 is a `pointerEvents: "none"` span, not a button.** Exactly one
+  hit-testable layer in that 44px — two is what produced the miss.
+- The text input reserves `paddingRight: 46`, which must stay ≥ the overlay width or
+  typed text slides underneath it. `build/date-picker-target.test.mjs` asserts that
+  relationship rather than the constant.
+- That test also asserts **date fields were found at all**. An empty query would make
+  every other assertion pass by having nothing to check — the same vacuous-pass trap
+  the browser check hit while measuring the sync dialogs.
+
 ## The copy that loses a conflict is kept, not deleted (3.79)
 
 Answering a sync conflict used to destroy the other side outright, and the confirm

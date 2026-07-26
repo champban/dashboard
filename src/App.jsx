@@ -1229,7 +1229,8 @@ function applyEditWithRecur(list, updated, defaultStatus) {
 // ─── N39: DateInput — a date field you can TYPE into as well as pick from ────
 // Accepts: 2026-07-14 · 14/07/2026 · 14-07-2026 · 14 Jul 2026 · 20260714
 // Also accepts natural language ("tomorrow", "พรุ่งนี้", "+3d") via parseNLPDate.
-// Shows a 📅 button that opens the browser's native picker.
+// A transparent native date input sits in the field's right 44px and opens the
+// browser's own picker; the 📅 glyph under it is decoration, not a control.
 function normalizeTypedDate(raw){
   if(!raw) return "";
   const s = String(raw).trim();
@@ -1263,16 +1264,37 @@ function DateInput({ value, onChange, style={}, placeholder="YYYY-MM-DD or 14/07
         onChange={e=>{setText(e.target.value); if(bad) setBad(false);}}
         onBlur={e=>commit(e.target.value)}
         onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); commit(e.currentTarget.value); e.currentTarget.blur(); } }}
-        style={{...style, paddingRight:32, borderColor: bad ? "#ef4444" : style.borderColor||style.border||undefined,
+        style={{...style, paddingRight:46, borderColor: bad ? "#ef4444" : style.borderColor||style.border||undefined,
           ...(bad?{border:"1.5px solid #ef4444"}:{})}}/>
-      {/* hidden native picker, opened by the calendar button */}
+      {/* The native picker IS the tap target now.
+          It used to be a 20x20 opacity:0 input with pointerEvents:"none", reachable
+          only through a 📅 button that measured about 17x17 — fontSize 13 plus 2px of
+          padding — pressed against the right edge of a full-height text field. Apple's
+          minimum is 44. On a phone a near miss lands on the text field instead, and iOS
+          answers with the numeric keypad: exactly the state the bug report arrived in,
+          "cannot pick a date" with a half-typed "9" and a keypad on screen.
+
+          Making the date input itself the target opens the wheel on every iOS version
+          through plain tap handling, with no dependency on showPicker() — which Safari
+          was late to and which throws on inputs it considers unrendered. showPicker is
+          still called on click, because desktop Chrome does NOT open the picker when the
+          text area of a date input is clicked, only its own calendar glyph, and that
+          glyph is invisible here. Between the two, every platform has a way in.
+
+          44px wide, full field height, and it only covers padding — the text input
+          reserves 46px on the right, so nothing typed ever sits underneath it. */}
       <input ref={pickRef} type="date" value={value||""} disabled={disabled} tabIndex={-1}
+        aria-label="Pick a date"
         onChange={e=>{ setBad(false); setText(e.target.value); onChange(e.target.value); }}
-        style={{position:"absolute",right:6,width:20,height:20,opacity:0,pointerEvents:"none"}}/>
-      <button type="button" disabled={disabled} title="Open the calendar picker"
-        onClick={()=>{ const el=pickRef.current; if(!el) return; if(el.showPicker) el.showPicker(); else el.click(); }}
-        style={{position:"absolute",right:4,background:"transparent",border:"none",cursor:disabled?"default":"pointer",
-          fontSize:13,opacity:disabled?0.3:0.6,padding:2,lineHeight:1}}>📅</button>
+        onClick={e=>{ const el=e.currentTarget; if(el.showPicker){ try{ el.showPicker(); }catch{} } }}
+        style={{position:"absolute",right:0,top:0,bottom:0,width:44,opacity:0,margin:0,padding:0,
+          border:"none",background:"transparent",cursor:disabled?"default":"pointer",
+          WebkitAppearance:"none",appearance:"none"}}/>
+      {/* Affordance only. The transparent input above it takes every tap, so this must
+          not: a second hit-testable layer in the same 44px would reintroduce the miss. */}
+      <span aria-hidden="true" style={{position:"absolute",right:0,top:0,bottom:0,width:44,
+        display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,
+        opacity:disabled?0.3:0.6,pointerEvents:"none"}}>📅</span>
       {bad && <span style={{position:"absolute",left:0,top:"100%",fontSize:9,color:"#ef4444",fontWeight:700,marginTop:2,whiteSpace:"nowrap"}}>Invalid date format</span>}
     </div>
   );
