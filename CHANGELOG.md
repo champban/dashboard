@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.77.0 — opening a Drive file on first run — 2026-07-25
+
+`APP_VERSION` is unchanged. Reported as "เปิด file json ที่อยู่บน google drive ไม่ได้"
+from the welcome screen on an iPhone.
+
+### Fixed
+
+- **"Open from Google Drive" on the welcome screen now actually opens a file.** It was
+  a dead end. The onboarding gate is an early `return` near the top of `App`, above
+  every modal and panel in the component, and the handler was `connect, then
+  setGsyncPanel(true)` — switching on a panel that is not mounted on that path.
+  Signing in did not create a profile either, so the gate re-rendered and took the same
+  early return. A **successful** Google sign-in was therefore indistinguishable from a
+  failed one: the screen did not change by a single character. The gate now lists the
+  user's Drive files itself, downloads the one that is picked, creates the profile from
+  it, and links it for sync.
+- **A failed sign-in says so.** The gate rendered no error, and `gsyncConnect` only ever
+  wrote to `gsyncError`, which is read by `SyncPanel` and `CloudSyncModal` — neither of
+  which exists on this path. A blocked popup, a cancelled consent screen, a content
+  blocker and a timeout all looked identical to nothing happening. The message now
+  appears on the gate with a retry button.
+- **An empty file list explains itself.** `drive.file` scope means the app can only see
+  files it saved itself, so a `.json` uploaded to Drive by hand is invisible to it — the
+  single most likely reason for an empty list, and previously indistinguishable from a
+  broken app.
+- **The Drive link is stored under the right profile.** Linking after
+  `applyOpenedFile` would have used `pk()` from a closure where `activeProfileId` is
+  still `null`, writing the link — and, via `patchConfig`, a `DEFAULT_CONFIG` blob over
+  the file's own settings — to the bare unscoped key. Both are now written with the
+  profile's other keys *before* the profile switch, which is the only point where they
+  cannot lose a race against the `[activeProfileId]` load effect.
+
+### Verification
+
+Harness LEN 25129 / NODES 141 unchanged (the gate is not on the harness's render path),
+`audit.py` 0 blockers, packager 6/6 CSP PASS, es2019 guard clean.
+
+`build/drive-gate.test.mjs` drives the whole first-run path against a stubbed GIS and
+Drive REST layer at an iPhone user-agent: tap the button, see the list, pick a file,
+land in the app with that file's tasks, with the link and `gsyncConnected` written under
+the new profile and nothing written to a bare key. It also covers a failed sign-in and
+an empty list. Against the parent commit it fails 3 assertions — including "signing in
+also asks Drive for the file list", where the recorded network calls show the app
+authenticated and then never listed anything.
+
+**Not verified on a device.** The stub proves the app's half of the exchange; whether
+the user's file is visible to `drive.file` scope at all can only be seen on the phone.
+
 ## 3.77.0 — the bottom-right corner — 2026-07-25
 
 `APP_VERSION` is unchanged. Reported from a phone screenshot as "ปุ่มบังกัน มองไม่เห็น"

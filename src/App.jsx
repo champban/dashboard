@@ -10683,7 +10683,8 @@ function AboutTab({ dataLastUpdated }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ONBOARDING SCREEN — shown when no profile exists
 // ─────────────────────────────────────────────────────────────────────────────
-function OnboardingScreen({ onCreateProfile, onOpenFile, onOpenDrive, isIOS=false, openFileRef }) {
+function OnboardingScreen({ onCreateProfile, onOpenFile, onOpenDrive, isIOS=false, openFileRef,
+  drive={busy:false,error:"",files:null}, onPickDriveFile, onDismissDrive }) {
   const [name, setName]   = useState("");
   const [emoji, setEmoji] = useState("👤");
   const [step, setStep]   = useState("welcome"); // "welcome" | "create"
@@ -10705,6 +10706,12 @@ function OnboardingScreen({ onCreateProfile, onOpenFile, onOpenDrive, isIOS=fals
       openDrive:  "Open from Google Drive",
       driveHint:  "Recommended on iPad / iPhone — syncs across devices",
       localInstead:"or open a local file instead",
+      driveBusy:  "Connecting to Google Drive…",
+      drivePick:  "Pick a file to open",
+      driveEmpty: "No files to show. This app can only see files it saved itself, so a .json you uploaded to Drive by hand will not appear here — open it once as a local file and it will be saved to Drive from then on.",
+      driveRetry: "Try again",
+      driveCancel:"Cancel",
+      driveOpening:"Opening…",
     },
     TH: {
       welcome:    "ยินดีต้อนรับสู่ My Todo Planner",
@@ -10720,6 +10727,12 @@ function OnboardingScreen({ onCreateProfile, onOpenFile, onOpenDrive, isIOS=fals
       openDrive:  "เปิดจาก Google Drive",
       driveHint:  "แนะนำสำหรับ iPad / iPhone — ซิงค์ข้ามอุปกรณ์",
       localInstead:"หรือเปิดไฟล์ในเครื่องแทน",
+      driveBusy:  "กำลังเชื่อมต่อ Google Drive…",
+      drivePick:  "เลือกไฟล์ที่ต้องการเปิด",
+      driveEmpty: "ไม่พบไฟล์ แอปนี้เห็นได้เฉพาะไฟล์ที่ตัวเองบันทึกไว้ ถ้าเป็นไฟล์ .json ที่อัปโหลดขึ้น Drive ด้วยมือจะไม่ขึ้นที่นี่ — เปิดจากไฟล์ในเครื่องหนึ่งครั้ง หลังจากนั้นจะบันทึกขึ้น Drive ให้เอง",
+      driveRetry: "ลองอีกครั้ง",
+      driveCancel:"ยกเลิก",
+      driveOpening:"กำลังเปิด…",
     },
   }[browserLang];
 
@@ -10768,15 +10781,72 @@ function OnboardingScreen({ onCreateProfile, onOpenFile, onOpenDrive, isIOS=fals
                 <>
                   {/* N102: on iPad/iPhone there is no real folder to browse, so lead
                       with Google Drive — it doubles as starting cloud sync. */}
-                  <button onClick={onOpenDrive}
+                  <button onClick={onOpenDrive} disabled={drive.busy}
                     style={{padding:"13px 24px",borderRadius:12,border:"2px solid #1a73e8",
                       background:"#1a73e8",color:"#fff",fontSize:14,fontWeight:800,
-                      cursor:"pointer",transition:"all .15s"}}
-                    onMouseEnter={e=>e.currentTarget.style.opacity="0.92"}
-                    onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
-                    ☁️ {txt.openDrive}
+                      cursor:drive.busy?"wait":"pointer",opacity:drive.busy?0.7:1,transition:"all .15s"}}
+                    onMouseEnter={e=>{ if(!drive.busy) e.currentTarget.style.opacity="0.92"; }}
+                    onMouseLeave={e=>{ if(!drive.busy) e.currentTarget.style.opacity="1"; }}>
+                    ☁️ {drive.busy && !drive.files ? txt.driveBusy : txt.openDrive}
                   </button>
                   <p style={{fontSize:11,color:"#c5bdb4",marginTop:-4}}>{txt.driveHint}</p>
+
+                  {/* N104: the gate has to show the outcome itself. It is an early
+                      return in App, above SyncPanel and CloudSyncModal, so before
+                      this block a sign-in that worked and one that failed both left
+                      the user looking at an unchanged welcome screen. */}
+                  {drive.error && (
+                    <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,
+                      padding:"11px 13px",textAlign:"left"}}>
+                      <div style={{fontSize:12,color:"#b91c1c",fontWeight:700,lineHeight:1.5}}>
+                        ⚠️ {drive.error}
+                      </div>
+                      <button onClick={onOpenDrive} disabled={drive.busy}
+                        style={{marginTop:8,padding:"7px 14px",borderRadius:8,border:"1px solid #b91c1c",
+                          background:"#fff",color:"#b91c1c",fontSize:12,fontWeight:800,
+                          cursor:drive.busy?"wait":"pointer"}}>
+                        🔄 {txt.driveRetry}
+                      </button>
+                    </div>
+                  )}
+
+                  {Array.isArray(drive.files) && (
+                    <div style={{background:"#fff",border:"1px solid #e8e4df",borderRadius:12,
+                      padding:"12px 12px 10px",textAlign:"left"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:"#7d7168",marginBottom:8}}>
+                        ☁️ {drive.busy ? txt.driveOpening : txt.drivePick}
+                      </div>
+                      {drive.files.length === 0 ? (
+                        <p style={{fontSize:11,color:"#a89e94",lineHeight:1.6,margin:0}}>{txt.driveEmpty}</p>
+                      ) : (
+                        <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:240,overflowY:"auto"}}>
+                          {drive.files.map(f=>(
+                            <button key={f.id} onClick={()=>onPickDriveFile&&onPickDriveFile(f)}
+                              disabled={drive.busy}
+                              style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:2,
+                                padding:"9px 11px",borderRadius:9,border:"1px solid #e8e4df",
+                                background:"#f9f7f5",cursor:drive.busy?"wait":"pointer",textAlign:"left",
+                                width:"100%"}}>
+                              <span style={{fontSize:13,fontWeight:700,color:"#1a1714",wordBreak:"break-all"}}>
+                                📄 {f.name}
+                              </span>
+                              {f.modifiedTime && (
+                                <span style={{fontSize:10,color:"#a89e94"}}>
+                                  {new Date(f.modifiedTime).toLocaleString()}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <button onClick={onDismissDrive}
+                        style={{marginTop:10,padding:"5px 2px",border:"none",background:"transparent",
+                          color:"#a89e94",fontSize:11,fontWeight:700,cursor:"pointer",
+                          textDecoration:"underline"}}>
+                        {txt.driveCancel}
+                      </button>
+                    </div>
+                  )}
                   <button onClick={onOpenFile}
                     style={{padding:"4px",border:"none",background:"transparent",color:"#a89e94",
                       fontSize:12,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}
@@ -11723,6 +11793,10 @@ export default function App() {
   const [gsyncAuto, setGsyncAuto] = useState(true);      // auto-push on edits
   const [gsyncPanel, setGsyncPanel] = useState(false);   // floating panel open
   const [gsyncPanelMin, setGsyncPanelMin] = useState(false); // minimized
+  // N104: the onboarding gate is an early return above every panel and modal in
+  // this component, so it cannot borrow SyncPanel's file list — it owns its own.
+  // {busy, error, files:null|[]}
+  const [gateDrive, setGateDrive] = useState({ busy:false, error:"", files:null });
   const gsyncTimer = useRef(null);
   const gsyncBusy = useRef(false);
   const [fontSize, setFontSize]     = useState(14);
@@ -12765,7 +12839,11 @@ export default function App() {
   // Q1=A: no profile switching → no setActiveProfileId → no reload race condition.
   // Q2=A: profile is decoupled from files entirely. Open just replaces current data.
   // Q4=A: if there is NO profile yet (first run), auto-create one from the file name.
-  const applyOpenedFile = async (parsed, fileName, handle=null) => {
+  // `driveLink` = {id, name, modifiedTime} when the payload came from Drive rather
+  // than from disk. It is linked for sync here rather than by the caller because on
+  // first run the caller's `activeProfileId` is still null, so its pk() would write
+  // the link to the bare key and the new profile would come back unlinked.
+  const applyOpenedFile = async (parsed, fileName, handle=null, driveLink=null) => {
     // Q5=A: keep validation — must look like a real backup
     if (!parsed.personal || !Array.isArray(parsed.personal)) {
       alert("❌ Invalid file — must be a My Todo Planner JSON backup.");
@@ -12789,10 +12867,14 @@ export default function App() {
         if (Array.isArray(parsed.events)) await wPre(EVENTS_KEY, parsed.events);
         if (Array.isArray(parsed.notes))  await wPre(NOTES_KEY, parsed.notes);
         if (parsed.customTabs)  await wPre(CUSTOM_TABS_KEY, parsed.customTabs);
-        if (parsed.config) {
+        if (parsed.config || driveLink) {
           // N79: normalise the legacy "timeline" tab id (that id is the Overview page)
-          const pc = {...parsed.config};
+          const pc = {...(parsed.config||{})};
           if (!pc.defaultTab || pc.defaultTab==="timeline") pc.defaultTab = "milestones";
+          // N93/N104: a profile opened from Drive is connected by definition, so
+          // record the opt-in with the profile rather than through patchConfig()
+          // after the switch — see the note in gateDrivePick.
+          if (driveLink) pc.gsyncConnected = true;
           await wPre(CONFIG_KEY, pc);
         }
         if (parsed.widgetOrder) await wPre(WIDGET_KEY, parsed.widgetOrder);
@@ -12804,6 +12886,13 @@ export default function App() {
         if (parsed.tabOrder)      await wPre(TABORDER_KEY, parsed.tabOrder);
         if (parsed.tabReads)      await wPre(TABREADS_KEY, parsed.tabReads);
         if (parsed.activity)      await wPre(ACTIVITY_KEY, parsed.activity);
+        // Write the Drive link with everything else, before the switch: the
+        // [activeProfileId] effect reads pk(GSYNC_KEY) as soon as it lands, so this
+        // is the one point where the link cannot lose a race against that read.
+        if (driveLink) await wPre(GSYNC_KEY, {
+          fileId: driveLink.id, fileName: driveLink.name, localName: "",
+          lastSyncAt: Date.now(), lastCloudModified: driveLink.modifiedTime || "",
+        });
       } catch {}
       const newProf = {
         id: profileIdToUse,
@@ -12875,6 +12964,12 @@ export default function App() {
     // File tracking (decoupled from profile)
     setLastFileName(parsed.fileName || fileName);
     setFileHandle(handle || null);
+
+    // A profile already exists here, so pk() resolves correctly and the ordinary
+    // persist path is safe.
+    if (driveLink) await persistGsync({ ...gsync,
+      fileId: driveLink.id, fileName: driveLink.name,
+      lastSyncAt: Date.now(), lastCloudModified: driveLink.modifiedTime || "" });
 
     setTab("milestones");   // N79: a freshly opened file always lands on the Timeline
     setOpenMenu(null);
@@ -12971,6 +13066,49 @@ export default function App() {
     await applyPayloadLive(ic.cloud.payload);
     await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: ic.cloud.modifiedTime });
     setGsyncStatus("synced");
+  };
+
+  // ── N104: open a JSON from Drive on the very first run ────────────────────
+  // The onboarding gate returns early, above every modal and panel here, so the
+  // old handler — connect, then setGsyncPanel(true) — switched on a panel that is
+  // not mounted on this path. A successful Google sign-in was indistinguishable
+  // from a failed one: nothing appeared, either way. These two functions do the
+  // whole job on the gate itself.
+  const gateDriveConnect = async () => {
+    setGateDrive({ busy:true, error:"", files:null });
+    try {
+      // signIn() has to be the first thing after the tap. Safari drops user
+      // activation across an await, and GIS then opens nothing at all.
+      await GDrive.signIn({});
+      GDrive.rememberAccount();          // fire and forget: only affects the next tap
+      setGsyncSignedIn(true);
+      const files = await GDrive.listFiles();
+      setGateDrive({ busy:false, error:"", files });
+    } catch (e) {
+      setGateDrive({ busy:false, error: e?.message || "Could not reach Google Drive.", files:null });
+    }
+  };
+
+  const gateDrivePick = async (f) => {
+    setGateDrive(s => ({ ...s, busy:true, error:"" }));
+    try {
+      const parsed = JSON.parse(await GDrive.download(f.id));
+      // Check the shape here rather than letting applyOpenedFile alert() about it,
+      // so the message lands in the gate next to the list the user just picked from.
+      if (!parsed || !Array.isArray(parsed.personal)) {
+        throw new Error(`"${f.name}" is not a My Todo Planner backup — no task list inside it.`);
+      }
+      // Everything the new profile needs — data, the Drive link, gsyncConnected —
+      // is written by applyOpenedFile before it switches profiles. patchConfig()
+      // must not be used here: its pk() would still see a null activeProfileId and
+      // write to the bare key, and it merges over DEFAULT_CONFIG rather than over
+      // the config that just came out of the file.
+      await applyOpenedFile(parsed, f.name, null, f);
+      setGsyncStatus("synced");
+      setGateDrive({ busy:false, error:"", files:null });
+    } catch (e) {
+      setGateDrive(s => ({ ...s, busy:false, error: e?.message || "Could not open that file." }));
+    }
   };
 
   // ── Jump to activity snapshot (per-entry undo) ────────────────────────────
@@ -13242,7 +13380,10 @@ export default function App() {
         <OnboardingScreen
           onCreateProfile={handleCreateFirstProfile}
           onOpenFile={handleOpenFilePicker}
-          onOpenDrive={async()=>{ const ok=await gsyncConnect(); if(ok){ setGsyncPanel(true); setGsyncPanelMin(false); } }}
+          onOpenDrive={gateDriveConnect}
+          drive={gateDrive}
+          onPickDriveFile={gateDrivePick}
+          onDismissDrive={()=>setGateDrive({ busy:false, error:"", files:null })}
           isIOS={isIOSDevice}
           openFileRef={openFileRef}
         />
