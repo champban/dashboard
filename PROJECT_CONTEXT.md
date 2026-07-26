@@ -96,6 +96,45 @@ generated artifact. The committed `vite.config.js` points
 - No personal names in the app (allowed: contact email champbanyat@gmail.com, "Lotus Bakeries", "Lotus General").
 - Batch changes into one build + audit + package cycle. Report audit results honestly.
 
+## Sync time has to be visible, and absolute (3.77.x)
+
+Three separate facts, and the answer to "is my copy the same as the cloud's?" needs all
+three side by side. `syncStamp()` is the single formatter for every one of them:
+
+| line | source | means |
+|---|---|---|
+| 📱 This device | `dataLastUpdated` | when the data here last changed |
+| ☁️ Cloud file | `gsync.lastCloudModified` | the Drive `modifiedTime` at the last check |
+| 🔄 Last checked | `gsync.lastSyncAt` | when the two were last compared |
+
+Rules learned from getting each of these wrong:
+
+- **Always print the wall-clock time, not only a relative age.** Every surface used to
+  say "5 min ago" and nothing else, degrading to a bare `toLocaleDateString()` past 24
+  hours — which drops the clock entirely. "What time did it sync?" had no answer.
+- **The stamps render above the signed-in gate.** They are local history and need no
+  Google session; that question gets asked precisely when you are *not* connected and
+  something looks wrong.
+- **Any age on screen needs its own ticker.** An age computed once per render with
+  nothing to re-trigger it freezes at whatever it said when the surface opened. `SyncChip`
+  owns its interval rather than ticking `App`, which would re-render the whole tree.
+- **Anything in the desktop header must be checked against the compact one.** The sync
+  status, like the version chip before it, existed only in the desktop File menu — which
+  is not rendered below 1024px.
+- `savedAt` in a saved file is when the file was *written*; `dataLastUpdated` is when
+  its contents last changed. Both are written now. Opening a file seeds
+  `dataLastUpdated` from `parsed.dataLastUpdated || parsed.savedAt` — without that a
+  profile opened from Drive came up with a blank stamp, and a file opened *from* Drive
+  marked "now" would look newer than its own source and push straight back up.
+
+## Writing a harness fixture: two keys are stored RAW
+
+`lifeplanner-active-profile` and `lifeplanner-data-updated-v1` hold bare strings and are
+read with no `JSON.parse`. Seeding them stringified gives a profile id that literally
+contains quote characters, so `pk()` builds `"test-profile"::key` and every
+profile-scoped row silently fails to match. The older harnesses never noticed because
+they seed no profile-scoped data at all. Everything else is JSON.
+
 ## The onboarding gate is an early return (N104)
 
 `if (!activeProfileId || profileList.length===0) return <OnboardingScreen…>` sits near

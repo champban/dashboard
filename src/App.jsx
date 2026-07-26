@@ -614,6 +614,25 @@ const GDRIVE_CLIENT_ID = "369687041884-heue2bffon430f0kfaetcp8mv8kbh8q2.apps.goo
 const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified}
 
+// One definition of "when did this happen", used by every sync surface.
+// Every one of them used to print a relative age only — "5 min ago" — and the sole
+// absolute form was a bare toLocaleDateString() once past 24 hours, which drops the
+// clock time entirely. So "what time did it last sync?" had no answer anywhere in the
+// UI. The relative part is what you read at a glance; the wall-clock part is what you
+// compare against another device.
+const syncStamp = (v) => {
+  if (!v) return "never";
+  const d = v instanceof Date ? v : new Date(typeof v === "number" ? v : String(v));
+  if (isNaN(d.getTime())) return "unknown";
+  const hhmm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 0)     return `${d.toLocaleDateString([], { day: "2-digit", month: "short" })} ${hhmm}`;
+  if (s < 60)    return `just now · ${hhmm}`;
+  if (s < 3600)  return `${Math.floor(s / 60)} min ago · ${hhmm}`;
+  if (s < 86400) return `${Math.floor(s / 3600)} hr ago · ${hhmm}`;
+  return `${d.toLocaleDateString([], { day: "2-digit", month: "short" })} ${hhmm}`;
+};
+
 // N105: iOS gives a home-screen web app its own WebKit storage partition,
 // separate from the Safari tab. GSYNC_KEY lives in localStorage, so connecting
 // Drive in Safari leaves the standalone app with no sync record at all — it is
@@ -11172,8 +11191,36 @@ function RecurringDoneModal({ task, onConfirmAndSave, onMarkDoneOnly, onCancel }
 // Shows both sides of the sync pair (Google Drive + local), lets the user manage
 // everything from one place: link/relink/rename files, open the Drive location,
 // toggle auto-sync, push/pull now, and watch live status.
+// Compact cloud-sync indicator for the phone/tablet header. Its own component, with
+// its own interval, for two reasons: the age has to keep moving (an age computed once
+// per render and never re-triggered is what made the panel freeze at whatever it said
+// when it opened), and ticking App itself every 15s would re-render the entire tree.
+function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onOpen }) {
+  const [, tick] = React.useState(0);
+  React.useEffect(()=>{ const t=setInterval(()=>tick(n=>n+1), 15000); return ()=>clearInterval(t); },[]);
+  const dot = gsyncStatus==="syncing" ? "#f59e0b"
+            : gsyncStatus==="error"   ? "#ef4444"
+            : online                  ? "#22c55e" : theme.textMuted;
+  return (
+    <button onClick={onOpen} aria-label="Cloud sync status"
+      title={`Cloud file: ${gsync.fileName||"—"}\n📱 This device · ${syncStamp(dataLastUpdated)}\n☁️ Cloud file · ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
+      style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,padding:big?"6px 10px":"5px 8px",
+        borderRadius:99,border:`1px solid ${theme.border}`,background:theme.surface,
+        cursor:"pointer",touchAction:"manipulation"}}>
+      <span style={{width:7,height:7,borderRadius:"50%",background:dot,flexShrink:0,
+        animation:gsyncStatus==="syncing"?"pulse 1s infinite":"none"}}/>
+      <span style={{fontSize:big?10:9,fontWeight:700,color:theme.textMuted,
+        whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>
+        {gsyncStatus==="syncing" ? "syncing…"
+          : gsyncStatus==="error" ? "sync error"
+          : syncStamp(gsync.lastSyncAt)}
+      </span>
+    </button>
+  );
+}
+
 function SyncPanel({
-  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote,
+  gsync, gsyncStatus, gsyncError, gsyncSignedIn, gsyncAuto, gsyncNote, dataLastUpdated,
   onConnect, onDisconnect, onSyncNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
 }) {
@@ -11208,19 +11255,14 @@ function SyncPanel({
   const [, tick] = React.useState(0);
   React.useEffect(()=>{ const t=setInterval(()=>tick(n=>n+1), 15000); return ()=>clearInterval(t); },[]);
 
-  const relTime = (ms) => {
-    if(!ms) return "never";
-    const s=Math.floor((Date.now()-ms)/1000);
-    if(s<60) return "just now"; if(s<3600) return `${Math.floor(s/60)} min ago`;
-    if(s<86400) return `${Math.floor(s/3600)} hr ago`; return new Date(ms).toLocaleDateString();
-  };
+  const relTime = syncStamp;   // shared definition — includes the wall-clock time
 
   // N95: "Synced" requires being signed in AND linked — a leftover fileId from a
   // past session must not read as connected.
   const online = gsyncSignedIn;
   const dotColor = gsyncStatus==="syncing"?"#f59e0b":gsyncStatus==="error"?"#ef4444":(online&&linked)?"#22c55e":"#94a3b8";
   const statusLine = gsyncStatus==="syncing"?"Syncing…":gsyncStatus==="error"?(gsyncError||"Error")
-                    : (online&&linked)?`Synced · ${relTime(gsync.lastSyncAt)}`
+                    : (online&&linked)?`Checked ${relTime(gsync.lastSyncAt)}`
                     : linked?"Linked — not connected":"Not connected";
 
   const doConnect = async()=>{
@@ -11291,6 +11333,30 @@ function SyncPanel({
       </div>
 
       <div style={{padding:"12px 13px",maxHeight:"70vh",overflowY:"auto"}}>
+        {/* Three facts that were never shown side by side, so a device could not
+            answer "is my copy the same as the cloud's?" — only guess. Deliberately
+            ABOVE the signed-in gate: these are stamps already stored locally, they
+            need no Google session, and "when did it last sync?" is asked precisely
+            when you are not connected and something looks wrong. lastCloudModified
+            is already in state, so this costs no extra request. */}
+        {linked && (
+          <div style={{background:"var(--c-surface2)",border:"1px solid var(--c-border)",borderRadius:8,
+            padding:"8px 10px",marginBottom:11,display:"grid",gap:3}}>
+            <div style={{fontSize:11.5,fontWeight:700,color:"var(--c-text)",wordBreak:"break-all",marginBottom:3}}>
+              📄 {gsync.fileName||"—"}
+            </div>
+            {[
+              ["📱 This device",  syncStamp(dataLastUpdated)],
+              ["☁️ Cloud file",   syncStamp(gsync.lastCloudModified)],
+              ["🔄 Last checked", syncStamp(gsync.lastSyncAt)],
+            ].map(([label, value])=>(
+              <div key={label} style={{display:"flex",gap:8,fontSize:10.5,lineHeight:1.55}}>
+                <span style={{color:"var(--c-text-muted)",flex:"0 0 92px"}}>{label}</span>
+                <span style={{color:"var(--c-text)",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {!gsyncSignedIn ? (
           <div style={{textAlign:"center",padding:"10px 0"}}>
             <p style={{fontSize:12,color:"var(--c-text-muted)",marginBottom:12,lineHeight:1.6}}>
@@ -11318,6 +11384,7 @@ function SyncPanel({
                   ) : (
                     <div style={{fontSize:12.5,fontWeight:700,color:"var(--c-text)",wordBreak:"break-all",marginBottom:7}}>📄 {gsync.fileName||"—"}</div>
                   )}
+
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     <button onClick={openDrive} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>📁 Open folder</button>
                     {!renaming && <button onClick={()=>{setNameDraft(gsync.fileName||"");setRenaming(true);}} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>✏️ Rename</button>}
@@ -11418,14 +11485,7 @@ function CloudSyncModal({ onClose, openFileRef, gsync, gsyncStatus, gsyncError, 
   const linked = !!gsync?.fileId;
   const lastSync = gsync?.lastSyncAt ? new Date(gsync.lastSyncAt) : null;
 
-  const relTime = (d) => {
-    if(!d) return "never";
-    const s=Math.floor((Date.now()-d.getTime())/1000);
-    if(s<60) return "just now";
-    if(s<3600) return `${Math.floor(s/60)} min ago`;
-    if(s<86400) return `${Math.floor(s/3600)} hr ago`;
-    return d.toLocaleDateString();
-  };
+  const relTime = syncStamp;   // shared definition — includes the wall-clock time
 
   const doConnect = async () => {
     setBusy(true); setListError("");
@@ -12546,6 +12606,11 @@ export default function App() {
     appVersion: APP_VERSION,
     profile: { id: activeProfileId, name: activeProfile?.name||"", emoji: activeProfile?.emoji||"👤" },
     savedAt: new Date().toISOString(),
+    // savedAt is when the file was WRITTEN; this is when the data inside it last
+    // actually changed. Without it a file cannot say how old its contents are, only
+    // how old the upload is — so a device that opened the file had no way to show
+    // "your data is from 14:32" and the two numbers silently diverged.
+    dataLastUpdated: dataLastUpdated || null,
     fileName: lastFileName,
     personal,
     work,
@@ -12896,6 +12961,15 @@ export default function App() {
         if (parsed.tabOrder)      await wPre(TABORDER_KEY, parsed.tabOrder);
         if (parsed.tabReads)      await wPre(TABREADS_KEY, parsed.tabReads);
         if (parsed.activity)      await wPre(ACTIVITY_KEY, parsed.activity);
+        // Carry the file's own edit stamp into the new profile. Without this the
+        // profile came up with dataLastUpdated = null, so "Data updated" was blank
+        // right after opening a file from Drive even though the file states when its
+        // contents were last changed. Written raw, NOT through wPre: this key holds a
+        // bare ISO string and the load path reads it back with no JSON.parse.
+        const openedStamp = parsed.dataLastUpdated || parsed.savedAt || null;
+        if (openedStamp) {
+          await window.storage.set(profKey(profileIdToUse, DATA_UPDATED_KEY), openedStamp);
+        }
         // Write the Drive link with everything else, before the switch: the
         // [activeProfileId] effect reads pk(GSYNC_KEY) as soon as it lands, so this
         // is the one point where the link cannot lose a race against that read.
@@ -12969,7 +13043,11 @@ export default function App() {
     if (Array.isArray(parsed.tabOrder))   setTabOrder(parsed.tabOrder);
     if (parsed.tabReads && typeof parsed.tabReads==="object") setTabReads(parsed.tabReads);
     if (Array.isArray(parsed.activity))   setActivity(parsed.activity);
-    setDataLastUpdated(new Date().toISOString());
+    // A file opened FROM Drive keeps the stamp the file carries. Marking it "now"
+    // would make the copy that just came down look newer than its own source, and the
+    // next sync would push it straight back up. A local file still counts as a local
+    // change, because nothing in the cloud knows about it yet.
+    setDataLastUpdated((driveLink && (parsed.dataLastUpdated || parsed.savedAt)) || new Date().toISOString());
 
     // File tracking (decoupled from profile)
     setLastFileName(parsed.fileName || fileName);
@@ -13638,7 +13716,7 @@ export default function App() {
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError}
         gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()} gsyncAuto={gsyncAuto}
         onConnect={gsyncConnect} onDisconnect={()=>{gsyncDisconnect();setGsyncPanel(true);}}
-        onSyncNow={gsyncNow} gsyncNote={gsyncNote}
+        onSyncNow={gsyncNow} gsyncNote={gsyncNote} dataLastUpdated={dataLastUpdated}
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
         listFiles={()=>GDrive.listFiles()}
         minimized={gsyncPanelMin} onToggleMin={()=>setGsyncPanelMin(m=>!m)}
@@ -13895,6 +13973,16 @@ export default function App() {
             {/* Unsaved dot */}
             {saveStatus==="unsaved"&&<div style={{width:8,height:8,borderRadius:"50%",background:"#f59e0b",flexShrink:0}}/>}
 
+            {/* Cloud sync state. The status dot, file name and last-sync time lived
+                only in the desktop File menu, which is not rendered below 1024px — so
+                on a phone there was no way to tell whether the cloud copy was current
+                without opening ⋯ More → Sync Manager and reading a relative age. Same
+                shape of gap as the version chip. Tapping it opens the full panel. */}
+            {!!gsync.fileId && <SyncChip gsync={gsync} gsyncStatus={gsyncStatus}
+              online={gsyncSignedIn || GDrive.isSignedIn()} dataLastUpdated={dataLastUpdated}
+              theme={theme} big={isTablet}
+              onOpen={()=>{setGsyncPanel(true);setGsyncPanelMin(false);}}/>}
+
             {/* Search (tablet only in header) */}
             {isTablet&&<button onClick={()=>setShowSearch(true)}
               style={{width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",background:theme.surface,border:`1px solid ${theme.border}`,borderRadius:10,cursor:"pointer",fontSize:18,flexShrink:0,touchAction:"manipulation"}}>
@@ -14101,7 +14189,8 @@ export default function App() {
                       const online=gsyncSignedIn||GDrive.isSignedIn(), linked=!!gsync.fileId;
                       const dotc = gsyncStatus==="syncing"?"#f59e0b":gsyncStatus==="error"?"#ef4444":(online&&linked)?"#22c55e":theme.textMuted;
                       const stTxt = gsyncStatus==="syncing"?"Syncing…":gsyncStatus==="error"?"Sync error":(online&&linked)?"Synced":linked?"Not connected":"Not set up";
-                      const rel = gsync.lastSyncAt ? (()=>{ const s=Math.floor((Date.now()-gsync.lastSyncAt)/1000); return s<60?"just now":s<3600?`${Math.floor(s/60)} min ago`:s<86400?`${Math.floor(s/3600)} hr ago`:new Date(gsync.lastSyncAt).toLocaleDateString(); })() : null;
+                      const rel = gsync.lastSyncAt ? syncStamp(gsync.lastSyncAt) : null;
+                      const cloudRel = gsync.lastCloudModified ? syncStamp(gsync.lastCloudModified) : null;
                       return (
                         <div style={{padding:"10px 14px",borderBottom:`1px solid ${theme.border}`}}>
                           <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:linked?4:6}}>
@@ -14113,7 +14202,11 @@ export default function App() {
                           {linked ? (
                             <>
                               <div style={{fontSize:11.5,fontWeight:700,color:theme.text,wordBreak:"break-all",marginBottom:2}}>📄 {gsync.fileName}</div>
-                              {rel&&<div style={{fontSize:9.5,color:theme.textMuted,marginBottom:7}}>Last sync · {rel}</div>}
+                              <div style={{fontSize:9.5,color:theme.textMuted,marginBottom:7,display:"grid",gap:1}}>
+                                <div>📱 This device · {syncStamp(dataLastUpdated)}</div>
+                                {cloudRel&&<div>☁️ Cloud file · {cloudRel}</div>}
+                                {rel&&<div>🔄 Last checked · {rel}</div>}
+                              </div>
                             </>
                           ) : (
                             <div style={{fontSize:10.5,color:theme.textMuted,marginBottom:7}}>No file linked for this profile yet.</div>

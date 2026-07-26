@@ -1,5 +1,59 @@
 # Changelog
 
+## 3.77.0 — you can see when it synced — 2026-07-26
+
+`APP_VERSION` unchanged. Reported as: the cloud file's last sync time is nowhere to be
+found, and the data in the JSON does not match the session synced on the PC.
+
+Four separate causes, all in how the state was *shown* rather than how it was computed.
+
+### Fixed
+
+- **No surface printed a wall-clock time.** Every one of the three — `SyncPanel`,
+  `CloudSyncModal`, the desktop File menu — carried its own copy of a relative-age
+  formatter, and the only absolute form was `toLocaleDateString()` past 24 hours, which
+  drops the clock. So "what time did it sync?" was literally unanswerable. One
+  `syncStamp()` now serves all of them and prints both: `5 min ago · 14:32`.
+- **A phone had no sync status at all.** The dot, file name and last-sync line lived
+  only in the desktop File menu, which is not rendered below 1024px; the only way in was
+  ⋯ More → Sync Manager, two taps deep, and still relative-only. There is now a tappable
+  chip in the compact header — the same gap, and the same fix, as the version chip.
+  It carries its own interval, because an age with nothing to re-trigger it freezes at
+  whatever it said when the surface opened.
+- **The three times were never shown together.** "When this device changed", "when the
+  cloud file changed" and "when the two were last compared" are different facts, and a
+  mismatch between devices is only visible when they sit side by side. `SyncPanel` and
+  the File menu now list all three. `lastCloudModified` was already in state, so this
+  costs no extra Drive request — and the block renders **above** the signed-in gate,
+  since those stamps are local history and the question gets asked precisely when you
+  are not connected.
+- **Opening a file from Drive threw away its edit stamp.** `applyOpenedFile` wrote
+  sixteen keys for a new profile but not `DATA_UPDATED_KEY`, and nothing read
+  `parsed.savedAt` back, so a profile opened from Drive came up with a blank "Data
+  updated" even though the file states when its contents last changed. It now seeds from
+  `parsed.dataLastUpdated || parsed.savedAt` — written raw, since that key holds a bare
+  ISO string. A file opened *from* Drive also keeps the file's stamp rather than being
+  marked "now", which would make the copy that just came down look newer than its own
+  source and push it straight back up.
+
+### Added
+
+- `dataLastUpdated` in the saved payload. `savedAt` records when the file was
+  **written**; this records when the data inside it last **changed**. Without it a file
+  could not say how old its contents were, only how old the upload was. Additive — the
+  format stays version 7 and older readers ignore it.
+- `build/sync-visibility.test.mjs`, in `npm test`. Seeds a profile already linked to a
+  cloud file with three deliberately different stamps and asserts the chip exists on a
+  390px header, shows a clock time *and* an age, names the file, carries all three times
+  distinctly, and opens a panel that lists them together.
+
+### Note
+
+Whether two devices hold the same data is a separate question from whether the UI can
+show it. If Drive contains more than one backup, a device that picked a different file
+from the list is simply linked elsewhere — compare the `📄` file name on both. This
+change makes that comparison possible; it does not merge anything.
+
 ## 3.77.0 — a secret scanner in the repo — 2026-07-26
 
 `APP_VERSION` unchanged. CI and tooling only — `index.html` is byte-identical.
