@@ -1,5 +1,62 @@
 # Changelog
 
+## 3.78.0 — another device's save applies itself — 2026-07-26
+
+`APP_VERSION` unchanged. Reported as: *"if another device saved, changes will apply
+automatically to the local storage file of the web browser. No need to ask immediately,
+ask at the next sync — auto-sync can be set as before."*
+
+### Changed
+
+- **A cloud change with nothing unsaved on this device is now applied automatically, with
+  no dialog.** It reached a modal whose own first line read *"This device has no unsaved
+  edits, so updating is safe — but it is your call."* A prompt that can explain why the
+  answer is obvious should not be a prompt. Both paths take this: the auto-sync reconciler
+  (which also runs on focus and `visibilitychange`) and an explicit **Save to Cloud**
+  press. The toast reads "Updated from cloud — another device saved".
+
+  This is not a return to the pre-3.75 behaviour the dialog was added to stop. Then, *any*
+  cloud change was applied silently, including one that overwrote unsaved local edits. The
+  collision case is tested first and still asks — that ordering is what makes this safe.
+
+- **The dialog now only appears for a real collision**, so its wording no longer has to
+  hedge: titled **"Save needs a decision"** (not "Both copies changed", which is
+  `gsyncConflict`'s title for the same situation on the auto-sync path), and it states
+  that this device has changes not on Drive yet.
+
+- **"Update now" is no longer green, and reads "Take the cloud copy".** Green said *safe*,
+  and it was, while the dialog also covered the no-local-edits case. Reaching it now means
+  discarding this device's unsaved changes, so both directional answers lose something and
+  neither gets the reassuring colour. The footnote says exactly what each one discards, and
+  that "Later" is the only one that loses nothing.
+
+- **The Auto-sync caption says both halves of what it does** — "Saves to Cloud ~15s after
+  each edit, and brings in another device's save". The incoming half used to stop at a
+  modal, so leaving it unmentioned was fair; it no longer does. The toggle itself is
+  unchanged.
+
+### Tests
+
+`build/sync-push-stranded.test.mjs` grew two blocks and reworked one, 65 assertions across
+six files:
+
+- *cloud moved, nothing unsaved here* — no upload, **no dialog**, the cloud copy lands in
+  browser storage, and the toast says so.
+- *cloud moved AND local has unsaved edits* — no upload, the local task is **still in
+  storage**, and the dialog offers both directions.
+- *auto-sync, cloud moved, nothing unsaved here* — nobody presses anything: the tab
+  regains focus and the other device's save arrives on its own. The Save-press blocks
+  cannot cover this, because they go through `gsyncSaveNow` rather than `gsyncNow`.
+
+Two notes on how the old assertions failed to catch this, both recorded in the test file:
+the block asserting the modal **passed for the wrong reason** after the change, because
+the new toast contains "another device saved" and matched the old `/Another device saved/i`
+probe; and a DOM probe for "was it applied?" passes either way, since the task list is not
+rendered while the Sync Manager is open — so it now reads browser storage.
+
+Harness **LEN 25129 / NODES 141 unchanged**, `audit.py` 0 blockers / 3 warnings, packager
+6/6 CSP PASS, es2019 guard clean, secret scan clean.
+
 ## 3.77.0 — a save stamps the moment it saves — 2026-07-26
 
 `APP_VERSION` unchanged. Follow-up correction: *"when I press Save to Cloud = refresh

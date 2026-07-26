@@ -11524,7 +11524,9 @@ function SyncPanel({
                 <div style={{...box,display:"flex",alignItems:"center",gap:9,marginBottom:9}}>
                   <div style={{flex:1}}>
                     <div style={{fontSize:12,fontWeight:800,color:"var(--c-text)"}}>Auto-sync</div>
-                    <div style={{fontSize:10,color:"var(--c-text-muted)"}}>{gsyncAuto?"Saves to Cloud ~15s after each edit":"Manual only"}</div>
+                    {/* Says both halves of what it does. The incoming half used to stop
+                        at a modal, so it was fair to leave unmentioned; it no longer does. */}
+                    <div style={{fontSize:10,color:"var(--c-text-muted)"}}>{gsyncAuto?"Saves to Cloud ~15s after each edit, and brings in another device's save":"Manual only"}</div>
                   </div>
                   <button onClick={()=>onSetAuto(!gsyncAuto)}
                     style={{width:44,height:25,borderRadius:14,border:"none",cursor:"pointer",position:"relative",
@@ -12619,14 +12621,26 @@ export default function App() {
         });
         setGsyncStatus("idle");
       } else if (cloudChanged) {
-        // Only the cloud moved — another device saved. This used to download and
-        // apply immediately, so the screen changed under the user with no warning
-        // and no way to decline. Ask instead: update now, decide later, or keep
-        // this device's copy. "Later" deliberately leaves lastCloudModified alone
-        // so the next sync raises it again rather than forgetting.
+        // Only the cloud moved — another device saved, and this device has nothing
+        // unsaved to lose (localChanged is false, or the branch above would have
+        // taken it). Apply it, without asking.
+        //
+        // 3.77 asked here instead, with a modal offering update / later / keep-mine.
+        // The modal's own first line read "This device has no unsaved edits, so
+        // updating is safe" — a dialog whose text argues for the button it is asking
+        // you to press is friction, not consent. Nothing can be lost, so there is
+        // no decision to take: the point of a synced file is that the other device's
+        // save arrives here.
+        //
+        // This is not a return to the pre-3.75 behaviour that prompted the modal. Then,
+        // ANY cloud change was applied silently, including one that overwrote unsaved
+        // local edits. The conflict case above still asks, and still asks first — that
+        // ordering is what makes this branch safe.
         const text = await GDrive.download(gsync.fileId);
-        setGsyncCloudAhead({ cloudModified: meta.modifiedTime || "", cloudText: text });
-        setGsyncStatus("idle");
+        const stamp = await applyPayloadLive(JSON.parse(text));
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "",
+          lastPushedStamp: stamp });
+        setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
       } else if (localChanged) {
         // Only local moved — safe to push, nothing cloud-side to lose.
         const { stamp, payload } = pushPayload();
@@ -12658,9 +12672,13 @@ export default function App() {
   // user did not ask; they asked for the screen to be written to Drive.
   //
   // The one thing that may still stop it is the cloud holding changes this device has
-  // never seen, because uploading over those loses another device's work. That asks,
-  // via the same dialog as before — and "Keep this device and overwrite the cloud" is
-  // how the user completes the save they asked for. Nothing else refuses.
+  // never seen AND this device holding unsaved edits of its own, because then one copy
+  // has to lose. That asks, via the dialog — and "Keep this device and overwrite the
+  // cloud" is how the user completes the save they asked for. Nothing else refuses.
+  //
+  // A cloud that moved while this device changed nothing is not a conflict: the other
+  // device's save comes down and the two sides then agree, which is what pressing save
+  // was for. No dialog for that.
   const gsyncSaveNow = async () => {
     if (gsyncBusy.current) return;
     if (!GDrive.isSignedIn()) { const ok = await gsyncConnect(); if (!ok) return; }
@@ -12670,11 +12688,25 @@ export default function App() {
       const meta = await GDrive.getMeta(gsync.fileId);
       if (meta.trashed) throw new Error("The cloud file was deleted.");
       const cloudChanged = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
-      if (cloudChanged) {
+      // Same test gsyncNow uses: has this device produced anything that has not been
+      // uploaded? Both sides of it come from this device's clock.
+      const localChanged = !!dataLastUpdated && dataLastUpdated !== gsync.lastPushedStamp;
+      if (cloudChanged && localChanged) {
         const text = await GDrive.download(gsync.fileId);
         setGsyncCloudAhead({ cloudModified: meta.modifiedTime || "", cloudText: text });
         setGsyncStatus("idle");
         note("later","Cloud changed since this device last looked — choose which copy to keep");
+        return;
+      }
+      if (cloudChanged) {
+        // Cloud moved, this device has nothing unsaved. Take the other device's save
+        // rather than overwriting it; afterwards both copies agree, which is what
+        // pressing save is for. Not a refusal, and not a question.
+        const text = await GDrive.download(gsync.fileId);
+        const stamp = await applyPayloadLive(JSON.parse(text));
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "",
+          lastPushedStamp: stamp });
+        setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
         return;
       }
       // Upload regardless of whether anything changed locally. Pressing save and
@@ -13912,9 +13944,13 @@ export default function App() {
         onUseLocal={importUseLocal}
         onUseCloud={importUseCloud}
         onCancel={()=>setImportConflict(null)} />}
-      {/* Another device saved and this one has no local edits to lose. Previously
-          the app just downloaded and applied it, so the screen changed without
-          asking. Standard three answers instead. */}
+      {/* Another device saved AND this device holds unsaved edits, on an explicit
+          Save to Cloud press. Both copies hold something the other does not, so one
+          has to lose and the user picks which.
+
+          Until 3.78 this also appeared for the safe case — cloud moved, nothing
+          unsaved here — where its own first line read "updating is safe". That case
+          now applies itself, so every wording here can assume a real collision. */}
       {gsyncCloudAhead && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",zIndex:6000,
           display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
@@ -13922,19 +13958,28 @@ export default function App() {
             width:"100%",maxWidth:430,padding:"18px 20px"}}>
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
               <span style={{fontSize:22}}>☁️</span>
-              <div style={{fontSize:15,fontWeight:800,color:"var(--c-text)"}}>Cloud file changed</div>
+              {/* Deliberately not "Both copies changed" — that is the title of the
+                gsyncConflict dialog, which the auto-sync path raises for the same
+                situation. This one is only ever reached from a Save press. */}
+            <div style={{fontSize:15,fontWeight:800,color:"var(--c-text)"}}>Save needs a decision</div>
             </div>
             <p style={{fontSize:12.5,color:"var(--c-text-muted)",lineHeight:1.6,marginBottom:6}}>
-              Another device saved <strong style={{color:"var(--c-text)"}}>{gsync.fileName||"the cloud file"}</strong>.
-              This device has no unsaved edits, so updating is safe — but it is your call.
+              Another device saved <strong style={{color:"var(--c-text)"}}>{gsync.fileName||"the cloud file"}</strong>,
+              and this device has changes that are not on Drive yet. One copy has to win.
+              Nothing has been changed yet.
             </p>
             <div style={{fontSize:11,color:"var(--c-text-muted)",marginBottom:14}}>
               Cloud version: {gsyncCloudAhead.cloudModified ? new Date(gsyncCloudAhead.cloudModified).toLocaleString() : "unknown"}
             </div>
+            {/* Not green any more. Green said "safe", and it was, while this dialog
+                also covered the no-local-edits case. Reaching it now means taking the
+                cloud copy discards this device's unsaved changes, so both directional
+                answers lose something and neither gets the reassuring colour. */}
             <button onClick={cloudAheadUpdate}
-              style={{width:"100%",padding:"12px 0",borderRadius:10,border:"none",background:"#166534",
-                color:"#fff",fontSize:13.5,fontWeight:800,cursor:"pointer",marginBottom:8}}>
-              ⬇️ Update now
+              style={{width:"100%",padding:"12px 0",borderRadius:10,border:"1.5px solid var(--c-border)",
+                background:"var(--c-surface)",color:"var(--c-text)",fontSize:13.5,fontWeight:800,
+                cursor:"pointer",marginBottom:8}}>
+              ⬇️ Take the cloud copy
             </button>
             <button onClick={cloudAheadLater}
               style={{width:"100%",padding:"11px 0",borderRadius:10,border:"1.5px solid var(--c-border)",
@@ -13948,8 +13993,9 @@ export default function App() {
               Keep this device and overwrite the cloud
             </button>
             <div style={{fontSize:10.5,color:"var(--c-text-muted)",marginTop:9,lineHeight:1.5}}>
-              "Later" changes nothing and keeps the reminder — the next sync will ask again.
-              The last option discards the other device's change.
+              Taking the cloud copy discards this device's unsaved changes. Overwriting the
+              cloud discards the other device's. "Later" is the only one that loses nothing —
+              it changes neither copy and asks again at the next sync.
             </div>
           </div>
         </div>
