@@ -33,7 +33,7 @@ build/*.js|css|html (wrapper) ─────┤
 | Wrapper: security bootstrap (JSON/innerHTML/fetch guards, secret redaction) | `build/security-bootstrap.js` |
 | Wrapper: theme prepaint, storage shim, runtime banners, credential-field lock | `build/prepaint.js`, `build/storage-shim.js`, `build/runtime-layer.js`, `build/security-ui.js` |
 | Packager (assembles + CSP hashes + self-verifies) | `build/package.mjs` |
-| Render harness (jsdom, frozen clock; healthy = LEN 25127 / NODES 141, no THROW) | `build/check4.mjs` |
+| Render harness (jsdom, frozen clock; healthy = LEN 25129 / NODES 141, no THROW) | `build/check4.mjs` |
 | Six-dimension audit + pre-build checklist | `build/audit.py` |
 
 Build cycle (run every time, in order):
@@ -62,7 +62,7 @@ with the jsdom version**. That is exactly why the lockfile matters: before it, a
 mismatch against the numbers below meant "different environment" at least as often
 as "regression", and there was no way to tell which.
 
-| Tool | Version used for LEN 25127 / NODES 141 |
+| Tool | Version used for LEN 25129 / NODES 141 |
 |---|---|
 | jsdom | 25.0.1 |
 | react / react-dom | 18.3.1 |
@@ -140,6 +140,32 @@ zoom, so a pin inside them disappears exactly when the user most needs it. Each
 label is a sibling of its bar, flips to the other side within ~18% of the right
 edge so it cannot run off the chart, and carries `pointerEvents:none` with the pin
 link re-enabled — otherwise it covers the resize handles and the drag surface.
+
+## The bottom-right corner is one column (3.77.x)
+
+Four independent floating controls live there: ＋ quick-add task, 📌 quick note, 🗓
+quick event, ⛶ presentation mode. Each is rendered under its own condition, so any of
+them can be absent. `fabSlot(offset, size)` in `src/App.jsx` is the only place their
+position is decided — **do not add a new corner control with its own `bottom:` value.**
+Three of them once did exactly that and all three occupied the same square; the only
+reason it looked like a single button was `z-index`.
+
+Two rules the helper encodes:
+
+- Slots are fixed, never packed. A button must not move because another one appeared.
+- On compact layouts every offset adds `env(safe-area-inset-bottom)`, because the
+  bottom nav it sits above (`~59px` phone / `~67px` tablet plus its own inset) does the
+  same. A bare pixel value puts the lowest slot underneath the nav on a notched phone.
+
+On wide screens there is no nav, but `auth.css` pins the sign-out pill at
+`right:14px/bottom:14px`, so the column starts at 64px rather than at the bottom edge.
+
+`auth.js` finds its mount point with `document.querySelector('.toprow')` — that class is
+on the compact top bar and must stay there, or sign-out falls back to a fixed full-width
+pill across this corner at `z-index:2147482000`. The fallback is styled to be harmless
+(no label, bottom-left) because the auth callback can fire before React mounts.
+
+`build/fab-stack.test.mjs` asserts all of this at three viewport widths.
 
 ## Security model
 

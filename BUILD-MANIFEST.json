@@ -3,8 +3,8 @@
   "date": "2026-07-24",
   "full": {
     "path": "index.html",
-    "sha256": "6f6dcd1ae08112bd4fe9dc7e250d8640d615088c58161f30e3f247c51a3ce3dd",
-    "bytes": 736526
+    "sha256": "6f331c057c7335cecc8ce3f32ea1e08c6a6326a373f5c98378c27d644bb8516a",
+    "bytes": 736786
   },
   "mobile": {
     "path": "mobile/index.html",
@@ -33,7 +33,7 @@
     ],
     "supabase_js": "2.110.7",
     "script_sha256": "3382bfac525a7b2c7805f112225e88f559a4fa316dc8cad5133429b636ceb8cf",
-    "style_sha256": "914509b8cf7c62c12dac36ebf05f78e1e09a2b13651f3f2ebada2c5cd5df1b1d",
+    "style_sha256": "50614c3e23b9c2e14eb20de7f43117b0fa4fd7869e6cf50874eea0fd1ca11539",
     "sdk_sha256": "2697f51bb3efa5f10b5b0bca2a39b3772b1b8f810e6885e3bb8d69c3242d5e07"
   }
 }

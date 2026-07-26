@@ -1,5 +1,56 @@
 # Changelog
 
+## 3.77.0 — the bottom-right corner — 2026-07-25
+
+`APP_VERSION` is unchanged. Reported from a phone screenshot as "ปุ่มบังกัน มองไม่เห็น"
+— the buttons cover each other and cannot be seen.
+
+### Fixed
+
+- **The four floating controls in the bottom-right corner no longer sit on top of each
+  other.** ＋ quick-add task (`bottom:76`), 📌 quick note (`bottom:84`) and ⛶
+  presentation mode (`bottom:88`) each carried their own hardcoded offset and all three
+  landed inside the same 50-pixel square, so only the one with the highest `z-index`
+  was visible at all — ⛶, at `z-index:9999` and 55% opacity, drawn over the top of the
+  other two. 📌 overlapped ⛶ on the desktop layout as well. They are now four fixed
+  slots in one column, measured up from the top edge of the bottom nav.
+- **The column clears the home indicator.** Every offset was a bare pixel value, while
+  the bottom nav sizes itself as `~59px + env(safe-area-inset-bottom)`. On a notched
+  phone the nav is roughly 93px tall, so the first slot at 76px was underneath it. The
+  column adds the same `env()` the nav does. The toast had the same defect at
+  `bottom:80` and is fixed with it.
+- **Sign out renders in the header it was written for.** `auth.js` places the control
+  with `document.querySelector('.toprow')` and falls back to `document.body` when that
+  misses. Nothing in the app carried the class, so it always missed, and the fallback is
+  a fixed full-width pill at `bottom:78px` with `z-index:2147482000` — the thing burying
+  the corner in the screenshot. The compact top bar now carries `toprow`, which
+  `auth.css` already styles as a 42px circle in the row.
+  - The fallback is still reachable: `auth.js` builds the button from a Supabase
+    auth-state callback that can fire before React has mounted the header. So the
+    small-screen fallback is now harmless rather than merely relocated — it drops the
+    email label and moves to the bottom **left**, where it cannot cover anything.
+  - One consequence worth knowing: in presentation mode `.lp-app-chrome` is
+    `display:none`, so the in-header sign-out button is hidden along with the rest of
+    the chrome. Exiting with 👁 brings it back.
+
+### Verification
+
+Harness LEN 25129 / NODES 141 (was 25127 — the two characters are the changed inline
+style values; NODES is unchanged), no THROW, zero captured errors. `audit.py` 0
+blockers. Packager 6/6 CSP hashes verify. es2019 guard clean (`??` 0, `?.[` 0).
+
+`build/fab-stack.test.mjs` renders the app at phone, tablet and desktop widths and
+asserts every pair of the four buttons is disjoint, that each offset carries the
+safe-area inset on compact layouts, that the column clears the nav, and that the top
+bar carries `toprow`. Against the previous commit it fails 17 assertions; after the
+change it passes. `auth.css` is linked, not inlined, so editing it changes no CSP hash
+— but it does change `BUILD-MANIFEST.auth.style_sha256`, which `build/pipeline.mjs`
+does not refresh and was updated by hand.
+
+**Not verified on a device.** Neither the sign-out control nor `env(safe-area-inset-bottom)`
+exists in jsdom, so the two things this change is really about can only be confirmed on
+the phone.
+
 ## 3.77.0 — sync feedback, per-window places, iOS visibility — 2026-07-25
 
 `APP_VERSION` is unchanged. This batch is nine changes on top of
