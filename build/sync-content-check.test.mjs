@@ -42,7 +42,7 @@ const stored = (store) => String(store.get(`${PROFILE}::lifeplanner-personal-v1`
 
 // A Drive file that actually behaves like one: an upload replaces its bytes and moves
 // its modifiedTime, so a save followed by a check reads back what was written.
-function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false }) {
+function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -82,6 +82,7 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     fileId: FILE_ID, fileName: 'My-Todo-Planner1.json', localName: '',
     lastSyncAt: NOW - 1000, lastCloudModified,
     ...(lastPushedStamp === undefined ? {} : { lastPushedStamp }),
+    ...(lastPushedFp === undefined ? {} : { lastPushedFp }),
   }));
   store.set(p('lifeplanner-config-v1'), JSON.stringify({ gsyncConnected: true, gsyncAuto: auto }));
 
@@ -172,6 +173,12 @@ async function press(w, re, ms = 1100) {
   await settle(ms);
   return true;
 }
+// Save to Cloud asks first — header button and panel button alike — so a bare press
+// writes nothing. Answering the confirm is part of pressing save.
+async function saveToCloud(w) {
+  if (!await press(w, /Save to Cloud/i, 500)) return false;
+  return press(w, /Yes — save to Google Drive/i, 1100);
+}
 const body = (w) => (w.document.body.textContent || '').replace(/\s+/g, ' ');
 // The verdict, not the word. "Check now — matched or not?" is a BUTTON that is on
 // screen the whole time, so /matched/ matches before any check has run — a positive
@@ -200,7 +207,7 @@ let savedBytes = null;
   check('the Check now button exists', await press(window, /Check now/i) !== false);
   // That first check found the other device's file and, with nothing unsaved here,
   // applied it — 3.78. Now save the screen and re-check.
-  await press(window, /Save to Cloud/i);
+  await saveToCloud(window);
   const before = uploads.length;
   savedBytes = uploads[uploads.length - 1] || null;
   check('the save uploaded something', !!savedBytes);
@@ -319,6 +326,73 @@ let savedBytes = null;
   const at0 = metaCalls.n;
   await settle(11500);
   check('Drive was not polled', metaCalls.n === at0, `metadata calls went ${at0} → ${metaCalls.n}`);
+}
+
+// ── the reported bug: the stamps agree, and they are lying ─────────────────────
+// From the report, one panel two lines apart:
+//     ✓ Google Drive has what is on screen
+//     ● Unsaved changes
+// with "This browser · saved 39 min ago · 08:37 PM" while it was 09:17 PM and the screen
+// had been edited throughout. dataLastUpdated only moved where someone remembered to
+// call setDataLastUpdated, so an edit path that forgot it was invisible — and invisible
+// did not merely mislabel: localChanged is what decides whether to upload, so Drive kept
+// the copy from forty minutes earlier.
+//
+// lastPushedFp is set to a value that cannot match anything real, which is exactly the
+// state a forgotten setter produces: the stamps agree, the data does not.
+{
+  console.log('\n--- stamps agree but the data does not: must NOT claim to be in sync ---');
+  const { window, uploads, errors, restore } = boot({
+    cloudContent: OTHER_DEVICE, lastPushedStamp: LOCAL_EDIT, lastPushedFp: 'STALE-NEVER-MATCHES' });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  const t = body(window);
+  check('the panel does NOT claim Drive has what is on screen',
+    !/✓ Google Drive has what is on screen/.test(t), t.slice(0, 240));
+  check('it says the screen is not on Drive yet', /not saved to Drive yet/.test(t), t.slice(0, 240));
+  // The half that actually loses data: with the old timestamp test this device believed
+  // it had nothing to upload, so pressing save uploaded nothing.
+  await saveToCloud(window);
+  check('pressing Save actually uploads', uploads.length >= 1,
+    `${uploads.length} upload(s) — the screen would have stayed stranded`);
+}
+
+// ── Save to Cloud asks first, from either button ────────────────────────────────
+// The action moved into the header, a few pixels from the notification bell, and it
+// overwrites a file other devices read. Both buttons carry the same label, so both go
+// through the same confirm — one label doing two different things depending on where it
+// was pressed is a trap.
+{
+  console.log('\n--- Save to Cloud asks before it writes ---');
+  const { window, uploads, errors, restore } = boot({ cloudContent: OTHER_DEVICE, lastPushedStamp: undefined });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  // The header button is present before the Sync Manager is ever opened — that is the
+  // whole point of moving it out.
+  const header = [...window.document.querySelectorAll('button')]
+    .find((b) => /Save to Cloud/.test(b.getAttribute('aria-label') || ''));
+  check('a Save to Cloud button is in the header, panel unopened', !!header);
+  if (header) {
+    header.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle(700);
+  }
+  const t = body(window);
+  check('it asks instead of saving', /Save to Cloud\?/.test(t) && /Yes — save to Google Drive/.test(t),
+    t.slice(0, 200));
+  check('nothing is uploaded by asking', uploads.length === 0, `${uploads.length} upload(s)`);
+  // No must be a real no: this is the assertion that would catch a confirm wired to
+  // fire the save either way.
+  await press(window, /No — change nothing/i, 700);
+  check('"No" uploads nothing', uploads.length === 0, `${uploads.length} upload(s)`);
+  if (header) {
+    header.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle(700);
+  }
+  await press(window, /Yes — save to Google Drive/i, 1200);
+  check('"Yes" uploads', uploads.length >= 1, `${uploads.length} upload(s)`);
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

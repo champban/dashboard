@@ -327,6 +327,33 @@ metadata is checked during manual sync, auto-sync (~15 s debounce after edits),
 browser focus and visibility change, and — since 3.80 — a 10 s metadata poll while
 auto-sync is on and the tab is visible.
 
+## Save to Cloud is in the header, and it asks (3.81)
+
+The one action that stops work being stranded on a single device was three taps deep —
+⋯ More → Sync Manager → scroll. On a phone that meant no visible answer to "is my work
+safe yet?".
+
+- **In the header row, not the corner column.** That column of floating controls already
+  collided with itself once (3.77.x); a fifth member is not the way. It sits beside the
+  chip that reports the state it changes.
+- **Amber when this screen holds something Drive does not, green when it does not.** The
+  colour is the feature: the header answers whether the button needs pressing *before*
+  it is pressed. It reads `localUnsynced()`, so it is the data talking, not a clock.
+- **It carries the word "Save" even on a phone.** An amber square with a cloud in it is
+  visible but not self-explanatory, and being clearly visible was the point. Measured at
+  390px in Chromium: the header still does not scroll sideways with the label in.
+- **Both Save to Cloud buttons — header and panel — go through the same confirm.** One
+  label doing two different things depending on where it was pressed is a trap for the
+  user and for anyone reading the tests. The panel's button therefore also asks now, and
+  the test helpers answer the confirm as part of "pressing save".
+- The confirm says which of the two situations you are in, and that a save may **stop and
+  ask** rather than overwrite — otherwise "Yes" reads as "yes, overwrite whatever is
+  there", which is not what `gsyncSaveNow` does.
+
+Known and NOT fixed here: with both top banners showing, **"Back up now" overlaps
+"💾 Save Now"**. Reproduced identically on the pre-change build, so it is excluded from
+the header-overlap check by name rather than allowed to mask a new overlap.
+
 ## "Matched" means the data, not the clocks (3.80)
 
 Every other answer in the sync layer came from stamps:

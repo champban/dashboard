@@ -1,5 +1,49 @@
 # Changelog
 
+## 3.81.0 — Save to Cloud, in the header, with a confirm — 2026-07-26
+
+`APP_VERSION` unchanged. Asked for as: *"move the Save to Cloud button out onto the top
+menu so it is more clearly visible, and it needs a yes/no confirm so the user is sure
+first."*
+
+### Added
+
+- **Save to Cloud in the header row.** It was three taps deep — ⋯ More → Sync Manager →
+  scroll — for the one action that stops work being stranded on one device. Not a fifth
+  floating corner button: that column already collided with itself once. It sits beside
+  the sync chip, carries the word "Save" even on a phone, and is **amber when this screen
+  holds something Drive does not, green when it does not** — so the header answers whether
+  it needs pressing before it is pressed.
+- **A yes/no confirm.** It names the file, states which of the two situations you are in,
+  and says that a save may **stop and ask** rather than overwrite — otherwise "Yes" reads
+  as "yes, overwrite whatever is there", which is not what happens.
+
+### Changed
+
+- **The Sync Manager's Save to Cloud goes through the same confirm.** Two buttons with one
+  label behaving differently depending on where they were pressed is a trap for the user
+  and for anyone reading the tests; the test helpers now answer the confirm as part of
+  "pressing save".
+
+### Verified
+
+- Real Chromium at 390×844: no horizontal page scroll with the button added, the button is
+  inside the viewport, ≥40px on both axes, unoccluded, amber with a pending change; the
+  confirm fits the screen unclipped with both buttons ≥44px and receiving their own taps;
+  **"No" uploads nothing and closes**, "Yes" uploads.
+- jsdom, in `npm test`: the header button exists before the panel is ever opened, asking
+  uploads nothing, "No" uploads nothing, "Yes" uploads.
+- One probe assertion had to be corrected first: `document.body.textContent` includes the
+  inline `<script>` bodies, and the bundle contains the literal string `"Save to Cloud?"`,
+  so a body-text search finds the confirm whether or not it is rendered. The check now
+  asks the DOM for a rendered fixed overlay.
+
+### Known, not fixed here
+
+- With both top banners showing, **"Back up now" overlaps "💾 Save Now"**. Reproduced
+  identically on the pre-change build, so it predates this work; it is excluded from the
+  header-overlap check by name rather than allowed to mask a new overlap.
+
 ## 3.80.0 — Check now: matched or not, by the data — 2026-07-26
 
 `APP_VERSION` unchanged. Asked for as: a refresh button that says whether the screen and
