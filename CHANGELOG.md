@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.77.0 — three data locations, named — 2026-07-26
+
+`APP_VERSION` unchanged. From the question: *"we have 3 data locations — 1. cloud on
+Google Drive 2. internal memory of web browser 3. file saved on local drive. Am I
+correct? We need to make this clear on UI/UX."* Correct, and the panel showed two.
+
+### Fixed
+
+- **Browser storage was displayed as a file that does not exist.** The second box was
+  headed `💻 This device (local)` with `📄 My-Todo-Planner1.json` under it — a name
+  mirrored from Drive, for something that has no filename — while its own caption said
+  "Data lives in this browser". Two genuinely different places therefore looked like one.
+  It is now `💾 This browser — live data`, with no filename, showing when the data last
+  changed and stating plainly that it is storage inside the browser which clearing site
+  data removes.
+- **The file on disk was missing from the panel entirely**, although the app can both
+  read and write one. It has its own box now: name, when it was saved, Save a copy /
+  Open a file, and the warning that matters — a snapshot does **not** update when you
+  edit, and Auto-sync never touches it.
+- **One name per location, everywhere.** The stamps block said "📱 This device" while the
+  box below said "💾 This browser" for the same value. Panel, desktop File menu and chip
+  tooltip now all use ☁️ Google Drive / 💾 This browser / 📄 File on disk.
+- **Locations 2 and 3 render above the signed-in gate.** They have nothing to do with
+  Google, and "where is my data?" is asked most often by someone who is not connected —
+  who previously saw only a Connect button.
+- **Linking a file no longer leaves it "never checked" forever.** `gsyncRelink` and
+  `onLinkFile` clear `lastSyncAt`/`lastCloudModified`/`lastPushedStamp` deliberately, so
+  that pointing at a file you have never compared raises a conflict rather than silently
+  overwriting it — but nothing then triggered that comparison. The panel sat on
+  `Cloud file: never / Last checked: never` with no way out but to guess and press Save
+  to Cloud. Both paths now reconcile immediately after linking. This is the state in the
+  reported screenshot.
+
+### Verification
+
+Harness LEN 25129 / NODES 141 unchanged, `audit.py` 0 blockers, packager 6/6 CSP PASS,
+es2019 guard clean, `npm test` 39 assertions across seven files, secret scan clean.
+
+`build/sync-visibility.test.mjs` gains assertions that all three locations are named
+distinctly, that browser storage is described as storage rather than a file, that the
+disk box carries its does-not-update warning, that no mirrored filename reappears under
+browser storage, and that the ambiguous "This device" label is gone.
+
 ## 3.77.0 — Save to Cloud actually saves — 2026-07-26
 
 `APP_VERSION` unchanged. Found because the sync times added in the previous entry made

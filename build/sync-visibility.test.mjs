@@ -29,7 +29,7 @@ const CHECKED_AT = FIXED - 5 * 60 * 1000;                            // 5 min ag
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
-function boot({ width, height, ua }) {
+function boot({ width, height, ua, lastPushedStamp }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/',
     pretendToBeVisual: true,
@@ -76,6 +76,7 @@ function boot({ width, height, ua }) {
   store.set(p('lifeplanner-gdrive-sync-v1'), JSON.stringify({
     fileId: 'CLOUD-1', fileName: 'my-planner.json', localName: '',
     lastSyncAt: CHECKED_AT, lastCloudModified: CLOUD_STAMP,
+    ...(lastPushedStamp === undefined ? {} : { lastPushedStamp }),
   }));
   // Stored raw, not JSON — this key holds a bare ISO string.
   store.set(p('lifeplanner-data-updated-v1'), LOCAL_STAMP);
@@ -150,7 +151,7 @@ const HAS_CLOCK = /\b\d{1,2}:\d{2}(:\d{2})?\s?([AP]M)?/i;
     // The tooltip is where all three facts live in the compact layout.
     const tip = chip.getAttribute('title') || '';
     check('chip tooltip names the cloud file', tip.includes('my-planner.json'), tip.slice(0, 80));
-    for (const [what, stamp] of [['This device', LOCAL_STAMP], ['Cloud file', CLOUD_STAMP]]) {
+    for (const [what, stamp] of [['This browser', LOCAL_STAMP], ['Cloud file', CLOUD_STAMP]]) {
       const hhmm = new Date(stamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       check(`tooltip carries the ${what} time (${hhmm})`, tip.includes(hhmm), tip.replace(/\n/g, ' | '));
     }
@@ -167,10 +168,59 @@ const HAS_CLOCK = /\b\d{1,2}:\d{2}(:\d{2})?\s?([AP]M)?/i;
     const body = window.document.body.textContent || '';
     check('tapping the chip opens the sync panel', /Cloud sync|GOOGLE DRIVE|Sync/i.test(body));
     if (process.env.DBG) console.log('       panel body:', JSON.stringify(body.slice(0, 400)));
-    check('panel lists this device / cloud file / last checked together',
-      body.includes('This device') && body.includes('Cloud file') && body.includes('Last checked'),
+    check('panel lists all three stamps together',
+      body.includes('This browser') && body.includes('Google Drive') && body.includes('Last checked'),
       'the three facts were never shown side by side');
+
+    // The two numbers measure different things — an EDIT time vs Drive's file-write
+    // time — so putting them adjacent invited a comparison that cannot answer "did it
+    // save?". The panel must state the verdict, and label each clock for what it is.
+    check('each clock is labelled for what it measures',
+      /edited/i.test(body) && /file written/i.test(body),
+      'raw times with no indication that they are different kinds of time');
+    check('the panel says the two clocks are not comparable',
+      /different clocks|rarely match/i.test(body));
+    check('with no lastPushedStamp it warns the data is not up there',
+      /never uploaded from here|not uploaded yet/i.test(body),
+      'no verdict shown at all');
+    check('and does not claim the cloud has it', !/cloud has this data/i.test(body));
+
+    // Three storage locations, three labelled boxes. The middle one used to be
+    // headed "This device (local)" with a filename under it that just mirrored the
+    // Drive name — so browser storage and a file on disk looked like one place.
+    check('names all three storage locations distinctly',
+      /Google Drive/i.test(body) && /This browser/i.test(body) && /File on disk/i.test(body),
+      'boxes seen: ' + ['Google Drive','This browser','File on disk'].filter(x=>new RegExp(x,'i').test(body)).join(', '));
+    check('browser storage is described as storage, not as a file',
+      /copy the app reads|not a file/i.test(body));
+    check('the disk snapshot warns that it does not update',
+      /does not update|one-off snapshot/i.test(body));
+    check('one name per location — "This device" is no longer used alongside "This browser"',
+      !/This device/.test(body), 'two labels for the same storage location');
+    check('no fictional filename under the browser-storage box',
+      !/This browser[\s\S]{0,80}my-planner\.json/i.test(body),
+      'the mirrored Drive name is back under browser storage');
   }
+}
+
+// ── the same panel when the local stamp HAS been pushed: verdict must flip ──
+{
+  const { window, restore } = boot({ width: 390, height: 844, ua: IPHONE, lastPushedStamp: LOCAL_STAMP });
+  await settle();
+  restore();
+  console.log('\n--- phone, lastPushedStamp matches the local edit ---');
+  const chip = [...window.document.querySelectorAll('button')]
+    .find((b) => b.getAttribute('aria-label') === 'Cloud sync status');
+  chip.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await settle(350);
+  const body = window.document.body.textContent || '';
+  check('verdict flips to "cloud has this data"', /cloud has this data/i.test(body));
+  check('and no longer warns', !/not uploaded yet|never uploaded from here/i.test(body));
+  // Drive's file-write time is still 40 min behind the edit time in this fixture —
+  // the verdict must not be derived from comparing those two.
+  check('verdict is not derived from the two mismatched clocks',
+    /file written/i.test(body) && /cloud has this data/i.test(body),
+    'a stale file-write time must not turn the verdict negative');
 }
 
 // -------------------------------------------------------------------- desktop

@@ -131,6 +131,35 @@ cloud that also moved makes `cloudChanged` true and the conflict dialog asks fir
 `build/sync-push-stranded.test.mjs` reproduces the stranded state and asserts an upload
 happens; it fails against the commit before the fix.
 
+## There are THREE places data lives — name all three (3.77.x)
+
+| # | place | held in | truth about it |
+|---|---|---|---|
+| 1 | ☁️ **Google Drive** | `gsync.fileId` / `fileName` | the shared copy; the only one Auto-sync keeps current |
+| 2 | 💾 **This browser** | `window.storage` → localStorage | **the live data the app actually reads and writes**; not a file; dies with site data or the home-screen icon |
+| 3 | 📄 **File on disk** | `fileHandle` / `lastFileName` / `lastSavedTime` | a one-off snapshot; never updates itself; Auto-sync never touches it |
+
+Use **exactly these three names on every surface** — panel, desktop File menu, chip
+tooltip. Two labels for one place is the confusion this exists to remove: the panel
+said "📱 This device" in one box and "💾 This browser" in the next, for the same value.
+
+What was wrong before, and must not come back:
+
+- The panel showed **two** boxes, and the second was headed `💻 This device (local)` with
+  a **filename** under it — a filename that was pure fiction, mirrored from the Drive
+  name, while its own caption admitted "Data lives in this browser". 📄 plus a name reads
+  as "there is a file on my disk". Browser storage has no filename; do not invent one.
+- Location 3 was **absent from the panel entirely**, even though the app can read and
+  write one. Leaving it out is what lets a stale snapshot be mistaken for a live copy.
+- Locations 2 and 3 render **above** the signed-in gate. They have nothing to do with
+  Google, and "where is my data?" is asked most often by someone who is not connected.
+
+`gsyncRelink` and `CloudSyncModal`'s `onLinkFile` clear `lastSyncAt`, `lastCloudModified`
+and `lastPushedStamp` on purpose — pointing at a file you have never compared must raise
+a conflict, not silently overwrite it — and then **trigger a reconcile**, because nothing
+used to, so the panel sat on "Cloud file: never / Last checked: never" indefinitely with
+no way out but to guess.
+
 ## Sync time has to be visible, and absolute (3.77.x)
 
 Three separate facts, and the answer to "is my copy the same as the cloud's?" needs all
