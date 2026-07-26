@@ -104,4 +104,10 @@ if (errors.length) {
   console.log('--- errors (' + errors.length + ') ---');
   errors.slice(0, 6).forEach((e) => console.log(String(e).split('\n').slice(0, 6).join('\n')));
 }
-process.exit(len > 0 ? 0 : 2);
+// Captured errors fail the run. Until this line, a render that threw on every load
+// still exited 0 as long as it produced markup, so CI would go green on a page
+// logging React errors at the user. `errors` already collects window.onerror,
+// pageerror, unhandledRejection and console.error.
+if (len <= 0) console.log('FAIL: nothing rendered');
+else if (errors.length) console.log(`FAIL: ${errors.length} captured error(s) during render`);
+process.exit(len > 0 && errors.length === 0 ? 0 : 2);
