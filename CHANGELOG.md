@@ -1,5 +1,58 @@
 # Changelog
 
+## 3.77.0 — Save to Cloud actually saves — 2026-07-26
+
+`APP_VERSION` unchanged. Found because the sync times added in the previous entry made
+it visible: the Sync Manager showed
+
+```
+📱 This device    18 hr ago · 08:00 PM
+☁️ Cloud file     18 hr ago · 07:57 PM
+✓ Already up to date — nothing to upload
+```
+
+Local data three minutes newer than the cloud file, and the button refused to upload it.
+
+### Fixed
+
+- **"Save to Cloud" could permanently refuse to upload newer local data.** The push
+  decision was `dataLastUpdated > lastSyncAt + 1500` — "did the data change since we last
+  *checked*" — which is not the same question as "is this device's data newer than what
+  is in the cloud file". The "nothing changed" branch re-stamps `lastSyncAt` on every
+  check, so the moment `lastSyncAt` got ahead of `dataLastUpdated` the pending edit became
+  invisible, and every further check pushed `lastSyncAt` further out. A self-reinforcing
+  trap: the newer data could never leave the device, on any platform, and pressing the
+  button only made it worse.
+
+  The decision is now `dataLastUpdated !== lastPushedStamp`, where `lastPushedStamp` is
+  the stamp that was last **successfully uploaded**. Both values come from this device's
+  own clock, so there is no drift against Google's `modifiedTime` and no tolerance window;
+  a failed upload leaves it unchanged, so the push retries until it lands. Recorded at
+  every one of the six paths that upload or receive.
+
+  Existing installs carry no `lastPushedStamp`, which counts as "needs a push" — that is
+  deliberate, and it is what releases data already stranded. Safe, because a cloud that
+  also moved makes `cloudChanged` true and the conflict dialog asks first.
+
+- **Receiving a payload no longer stamps it "now".** `applyPayloadLive` set
+  `dataLastUpdated` to the current time, so a copy that had just come down looked newer
+  than its own source and the next sync pushed it back up — the bounce the old 1500ms
+  tolerance existed to hide. It now takes the stamp from the payload, the same rule the
+  file-open path already follows.
+
+### Verification
+
+`build/sync-push-stranded.test.mjs` rebuilds the exact reported state — local 08:00 PM,
+cloud 07:57 PM, `lastSyncAt` ahead of both, no `lastPushedStamp` — drives the real UI
+(header chip → Connect → Save to Cloud) against a stubbed Drive that records every write,
+and asserts an upload happens carrying this device's data and its edit stamp. It also
+asserts the opposite case does **not** upload, so a no-op save cannot thrash the cloud
+file. **Against the previous commit it fails with "it reported 'Already up to date —
+nothing to upload' and sent nothing"** — the reported symptom, reproduced.
+
+Harness LEN 25129 / NODES 141 unchanged, `audit.py` 0 blockers, packager 6/6 CSP PASS,
+es2019 guard clean, `npm test` 34 assertions across seven files, secret scan clean.
+
 ## 3.77.0 — you can see when it synced — 2026-07-26
 
 `APP_VERSION` unchanged. Reported as: the cloud file's last sync time is nowhere to be
