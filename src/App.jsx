@@ -138,6 +138,16 @@ const pkG = (key) => __activeProfIdG ? profKey(__activeProfIdG, key) : key;
 // there is no heavy SDK to bundle. drive.file scope = we can only see files this
 // app created or the user explicitly picked — never their whole Drive.
 const GDrive = (() => {
+  // loadGIS runs two attempts back to back, so this is half the worst case before the
+  // user is told anything at all. At the previous 12s that was 24 seconds of a button
+  // reading "Connecting to Google Drive…" — measured in Chromium against an unreachable
+  // accounts.google.com, which is what a content blocker or a captive portal looks like.
+  // Not lower than this: a timed-out attempt REMOVES its script element, so too short a
+  // window kills a slow-but-working load rather than waiting for it. 7s keeps a generous
+  // first try, and a load that lands late still makes the retry button instant.
+  // Declared inside the IIFE deliberately — build/n104.test.mjs evaluates this module on
+  // its own, so anything it depends on has to live within these braces.
+  const GIS_LOAD_TIMEOUT_MS = 7000;
   let tokenClient = null;
   let accessToken = null;
   let tokenExpiry = 0;
@@ -176,7 +186,7 @@ const GDrive = (() => {
       if (owned && owned === document.getElementById("gis-script")) owned.remove();
       finish(reject, new Error(message));
     };
-    const timer = setTimeout(() => failed("Google sign-in timed out. Check your connection and content blockers, then try again."), 12000);
+    const timer = setTimeout(() => failed("Google sign-in timed out. Check your connection and content blockers, then try again."), GIS_LOAD_TIMEOUT_MS);
     const existing = document.getElementById("gis-script");
     // A script left by a timed-out/failed attempt will never emit another load
     // event. Remove it before the one permitted retry so iOS performs a fresh

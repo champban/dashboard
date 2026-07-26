@@ -120,7 +120,8 @@ point that cannot lose a race against the `[activeProfileId]` load effect.
 
 Both `SyncPanel` and `CloudSyncModal` display file-list errors locally and
 offer a reconnect action which reloads the list after successful explicit
-sign-in. Each GIS attempt has a 12-second timeout; a stale or failed script is
+sign-in. Each GIS attempt has a `GIS_LOAD_TIMEOUT_MS` (7-second) timeout and there are
+two attempts, so an unreachable Google costs ~14s before the user is told; a stale or failed script is
 removed and retried once. Drive REST helpers never initiate interactive OAuth,
 because the original Safari user activation may already be gone. A Drive 401
 clears all in-memory token state, offline requests get a specific message, and
