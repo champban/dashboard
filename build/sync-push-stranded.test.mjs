@@ -38,7 +38,7 @@ const FILE_ID = 'CLOUD-1';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
-function boot({ lastPushedStamp, cloudMoved, auto = false }) {
+function boot({ lastPushedStamp, cloudMoved, auto = false, copyFails = false }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -102,6 +102,11 @@ function boot({ lastPushedStamp, cloudMoved, auto = false }) {
 
   // --- a signed-in Drive whose file records every write ----------------------
   const uploads = [];
+  // Creates are kept apart from uploads on purpose. A conflict copy is a NEW file;
+  // a write to the master file is what destroys something. Pooling them would make
+  // "did it overwrite the master?" unanswerable, and that is the assertion that
+  // matters most in the blocks below.
+  const creates = [];
   window.google = { accounts: { oauth2: {
     initTokenClient: (cfg) => ({ requestAccessToken: () => cfg.callback({ access_token: 'tok', expires_in: 3600 }) }),
     revoke: (t, cb) => cb && cb(),
@@ -110,7 +115,15 @@ function boot({ lastPushedStamp, cloudMoved, auto = false }) {
     const u = String(url);
     const json = (b) => Promise.resolve({ ok: true, status: 200, json: async () => b, text: async () => JSON.stringify(b) });
     if (u.includes('oauth2/v3/userinfo')) return json({ email: 'champbanyat@gmail.com' });
-    if (u.includes('upload/drive/v3/files')) {          // this is a PUSH
+    if (u.includes('uploadType=multipart')) {           // createFile — a NEW file
+      const body = String(opts.body || '');
+      if (copyFails) return Promise.resolve({ ok: false, status: 500,
+        text: async () => 'copy upload refused', json: async () => ({}) });
+      creates.push(body);
+      const name = (body.match(/"name":"([^"]+)"/) || [, ''])[1];
+      return json({ id: 'COPY-' + creates.length, name, modifiedTime: new Date(NOW).toISOString() });
+    }
+    if (u.includes('upload/drive/v3/files')) {          // this is a PUSH to the master
       uploads.push(String(opts.body || ''));
       return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', modifiedTime: new Date(NOW).toISOString() });
     }
@@ -121,7 +134,9 @@ function boot({ lastPushedStamp, cloudMoved, auto = false }) {
     if (/drive\/v3\/files\/[^?]+\?fields=/.test(u)) {
       // cloudMoved: a modifiedTime this device has never recorded — i.e. another
       // device wrote the file after our last check.
-      return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', trashed: false,
+      // parents is what getParentFolder reads, so a conflict copy can be asserted to
+      // land in the master file's folder rather than in My Drive root.
+      return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', trashed: false, parents: ['FOLDER-1'],
         modifiedTime: cloudMoved ? new Date(NOW - 60 * 1000).toISOString() : CLOUD_MTIME });
     }
     if (u.includes('drive/v3/files?q=')) return json({ files: [] });
@@ -141,7 +156,7 @@ function boot({ lastPushedStamp, cloudMoved, auto = false }) {
   const real = console.error;
   console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 200)); };
   window.eval(bundle);
-  return { window, store, uploads, errors, restore: () => { console.error = real; } };
+  return { window, store, uploads, creates, errors, restore: () => { console.error = real; } };
 }
 
 const settle = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -325,6 +340,19 @@ async function pressSaveToCloud(w) {
     check('asks which copy to keep instead', /Save needs a decision/i.test(body), body.slice(0, 160));
     check('and offers both directions', /Take the cloud copy/i.test(body) && /overwrite the cloud/i.test(body),
       body.slice(0, 200));
+    // The dialog is raised from the Sync Manager panel and has to sit above it. At
+    // zIndex 6000 against the panel's 9700 it rendered behind the thing that opened it,
+    // and Chromium at 390x844 reported every one of its buttons covered — present in
+    // the DOM, unanswerable on screen. jsdom cannot paint, but the numbers are the bug.
+    const zOf = (re) => {
+      const el = [...window.document.querySelectorAll('div')].find((d) =>
+        d.style && d.style.position === 'fixed' && re.test(d.textContent || ''));
+      return el ? parseInt(el.style.zIndex || '0', 10) : null;
+    };
+    const zDialog = zOf(/Save needs a decision/i), zPanel = zOf(/Sync Manager/i);
+    check('the dialog stacks above the Sync Manager that raised it',
+      zDialog !== null && zPanel !== null && zDialog > zPanel,
+      `dialog z=${zDialog} panel z=${zPanel}`);
   }
 }
 
@@ -350,6 +378,93 @@ async function pressSaveToCloud(w) {
   check('without asking', !/Save needs a decision|Take the cloud copy/i.test(body), body.slice(0, 160));
   check('and without pushing anything back up', uploads.length === 0,
     `${uploads.length} upload(s) — it should have pulled, not pushed`);
+}
+
+// ── Dropbox rule: the copy that loses the master file is not deleted ───────────
+// Before this, whichever side lost the dialog was gone, and the confirm step said so —
+// "This cannot be undone from here. Cancel and use Backup to Local Drive first" — which
+// is only useful to someone who read it before the collision existed.
+//
+// Each block below answers the dialog one way and asserts on the multipart create that
+// Drive received. `creates` is deliberately a separate list from `uploads`: a conflict
+// copy is a new file, an upload overwrites the master, and conflating them would make
+// the destructive half unobservable.
+async function clickByText(w, re) {
+  const b = [...w.document.querySelectorAll('button')].find((x) => re.test(x.textContent || ''));
+  if (!b) return false;
+  b.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await settle(900);
+  return true;
+}
+const createdName = (body) => (String(body).match(/"name":"([^"]+)"/) || [, ''])[1];
+
+{
+  console.log('\n--- collision, take the cloud copy: this device is kept as a conflicted copy ---');
+  const { window, store, uploads, creates, errors, restore } = boot({ cloudMoved: true });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await pressSaveToCloud(window);
+  const asked = await clickByText(window, /Take the cloud copy/i);
+  check('the dialog offered the cloud copy', asked);
+  check('a conflicted copy was written to Drive', creates.length === 1,
+    `${creates.length} create(s) — the losing copy was destroyed instead`);
+  const name = createdName(creates[0] || '');
+  check('named after the master file, marked as a conflicted copy',
+    /^My-Todo-Planner1 \(conflicted copy from this device \d{4}-\d{2}-\d{2} \d{2}-\d{2}\)\.json$/.test(name), name);
+  // A filename containing "/" is rejected by Drive, and every locale-formatted date is
+  // liable to produce one — so this is a real failure mode, not a style check.
+  check('the name has no path separator in it', !name.includes('/'), name);
+  check('the copy holds the edit that left the screen', /EditedOnPhone/.test(creates[0] || ''),
+    'the copy was written but does not contain the local work');
+  check('placed beside the master file, not in My Drive root',
+    /"parents":\["FOLDER-1"\]/.test(creates[0] || ''), creates[0].slice(0, 200));
+  check('and the master file itself was NOT overwritten', uploads.length === 0,
+    `${uploads.length} upload(s) — taking the cloud copy should not push`);
+  check('the cloud copy is now what this device holds', !/EditedOnPhone/.test(stored(store)));
+}
+
+{
+  console.log('\n--- collision, overwrite the cloud: the other device is kept as a conflicted copy ---');
+  const { window, uploads, creates, errors, restore } = boot({ cloudMoved: true });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await pressSaveToCloud(window);
+  await clickByText(window, /Keep this device and overwrite the cloud/i);
+  check('a conflicted copy was written to Drive', creates.length === 1,
+    `${creates.length} create(s) — the other device's save was destroyed instead`);
+  check('attributed to Drive, not to this device',
+    /\(conflicted copy from Google Drive \d{4}-\d{2}-\d{2} \d{2}-\d{2}\)\.json$/.test(createdName(creates[0] || '')),
+    createdName(creates[0] || ''));
+  check('then the master file was overwritten', uploads.length === 1,
+    `${uploads.length} upload(s) — the save the user asked for did not happen`);
+  // Ordering is the whole feature, so it is asserted, not assumed: the copy has to be
+  // on Drive before the write that makes it the only remaining trace.
+  check('the copy went up BEFORE the overwrite',
+    creates.length === 1 && uploads.length === 1 && /EditedOnPhone/.test(uploads[0]));
+}
+
+{
+  // The run that the ordering exists for. If the conflict copy cannot be written, the
+  // promise made in the dialog is already broken — so nothing may be destroyed. A
+  // version that copied afterwards, or that ignored the failure, would lose the data
+  // here while still having told the user it was safe.
+  console.log('\n--- the conflicted copy fails to upload: destroy nothing ---');
+  const { window, store, uploads, creates, errors, restore } = boot({ cloudMoved: true, copyFails: true });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await pressSaveToCloud(window);
+  await clickByText(window, /Take the cloud copy/i);
+  check('no conflicted copy exists', creates.length === 0);
+  check('the local edit is STILL in browser storage', /EditedOnPhone/.test(stored(store)),
+    'the cloud copy was applied even though the backup of the local copy failed');
+  check('and the master file was not touched either', uploads.length === 0,
+    `${uploads.length} upload(s)`);
+  check('the failure is reported rather than swallowed',
+    /Drive error 500|copy upload refused|failed/i.test(window.document.body.textContent || ''),
+    (window.document.body.textContent || '').slice(0, 200));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');
