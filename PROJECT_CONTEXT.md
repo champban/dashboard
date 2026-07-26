@@ -131,6 +131,42 @@ cloud that also moved makes `cloudChanged` true and the conflict dialog asks fir
 `build/sync-push-stranded.test.mjs` reproduces the stranded state and asserts an upload
 happens; it fails against the commit before the fix.
 
+## "Save to Cloud" is a save, not a sync (3.77.x)
+
+`gsyncSaveNow` backs the button; `gsyncNow` backs auto-sync, focus and visibility checks.
+**Do not point the button back at `gsyncNow`.** That function is a two-way reconciler and
+is entitled to answer "nothing to upload" — correct for a background check, wrong for a
+button a person deliberately pressed. Reported as: *"when I click Save to Cloud it means
+I ask to save whatever shows on the screen to the Google Drive file, but now it is not
+working like that."*
+
+`gsyncSaveNow` refuses exactly one thing: a cloud file that has moved since this device
+last looked, because uploading over it loses another device's work. That raises the
+existing direction dialog, where "keep this device and overwrite the cloud" completes the
+save. Nothing else refuses — least of all "nothing changed locally".
+
+`gsyncPush` is not the answer either: it uploads with **no** cloud check at all.
+
+## `dataLastUpdated` is a data version, not "when you edited here"
+
+It travels **with the data**. Opening a file seeds it from `parsed.dataLastUpdated ||
+parsed.savedAt`, so a profile opened from Drive carries the stamp of whichever device
+actually did the editing. Labelling it "This browser · edited" therefore claimed
+something that can be false, and invited comparison against Drive's `modifiedTime`,
+which measures a different thing entirely (when the file was written).
+
+The vocabulary, on every surface:
+
+| shown as | value | means |
+|---|---|---|
+| 💾 On screen now · data version | `dataLastUpdated` | the version of the data currently loaded |
+| ☁️ Google Drive · file written | `gsync.lastCloudModified` | when Drive last received an upload |
+| 🔄 Last checked | `gsync.lastSyncAt` | when the two were last compared |
+| **✓ Google Drive has this version** | `dataLastUpdated === lastPushedStamp` | **the answer** |
+
+Never print the first two adjacent without the verdict. They are different clocks, they
+rarely match, and a mismatch reads as "it did not save" when nothing is wrong.
+
 ## There are THREE places data lives — name all three (3.77.x)
 
 | # | place | held in | truth about it |
