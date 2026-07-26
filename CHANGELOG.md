@@ -1,5 +1,54 @@
 # Changelog
 
+## 3.77.0 — a save stamps the moment it saves — 2026-07-26
+
+`APP_VERSION` unchanged. Follow-up correction: *"when I press Save to Cloud = refresh
+time for this browser, time of this browser should = updated as of now. Also Google Drive
+saved using same data that shows on screen now. But the local file on disk is for backup
+purposes only, it could be saved manually anytime."*
+
+### Changed
+
+- **`dataLastUpdated` now means "when this browser last saved", not "when the data
+  changed".** The old meaning was technically defensible and made the screen lie: pressing
+  Save to Cloud left `💾 This browser  19 hr ago` beside `☁️ Google Drive  3 min ago`,
+  which is indistinguishable from a save that failed.
+
+  `pushPayload()` is now the single place a save's timestamp is decided, and that one
+  value goes to three places on every successful upload — the payload field,
+  `dataLastUpdated`, and `lastPushedStamp`. They cannot drift apart, and the verdict turns
+  green the instant the save lands. Applied to all five upload paths.
+
+- **Both rows use the same verb, because they are meant to match.** `saved · <time>` on
+  each. A browser time ahead of the Drive time now means one thing only — this screen
+  holds changes that are not on Drive — and the footnote says exactly that instead of
+  explaining that the two are incomparable.
+
+  | before | after |
+  |---|---|
+  | 💾 This browser · edited … | 💾 **This browser · saved** … |
+  | ☁️ Google Drive · file written … | ☁️ **Google Drive · saved** … |
+  | ✓ Google Drive has this version | ✓ **Google Drive has what is on screen** |
+  | ⚠ this version is not on Drive yet | ⚠ **not saved to Drive yet** |
+
+- **The file on disk is described as a manual backup and nothing more** — it does not
+  update when you edit, Auto-sync never touches it, nothing depends on it, and you can
+  save one whenever you want or never.
+
+### Verification
+
+`build/sync-push-stranded.test.mjs` asserts the chain end to end: the upload is stamped
+with the moment of the save, `lastPushedStamp` matches it, the browser time is refreshed
+to it, and the uploaded file body carries the same value. Two of its earlier assertions
+expected the *old* meaning (the upload carrying the older edit stamp) and were inverted,
+with the reason recorded in the file.
+
+`build/sync-visibility.test.mjs` now asserts no surface says "edited" at all, and that the
+disk box is described as a manual backup.
+
+Harness LEN 25129 / NODES 141 unchanged, `audit.py` 0 blockers, packager 6/6 CSP PASS,
+es2019 guard clean, `npm test` 55 assertions across seven files, secret scan clean.
+
 ## 3.77.0 — Save to Cloud means save — 2026-07-26
 
 `APP_VERSION` unchanged. Two corrections, both from the same observation: *"the browser

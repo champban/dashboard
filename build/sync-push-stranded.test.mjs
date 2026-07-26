@@ -17,6 +17,11 @@
 // The decision is now `dataLastUpdated !== lastPushedStamp` — the stamp that was last
 // actually uploaded, on this device's own clock.
 //
+// And a save COMMITS WHAT IS ON SCREEN AT THAT MOMENT: the stamp it writes is "now", in
+// the payload, in dataLastUpdated and in lastPushedStamp alike. Leaving dataLastUpdated
+// at the older edit time made a successful save read as a failure — "This browser 19 hr
+// ago" beside "Google Drive 3 min ago".
+//
 // Run: node build/sync-push-stranded.test.mjs   (needs ./test-bundle.js)
 
 import fs from 'node:fs';
@@ -192,13 +197,19 @@ async function pressSaveToCloud(w) {
     }
     check('the upload carries this device\'s data', !!sent && JSON.stringify(sent).includes('EditedOnPhone'),
       sent ? JSON.stringify(sent).slice(0, 90) : 'could not parse the uploaded body');
-    check('the upload carries the local edit stamp', !!sent && sent.dataLastUpdated === LOCAL_EDIT,
+    // A save commits what is on screen AT THE MOMENT OF THE SAVE, so the stamp that
+    // goes up is that moment — not the older edit time the data happened to carry.
+    check('the upload is stamped with the moment of the save',
+      !!sent && sent.dataLastUpdated === new Date(NOW).toISOString(),
       sent ? String(sent.dataLastUpdated) : '');
   }
 
   const rec = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`));
-  check('lastPushedStamp is recorded after the push', rec.lastPushedStamp === LOCAL_EDIT,
-    JSON.stringify(rec.lastPushedStamp));
+  check('lastPushedStamp matches the moment of the save',
+    rec.lastPushedStamp === new Date(NOW).toISOString(), JSON.stringify(rec.lastPushedStamp));
+  check('the browser time is refreshed too, so nothing reads as stale',
+    store.get(`${PROFILE}::lifeplanner-data-updated-v1`) === new Date(NOW).toISOString(),
+    JSON.stringify(store.get(`${PROFILE}::lifeplanner-data-updated-v1`)));
 }
 
 // ── nothing changed locally: "Save to Cloud" must STILL upload ───────────────
@@ -222,6 +233,23 @@ async function pressSaveToCloud(w) {
   const rec = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`));
   check('the cloud-file stamp moves forward', rec.lastCloudModified === new Date(NOW).toISOString(),
     JSON.stringify(rec.lastCloudModified));
+
+  // The rule, stated by the user: pressing save commits what is on screen AT THAT
+  // MOMENT, so the browser's own time must become that moment — not stay at the old
+  // edit time. Leaving it stale is what made a successful save look like a failure:
+  // "This browser 19 hr ago" beside "Google Drive 3 min ago".
+  const browserStamp = store.get(`${PROFILE}::lifeplanner-data-updated-v1`);
+  check('the browser time is refreshed to the moment of the save',
+    browserStamp === new Date(NOW).toISOString(),
+    `still ${JSON.stringify(browserStamp)} — expected the save moment ${new Date(NOW).toISOString()}`);
+  check('and it equals what was recorded as pushed', browserStamp === rec.lastPushedStamp,
+    `browser ${browserStamp} vs pushed ${rec.lastPushedStamp}`);
+
+  // Same value in the uploaded body, so the file agrees with both.
+  let sent = null;
+  try { sent = JSON.parse(uploads[uploads.length - 1]); } catch {}
+  check('the uploaded file carries that same stamp', !!sent && sent.dataLastUpdated === browserStamp,
+    sent ? String(sent.dataLastUpdated) : 'could not parse the body');
 }
 
 // ── the ONE case that must still refuse: the cloud moved without us seeing it ──

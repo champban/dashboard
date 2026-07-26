@@ -147,25 +147,34 @@ save. Nothing else refuses — least of all "nothing changed locally".
 
 `gsyncPush` is not the answer either: it uploads with **no** cloud check at all.
 
-## `dataLastUpdated` is a data version, not "when you edited here"
+## A save commits the screen, and stamps that moment (3.77.x)
 
-It travels **with the data**. Opening a file seeds it from `parsed.dataLastUpdated ||
-parsed.savedAt`, so a profile opened from Drive carries the stamp of whichever device
-actually did the editing. Labelling it "This browser · edited" therefore claimed
-something that can be false, and invited comparison against Drive's `modifiedTime`,
-which measures a different thing entirely (when the file was written).
+`pushPayload()` is the single place a save's timestamp is decided:
 
-The vocabulary, on every surface:
+```js
+const stamp = new Date().toISOString();
+return { stamp, payload: { ...buildSavePayload(), dataLastUpdated: stamp } };
+```
 
-| shown as | value | means |
-|---|---|---|
-| 💾 On screen now · data version | `dataLastUpdated` | the version of the data currently loaded |
-| ☁️ Google Drive · file written | `gsync.lastCloudModified` | when Drive last received an upload |
-| 🔄 Last checked | `gsync.lastSyncAt` | when the two were last compared |
-| **✓ Google Drive has this version** | `dataLastUpdated === lastPushedStamp` | **the answer** |
+That one value goes to **three** places on every successful upload — the payload field,
+`dataLastUpdated` (via `setDataLastUpdated`), and `gsync.lastPushedStamp`. They cannot
+drift apart, and the verdict line is green the instant the save lands.
 
-Never print the first two adjacent without the verdict. They are different clocks, they
-rarely match, and a mismatch reads as "it did not save" when nothing is wrong.
+**`dataLastUpdated` means "when this browser last saved", not "when the data changed".**
+It was the latter, which is technically defensible and made the screen lie: pressing Save
+to Cloud left the browser row reading `19 hr ago` beside a Drive row reading `3 min ago`,
+which is indistinguishable from a save that failed. The user's rule, and the one to keep:
+*pressing save commits what is on screen at that moment, so both times become that
+moment.*
+
+Consequences worth knowing:
+
+- Both rows use the **same verb** — "saved" — because they are meant to match. A browser
+  time ahead of the Drive time means unsaved changes, and the panel says so.
+- Do not re-derive the verdict by comparing those two times. It is
+  `dataLastUpdated === lastPushedStamp` — one clock, exact.
+- The file on disk is a **manual backup only**. Nothing depends on it, Auto-sync never
+  touches it, and it may simply not exist. Say that where it is shown.
 
 ## There are THREE places data lives — name all three (3.77.x)
 
