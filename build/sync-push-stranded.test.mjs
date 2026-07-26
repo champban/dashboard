@@ -33,7 +33,7 @@ const FILE_ID = 'CLOUD-1';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
-function boot({ lastPushedStamp }) {
+function boot({ lastPushedStamp, cloudMoved }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -114,7 +114,10 @@ function boot({ lastPushedStamp }) {
         version: 7, savedAt: CLOUD_MTIME, dataLastUpdated: CLOUD_MTIME, personal: [], work: [] }) });
     }
     if (/drive\/v3\/files\/[^?]+\?fields=/.test(u)) {
-      return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', modifiedTime: CLOUD_MTIME, trashed: false });
+      // cloudMoved: a modifiedTime this device has never recorded — i.e. another
+      // device wrote the file after our last check.
+      return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', trashed: false,
+        modifiedTime: cloudMoved ? new Date(NOW - 60 * 1000).toISOString() : CLOUD_MTIME });
     }
     if (u.includes('drive/v3/files?q=')) return json({ files: [] });
     return Promise.resolve({ ok: false, status: 404, text: async () => 'not stubbed', json: async () => ({}) });
@@ -198,18 +201,43 @@ async function pressSaveToCloud(w) {
     JSON.stringify(rec.lastPushedStamp));
 }
 
-// ── already in sync: must NOT upload, and must not thrash the cloud file
+// ── nothing changed locally: "Save to Cloud" must STILL upload ───────────────
+// The button says save. Reported as: "when I click Save to Cloud it means I ask to
+// save whatever shows on the screen to the Google Drive file, but now it is not
+// working like that." Correct — it called the two-way reconciler, which is entitled
+// to answer "nothing to upload". That is the right answer for auto-sync and the wrong
+// one for a button a person pressed.
 {
-  console.log('\n--- already pushed: lastPushedStamp matches the local stamp ---');
-  const { window, uploads, errors, restore } = boot({ lastPushedStamp: LOCAL_EDIT });
+  console.log('\n--- nothing changed locally: save must still write to Drive ---');
+  const { window, store, uploads, errors, restore } = boot({ lastPushedStamp: LOCAL_EDIT });
   await settle();
   restore();
   if (errors.length) check('no runtime errors', false, errors[0]);
   await pressSaveToCloud(window);
-  check('pressing it uploads nothing when the data is already up there', uploads.length === 0,
-    `${uploads.length} upload(s) — a no-op save must not rewrite the cloud file`);
+  check('Save to Cloud uploads even with no local change', uploads.length > 0,
+    'it refused with "Already up to date — nothing to upload"; the user asked for a save');
   const body = window.document.body.textContent || '';
-  check('and it says so', /Already up to date|nothing to upload/i.test(body));
+  check('and reports a save, not a no-op', /Saved to cloud/i.test(body),
+    'still reporting "nothing to upload"');
+  const rec = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`));
+  check('the cloud-file stamp moves forward', rec.lastCloudModified === new Date(NOW).toISOString(),
+    JSON.stringify(rec.lastCloudModified));
+}
+
+// ── the ONE case that must still refuse: the cloud moved without us seeing it ──
+// Overwriting there loses another device's work, so it asks instead of uploading.
+{
+  console.log('\n--- cloud moved since this device last looked ---');
+  const { window, uploads, errors, restore } = boot({ lastPushedStamp: LOCAL_EDIT, cloudMoved: true });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await pressSaveToCloud(window);
+  check('does NOT silently overwrite a newer cloud copy', uploads.length === 0,
+    `${uploads.length} upload(s) — another device's work would have been lost`);
+  const body = window.document.body.textContent || '';
+  check('asks which copy to keep instead', /choose which copy|Another device saved|Update now|overwrite/i.test(body),
+    body.slice(0, 140));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

@@ -1,5 +1,64 @@
 # Changelog
 
+## 3.77.0 — Save to Cloud means save — 2026-07-26
+
+`APP_VERSION` unchanged. Two corrections, both from the same observation: *"the browser
+internal mem is the current one showing on the screen, so when I click Save to Cloud it
+means I ask to save whatever shows on the screen to the Google Drive file. But now it is
+not working like that."*
+
+### Fixed
+
+- **The button labelled "Save to Cloud" was not a save.** It called `gsyncNow`, a two-way
+  reconciler that compares both sides and may answer "Already up to date — nothing to
+  upload". That is right for auto-sync and for the focus/visibility checks; it is wrong
+  for a button a person deliberately pressed, and it answers a question the user did not
+  ask. New `gsyncSaveNow` writes what is on screen to Drive **unconditionally**.
+
+  It refuses exactly one thing: a cloud file that moved since this device last looked,
+  because uploading over it loses another device's work. That raises the existing
+  direction dialog, where *keep this device and overwrite the cloud* completes the save.
+  `gsyncPush` was not usable for this — it uploads with no cloud check at all.
+
+  `gsyncNow` still drives auto-sync, focus and visibility, where reconciling is correct.
+
+- **"This browser · edited" claimed something that can be false.** `dataLastUpdated`
+  travels *with the data*: opening a file seeds it from the file's own stamp, so a profile
+  opened from Drive carries the time whichever *other* device did the editing. The label
+  implied you edited it here, and sitting next to Drive's `modifiedTime` it invited a
+  comparison between two different kinds of time. Renamed across all three surfaces:
+
+  | before | after |
+  |---|---|
+  | 💾 This browser · edited … | 💾 **On screen now · data version** … |
+  | ☁️ Google Drive · file written … | unchanged, now explicitly `·`-separated |
+  | ✓ cloud has this data | ✓ **Google Drive has this version** |
+  | ⚠ not uploaded yet | ⚠ **this version is not on Drive yet** |
+
+  The footnote now says the stamp comes from whichever device last edited the data and
+  does not move just because you opened the app.
+
+### Verification
+
+`build/sync-push-stranded.test.mjs` asserts the new contract in both directions:
+
+```
+--- nothing changed locally: save must still write to Drive ---
+  ok   Save to Cloud uploads even with no local change
+  ok   and reports a save, not a no-op
+  ok   the cloud-file stamp moves forward
+
+--- cloud moved since this device last looked ---
+  ok   does NOT silently overwrite a newer cloud copy
+  ok   asks which copy to keep instead
+```
+
+The second block is the guard: "always upload" must not become "always clobber".
+
+`build/sync-visibility.test.mjs` gains an assertion that no surface claims this browser
+did the editing. Harness LEN 25129 / NODES 141 unchanged, `audit.py` 0 blockers, packager
+6/6 CSP PASS, es2019 guard clean, `npm test` 50 assertions across seven files.
+
 ## 3.77.0 — three data locations, named — 2026-07-26
 
 `APP_VERSION` unchanged. From the question: *"we have 3 data locations — 1. cloud on

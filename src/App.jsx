@@ -11203,7 +11203,7 @@ function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onO
             : online                  ? "#22c55e" : theme.textMuted;
   return (
     <button onClick={onOpen} aria-label="Cloud sync status"
-      title={`${gsync.fileName||"—"}\n${(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "✓ cloud has this data" : "⚠ not uploaded yet"}\n💾 This browser · edited ${syncStamp(dataLastUpdated)}\n☁️ Google Drive · file written ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
+      title={`${gsync.fileName||"—"}\n${(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "✓ Google Drive has this version" : "⚠ not on Drive yet"}\n💾 On screen now · data version ${syncStamp(dataLastUpdated)}\n☁️ Google Drive · file written ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
       style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,padding:big?"6px 10px":"5px 8px",
         borderRadius:99,border:`1px solid ${theme.border}`,background:theme.surface,
         cursor:"pointer",touchAction:"manipulation"}}>
@@ -11357,14 +11357,14 @@ function SyncPanel({
             {(()=>{
               const pushed = !!dataLastUpdated && dataLastUpdated === gsync.lastPushedStamp;
               const verdict = !dataLastUpdated ? ["", "no data yet", "var(--c-text-muted)"]
-                : pushed                       ? ["✓ ", "cloud has this data", "#16a34a"]
-                : gsync.lastPushedStamp        ? ["⚠ ", "not uploaded yet", "#d97706"]
-                :                                ["⚠ ", "never uploaded from here", "#d97706"];
+                : pushed                       ? ["✓ ", "Google Drive has this version", "#16a34a"]
+                : gsync.lastPushedStamp        ? ["⚠ ", "this version is not on Drive yet", "#d97706"]
+                :                                ["⚠ ", "never uploaded from this device", "#d97706"];
               return (
                 <>
                   {[
-                    ["💾 This browser", `edited ${syncStamp(dataLastUpdated)}`],
-                    ["☁️ Google Drive", `file written ${syncStamp(gsync.lastCloudModified)}`],
+                    ["💾 On screen now", `data version · ${syncStamp(dataLastUpdated)}`],
+                    ["☁️ Google Drive", `file written · ${syncStamp(gsync.lastCloudModified)}`],
                     ["🔄 Last checked", syncStamp(gsync.lastSyncAt)],
                   ].map(([label, value])=>(
                     <div key={label} style={{display:"flex",gap:8,fontSize:10.5,lineHeight:1.55}}>
@@ -11377,9 +11377,10 @@ function SyncPanel({
                     {verdict[0]}{verdict[1]}
                   </div>
                   <div style={{fontSize:9.5,color:"var(--c-text-muted)",lineHeight:1.45}}>
-                    “edited” is when the data changed; “file written” is when Drive last
-                    received an upload. The two are different clocks and rarely match — the
-                    line above is the one that says whether the copies agree.
+                    “data version” is the stamp carried by the data now on screen — it comes
+                    from whichever device last edited it, so it does not move just because you
+                    opened the app here. “file written” is when Drive last received an upload.
+                    Different clocks; they rarely match. The line above is the answer.
                   </div>
                 </>
               );
@@ -11394,14 +11395,15 @@ function SyncPanel({
             genuinely different places look like two. No filename here now,
             because there is no file — just the data and when it last changed. */}
         <div style={box}>
-          <div style={label}>💾 This browser — live data</div>
+          <div style={label}>💾 On screen now — this browser</div>
           <div style={{fontSize:12.5,fontWeight:700,color:"var(--c-text)"}}>
             {syncStamp(dataLastUpdated)}
           </div>
           <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:4,lineHeight:1.5}}>
-            Every edit is written here first — this is the copy the app reads. It is
-            storage inside this browser, not a file, so clearing site data or
-            removing the home-screen icon removes it. Keep a copy on Drive or on disk.
+            This is exactly what you see on screen, and the copy the app reads and writes.
+            It is storage inside this browser, not a file, so clearing site data or removing
+            the home-screen icon removes it. The time above is the version of the data, not
+            when you opened the app. Keep a copy on Drive or on disk.
           </div>
         </div>
 
@@ -12631,6 +12633,48 @@ export default function App() {
     finally { gsyncBusy.current = false; }
   };
 
+  // Explicit "Save to Cloud". The button says save, so it saves what is on screen —
+  // unconditionally.
+  //
+  // It used to call gsyncNow, which is a two-way RECONCILER: it compares both sides and
+  // may decide there is nothing to do. That is the right behaviour for auto-sync and for
+  // focus/visibility checks, and the wrong behaviour for a button a person deliberately
+  // pressed. "Already up to date — nothing to upload" is an answer to a question the
+  // user did not ask; they asked for the screen to be written to Drive.
+  //
+  // The one thing that may still stop it is the cloud holding changes this device has
+  // never seen, because uploading over those loses another device's work. That asks,
+  // via the same dialog as before — and "Keep this device and overwrite the cloud" is
+  // how the user completes the save they asked for. Nothing else refuses.
+  const gsyncSaveNow = async () => {
+    if (gsyncBusy.current) return;
+    if (!GDrive.isSignedIn()) { const ok = await gsyncConnect(); if (!ok) return; }
+    if (!gsync.fileId) { await gsyncPush({}); return; }   // no file yet → create one
+    gsyncBusy.current = true; setGsyncStatus("syncing"); setGsyncError("");
+    try {
+      const meta = await GDrive.getMeta(gsync.fileId);
+      if (meta.trashed) throw new Error("The cloud file was deleted.");
+      const cloudChanged = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
+      if (cloudChanged) {
+        const text = await GDrive.download(gsync.fileId);
+        setGsyncCloudAhead({ cloudModified: meta.modifiedTime || "", cloudText: text });
+        setGsyncStatus("idle");
+        note("later","Cloud changed since this device last looked — choose which copy to keep");
+        return;
+      }
+      // Upload regardless of whether anything changed locally. Pressing save and
+      // getting a fresh upload is the whole contract of the button.
+      const payload = buildSavePayload();
+      const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
+      await persistGsync({ ...gsync, lastSyncAt: Date.now(),
+        lastCloudModified: updated.modifiedTime || "",
+        lastPushedStamp: payload.dataLastUpdated || null });
+      setGsyncStatus("synced"); note("saved","Saved to cloud");
+    } catch (e) {
+      setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed");
+    } finally { gsyncBusy.current = false; }
+  };
+
   // The three answers to "another device saved" (gsyncCloudAhead).
   const cloudAheadUpdate = async () => {
     const c = gsyncCloudAhead; if(!c) return;
@@ -13835,7 +13879,7 @@ export default function App() {
         gsync={gsync} gsyncStatus={gsyncStatus} gsyncError={gsyncError}
         gsyncSignedIn={gsyncSignedIn||GDrive.isSignedIn()} gsyncAuto={gsyncAuto}
         onConnect={gsyncConnect} onDisconnect={()=>{gsyncDisconnect();setGsyncPanel(true);}}
-        onSyncNow={gsyncNow} gsyncNote={gsyncNote} dataLastUpdated={dataLastUpdated}
+        onSyncNow={gsyncSaveNow} gsyncNote={gsyncNote} dataLastUpdated={dataLastUpdated}
         diskFileName={fileHandle?.name || lastFileName || ""} diskSavedAt={lastSavedTime}
         onSaveToDisk={handleSaveAs} onOpenFromDisk={handleOpenFilePicker}
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
@@ -14324,14 +14368,14 @@ export default function App() {
                             <>
                               <div style={{fontSize:11.5,fontWeight:700,color:theme.text,wordBreak:"break-all",marginBottom:2}}>📄 {gsync.fileName}</div>
                               <div style={{fontSize:9.5,color:theme.textMuted,marginBottom:7,display:"grid",gap:1}}>
-                                <div>💾 This browser · edited {syncStamp(dataLastUpdated)}</div>
+                                <div>💾 On screen now · data version {syncStamp(dataLastUpdated)}</div>
                                 {cloudRel&&<div>☁️ Google Drive · file written {cloudRel}</div>}
                                 {rel&&<div>🔄 Last checked · {rel}</div>}
                                 {/* The verdict, not two clocks to compare — see SyncPanel. */}
                                 <div style={{fontWeight:800,marginTop:2,
                                   color: (!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "#16a34a" : "#d97706"}}>
                                   {(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp)
-                                    ? "✓ cloud has this data" : "⚠ not uploaded yet"}
+                                    ? "✓ Google Drive has this version" : "⚠ not on Drive yet"}
                                 </div>
                               </div>
                             </>
