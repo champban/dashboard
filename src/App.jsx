@@ -11203,7 +11203,7 @@ function SyncChip({ gsync, gsyncStatus, online, dataLastUpdated, theme, big, onO
             : online                  ? "#22c55e" : theme.textMuted;
   return (
     <button onClick={onOpen} aria-label="Cloud sync status"
-      title={`Cloud file: ${gsync.fileName||"—"}\n💾 This browser · ${syncStamp(dataLastUpdated)}\n☁️ Cloud file · ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
+      title={`${gsync.fileName||"—"}\n${(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "✓ cloud has this data" : "⚠ not uploaded yet"}\n💾 This browser · edited ${syncStamp(dataLastUpdated)}\n☁️ Google Drive · file written ${syncStamp(gsync.lastCloudModified)}\n🔄 Last checked · ${syncStamp(gsync.lastSyncAt)}`}
       style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,padding:big?"6px 10px":"5px 8px",
         borderRadius:99,border:`1px solid ${theme.border}`,background:theme.surface,
         cursor:"pointer",touchAction:"manipulation"}}>
@@ -11346,16 +11346,44 @@ function SyncPanel({
             <div style={{fontSize:11.5,fontWeight:700,color:"var(--c-text)",wordBreak:"break-all",marginBottom:3}}>
               📄 {gsync.fileName||"—"}
             </div>
-            {[
-              ["💾 This browser",  syncStamp(dataLastUpdated)],
-              ["☁️ Cloud file",   syncStamp(gsync.lastCloudModified)],
-              ["🔄 Last checked", syncStamp(gsync.lastSyncAt)],
-            ].map(([label, value])=>(
-              <div key={label} style={{display:"flex",gap:8,fontSize:10.5,lineHeight:1.55}}>
-                <span style={{color:"var(--c-text-muted)",flex:"0 0 92px"}}>{label}</span>
-                <span style={{color:"var(--c-text)",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{value}</span>
-              </div>
-            ))}
+            {/* Showing "this device 08:00 PM" beside "cloud file 03:02 PM" invited the
+                obvious comparison — and that comparison is meaningless. The first is an
+                EDIT time (dataLastUpdated, bumped when you change data); the second is
+                Drive's modifiedTime, i.e. when the FILE was WRITTEN. They measure
+                different things and will almost never match, so two raw numbers left the
+                user to conclude "it didn't save" from a pair that cannot show that.
+                State the verdict instead, from the same exact comparison the push
+                decision uses, so the answer and the behaviour cannot disagree. */}
+            {(()=>{
+              const pushed = !!dataLastUpdated && dataLastUpdated === gsync.lastPushedStamp;
+              const verdict = !dataLastUpdated ? ["", "no data yet", "var(--c-text-muted)"]
+                : pushed                       ? ["✓ ", "cloud has this data", "#16a34a"]
+                : gsync.lastPushedStamp        ? ["⚠ ", "not uploaded yet", "#d97706"]
+                :                                ["⚠ ", "never uploaded from here", "#d97706"];
+              return (
+                <>
+                  {[
+                    ["💾 This browser", `edited ${syncStamp(dataLastUpdated)}`],
+                    ["☁️ Google Drive", `file written ${syncStamp(gsync.lastCloudModified)}`],
+                    ["🔄 Last checked", syncStamp(gsync.lastSyncAt)],
+                  ].map(([label, value])=>(
+                    <div key={label} style={{display:"flex",gap:8,fontSize:10.5,lineHeight:1.55}}>
+                      <span style={{color:"var(--c-text-muted)",flex:"0 0 92px"}}>{label}</span>
+                      <span style={{color:"var(--c-text)",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{value}</span>
+                    </div>
+                  ))}
+                  <div style={{marginTop:4,paddingTop:5,borderTop:"1px solid var(--c-border)",
+                    fontSize:11,fontWeight:800,color:verdict[2]}}>
+                    {verdict[0]}{verdict[1]}
+                  </div>
+                  <div style={{fontSize:9.5,color:"var(--c-text-muted)",lineHeight:1.45}}>
+                    “edited” is when the data changed; “file written” is when Drive last
+                    received an upload. The two are different clocks and rarely match — the
+                    line above is the one that says whether the copies agree.
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
         {/* THIS BROWSER — the live data.
@@ -14296,9 +14324,15 @@ export default function App() {
                             <>
                               <div style={{fontSize:11.5,fontWeight:700,color:theme.text,wordBreak:"break-all",marginBottom:2}}>📄 {gsync.fileName}</div>
                               <div style={{fontSize:9.5,color:theme.textMuted,marginBottom:7,display:"grid",gap:1}}>
-                                <div>💾 This browser · {syncStamp(dataLastUpdated)}</div>
-                                {cloudRel&&<div>☁️ Cloud file · {cloudRel}</div>}
+                                <div>💾 This browser · edited {syncStamp(dataLastUpdated)}</div>
+                                {cloudRel&&<div>☁️ Google Drive · file written {cloudRel}</div>}
                                 {rel&&<div>🔄 Last checked · {rel}</div>}
+                                {/* The verdict, not two clocks to compare — see SyncPanel. */}
+                                <div style={{fontWeight:800,marginTop:2,
+                                  color: (!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp) ? "#16a34a" : "#d97706"}}>
+                                  {(!!dataLastUpdated && dataLastUpdated===gsync.lastPushedStamp)
+                                    ? "✓ cloud has this data" : "⚠ not uploaded yet"}
+                                </div>
                               </div>
                             </>
                           ) : (
