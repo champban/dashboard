@@ -84,6 +84,7 @@ ${tag(inline[4])}
 ${tag(inline[5])}
 <script defer src="vendor/supabase-2.110.7.js"></script>
 <script defer src="auth.js"></script>
+<script defer src="line-sync.js"></script>
 </body>
 </html>
 `;

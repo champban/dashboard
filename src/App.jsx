@@ -11306,6 +11306,7 @@ function SyncPanel({
   diskFileName, diskSavedAt, onSaveToDisk, onOpenFromDisk,
   onConnect, onDisconnect, onSyncNow, onCheckNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
+  lineSync, onLineCreateCode, onLineRefresh,
 }) {
   const [pos, setPos] = React.useState(()=>({ x: Math.max(12, window.innerWidth - 372), y: 76 }));
   const [busy, setBusy] = React.useState(false);
@@ -11376,6 +11377,17 @@ function SyncPanel({
   const createNew = async()=>{ setBusy(true); await onPushNow(); setBusy(false); };
   const openDrive = ()=>{ onOpenFolder && onOpenFolder(); };
   const saveName  = async()=>{ await onRename(nameDraft); setRenaming(false); };
+  const copyLineCommand = async()=>{
+    if(!lineSync?.command)return;
+    try{await navigator.clipboard.writeText(lineSync.command);}
+    catch{
+      const input=document.createElement("textarea");
+      input.value=lineSync.command; input.style.position="fixed"; input.style.opacity="0";
+      document.body.appendChild(input); input.select(); document.execCommand("copy"); input.remove();
+    }
+  };
+
+  React.useEffect(()=>{ onLineRefresh && onLineRefresh(); },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const box = { background:"var(--c-surface2)", border:"1px solid var(--c-border)", borderRadius:9, padding:"9px 11px", marginBottom:9 };
   const smallBtn = (bg,fg,bd)=>({ padding:"6px 10px", borderRadius:7, border:bd||"none", background:bg, color:fg, fontSize:11, fontWeight:700, cursor:"pointer" });
@@ -11536,6 +11548,49 @@ function SyncPanel({
             {onOpenFromDisk && <button onClick={onOpenFromDisk} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>📂 Open a file</button>}
           </div>
         </div>
+
+        {/* LINE reads a privacy-minimised Supabase snapshot. Drive remains the
+            primary backup and is the only event that advances this snapshot. */}
+        <div style={box}>
+          <div style={label}>💬 LINE Official — read only</div>
+          <div style={{fontSize:11,color:"var(--c-text-muted)",lineHeight:1.5}}>
+            ถามงานง่าย ๆ ใน LINE ได้ โดยส่งเฉพาะชื่อ สถานะ วันกำหนด หมวด และ priority
+            ไป Supabase หลัง Google Drive sync สำเร็จ ไม่ส่ง note, description หรือ attachment
+          </div>
+          <div style={{marginTop:7,fontSize:11,fontWeight:800,
+            color:lineSync?.linked?"#16a34a":"var(--c-text-muted)"}}>
+            {lineSync?.linked?"✓ เชื่อม LINE แล้ว":"ยังไม่ได้เชื่อม LINE"}
+          </div>
+          <div style={{fontSize:10,color:"var(--c-text-muted)",marginTop:2}}>
+            Snapshot: {lineSync?.snapshotUpdatedAt?syncStamp(lineSync.snapshotUpdatedAt):"ยังไม่มี — กด Save to Cloud ก่อน"}
+          </div>
+          {lineSync?.command && (
+            <div style={{marginTop:8,padding:"8px 9px",borderRadius:7,
+              background:"var(--c-input)",border:"1px solid var(--c-border)"}}>
+              <div style={{fontSize:9.5,color:"var(--c-text-muted)",marginBottom:3}}>ส่งข้อความนี้ในแชต LINE ภายใน 10 นาที</div>
+              <code style={{fontSize:12,fontWeight:900,color:"var(--c-text)",wordBreak:"break-all"}}>{lineSync.command}</code>
+              <button onClick={copyLineCommand} style={{marginTop:7,...smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}}>
+                Copy command
+              </button>
+            </div>
+          )}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+            <button onClick={onLineCreateCode} disabled={lineSync?.busy}
+              style={smallBtn("#06c755","#fff")}>
+              {lineSync?.busy?"กำลังทำงาน…":"สร้างรหัสเชื่อม LINE"}
+            </button>
+            <button onClick={onLineRefresh} disabled={lineSync?.busy}
+              style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>
+              Refresh
+            </button>
+          </div>
+          {lineSync?.error && (
+            <div role="alert" style={{marginTop:7,fontSize:10.5,color:"#fca5a5"}}>
+              ⚠️ {lineSync.error}
+            </div>
+          )}
+        </div>
+
         {!gsyncSignedIn ? (
           <div style={{textAlign:"center",padding:"10px 0"}}>
             <p style={{fontSize:12,color:"var(--c-text-muted)",marginBottom:12,lineHeight:1.6}}>
@@ -12036,6 +12091,10 @@ export default function App() {
   const [gsyncSignedIn, setGsyncSignedIn] = useState(false);
   const [gsyncStatus, setGsyncStatus] = useState("idle"); // idle | syncing | synced | error | offline
   const [gsyncError, setGsyncError] = useState("");
+  const [lineSync, setLineSync] = useState({
+    busy:false, error:"", linked:false, linkedAt:null, lastSeenAt:null,
+    snapshotUpdatedAt:null, code:"", command:"", expiresAt:null,
+  });
   const [gsyncConflict, setGsyncConflict] = useState(null); // {cloudText, cloudModified}
   // What the last sync actually DID, so pressing "Save to Cloud" always produces a
   // visible answer. "Synced · 25 min ago" alone could not distinguish a fresh
@@ -12595,6 +12654,52 @@ export default function App() {
     return { stamp, payload: { ...buildSavePayload(), dataLastUpdated: stamp } };
   };
 
+  // LINE is a secondary, read-only projection. A LINE failure must never turn a
+  // successful Drive save into a failed save, so this helper owns and contains
+  // its error. Every caller is placed after the Drive write/adoption succeeds.
+  const publishLineSnapshot = async (payload, source="full") => {
+    const bridge=window.__MTP_LINE__;
+    if(!bridge?.publish)return false;
+    try{
+      const result=await bridge.publish(payload,source);
+      setLineSync(prev=>({...prev,error:"",snapshotUpdatedAt:result.updatedAt||new Date().toISOString()}));
+      return true;
+    }catch(error){
+      setLineSync(prev=>({...prev,error:error?.message||"LINE snapshot update failed."}));
+      return false;
+    }
+  };
+
+  const refreshLineStatus = async () => {
+    const bridge=window.__MTP_LINE__;
+    if(!bridge?.getStatus){
+      setLineSync(prev=>({...prev,error:"LINE sync module is not ready. Reload the app and try again."}));
+      return;
+    }
+    setLineSync(prev=>({...prev,busy:true,error:""}));
+    try{
+      const status=await bridge.getStatus();
+      setLineSync(prev=>({...prev,...status,busy:false,error:""}));
+    }catch(error){
+      setLineSync(prev=>({...prev,busy:false,error:error?.message||"Could not read LINE status."}));
+    }
+  };
+
+  const createLineLinkCode = async () => {
+    const bridge=window.__MTP_LINE__;
+    if(!bridge?.createLinkCode){
+      setLineSync(prev=>({...prev,error:"LINE sync module is not ready. Reload the app and try again."}));
+      return;
+    }
+    setLineSync(prev=>({...prev,busy:true,error:""}));
+    try{
+      const link=await bridge.createLinkCode();
+      setLineSync(prev=>({...prev,...link,busy:false,error:""}));
+    }catch(error){
+      setLineSync(prev=>({...prev,busy:false,error:error?.message||"Could not create a LINE link code."}));
+    }
+  };
+
   const gsyncPush = async ({silent=false}={}) => {
     if (gsyncBusy.current) return;
     if (!GDrive.isSignedIn()) { const ok=await gsyncConnect(); if(!ok) return; }
@@ -12617,6 +12722,7 @@ export default function App() {
         localName: gsync.localName || meta.name,   // keep both sides on the same name
         lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(payload);
       setGsyncStatus("synced"); setGsyncError("");
       if(!silent) note("saved","Saved to cloud");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
@@ -12645,6 +12751,7 @@ export default function App() {
       const stamp = await applyPayloadLive(adopted);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(adopted);
       setGsyncStatus("synced");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Pull failed"); }
     finally { gsyncBusy.current = false; }
@@ -12774,6 +12881,7 @@ export default function App() {
         const stamp = await applyPayloadLive(adopted);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        void publishLineSnapshot(adopted);
         setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
       } else if (localChanged) {
         // Only local moved — safe to push, nothing cloud-side to lose.
@@ -12783,6 +12891,7 @@ export default function App() {
         setDataLastUpdated(stamp);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        void publishLineSnapshot(payload);
         setGsyncStatus("synced"); note("saved","Saved to cloud");
       } else {
         // Nothing changed on either side. Still stamp lastSyncAt: the check really
@@ -12843,6 +12952,7 @@ export default function App() {
         const stamp = await applyPayloadLive(adopted);
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: meta.modifiedTime || "",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        void publishLineSnapshot(adopted);
         setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
         return;
       }
@@ -12855,6 +12965,7 @@ export default function App() {
       await persistGsync({ ...gsync, lastSyncAt: Date.now(),
         lastCloudModified: updated.modifiedTime || "",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(payload);
       setGsyncStatus("synced"); note("saved","Saved to cloud");
     } catch (e) {
       setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed");
@@ -12928,6 +13039,7 @@ export default function App() {
           // it is what ends the stale "not saved to Drive yet" on a device that is in
           // fact in sync — the stamps could be wrong, this cannot.
           lastPushedFp: dataFingerprint(localPayload) });
+        void publishLineSnapshot(cloudPayload);
         setGsyncMatch({ state:"matched", at:Date.now(),
           msg:"Matched — this screen and the cloud file hold the same data" });
         setGsyncStatus("synced");
@@ -12951,6 +13063,7 @@ export default function App() {
         const stamp = await applyPayloadLive(adopted);
         await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        void publishLineSnapshot(adopted);
         setGsyncMatch({ state:"matched", at:Date.now(),
           msg:"Matched — the other device's save was brought in" });
         setGsyncStatus("synced"); note("pulled","Updated from cloud — another device saved");
@@ -12965,6 +13078,7 @@ export default function App() {
         setDataLastUpdated(stamp);
         await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        void publishLineSnapshot(payload);
         setGsyncMatch({ state:"matched", at:Date.now(), msg:"Matched — this screen was uploaded" });
         setGsyncStatus("synced"); note("saved","Saved to cloud");
         return "local";
@@ -13030,6 +13144,7 @@ export default function App() {
       const stamp = await applyPayloadLive(adopted);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:c.cloudModified,
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(adopted);
       setGsyncStatus("synced"); note("pulled","Updated from cloud — this device's copy kept on Drive");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Update failed"); note("error", e.message||"Update failed"); }
   };
@@ -13055,6 +13170,7 @@ export default function App() {
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(payload);
       setGsyncStatus("synced"); note("saved","Cloud replaced — the previous cloud copy kept beside it");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed"); }
   };
@@ -13069,6 +13185,7 @@ export default function App() {
       const stamp = await applyPayloadLive(adopted);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:gsyncConflict.cloudModified,
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(adopted);
       setGsyncStatus("synced"); note("pulled","Loaded the Drive copy — this device's copy kept on Drive");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Load failed"); note("error", e.message||"Load failed"); }
     setGsyncConflict(null);
@@ -13090,6 +13207,7 @@ export default function App() {
       setDataLastUpdated(stamp);
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
+      void publishLineSnapshot(payload);
       setGsyncStatus("synced"); note("saved","Saved to cloud — the previous cloud copy kept beside it");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Save to Cloud failed"); note("error", e.message||"Save to Cloud failed"); }
     setGsyncConflict(null);
@@ -13546,6 +13664,7 @@ export default function App() {
       setOpenMenu(null);
       pushActivity("import", `Opened file: ${fileName}`, "personal",
         `Created profile + loaded ${parsed.personal.length} personal + ${(parsed.work||[]).length} work tasks`);
+      if(driveLink)void publishLineSnapshot(parsed);
       return true;
     }
 
@@ -13615,6 +13734,7 @@ export default function App() {
     setOpenMenu(null);
     pushActivity("import", `Opened file: ${fileName}`, "personal",
       `Loaded ${parsed.personal.length} personal + ${(parsed.work||[]).length} work tasks into current profile`);
+    if(driveLink)void publishLineSnapshot(parsed);
     return true;
   };
 
@@ -13705,6 +13825,7 @@ export default function App() {
     setImportConflict(null);
     await applyPayloadLive(ic.cloud.payload);
     await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: ic.cloud.modifiedTime });
+    void publishLineSnapshot(ic.cloud.payload);
     setGsyncStatus("synced");
   };
 
@@ -14285,6 +14406,7 @@ export default function App() {
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
         listFiles={()=>GDrive.listFiles()}
         minimized={gsyncPanelMin} onToggleMin={()=>setGsyncPanelMin(m=>!m)}
+        lineSync={lineSync} onLineCreateCode={createLineLinkCode} onLineRefresh={refreshLineStatus}
         onClose={()=>setGsyncPanel(false)} />}
       {importConflict && <ImportDirectionDialog
         fileName={importConflict.fileName}

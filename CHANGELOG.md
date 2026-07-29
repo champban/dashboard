@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — LINE Official read-only bot — 2026-07-28
+
+### Added
+
+- LINE Official account linking with a hashed, single-use 10-minute code.
+- Deterministic Thai task commands backed by a Supabase Edge Function; no AI or
+  MCP runtime.
+- Privacy-minimised Supabase snapshots after successful Google Drive sync in
+  both Full and Mobile.
+- RLS migration, raw-body LINE HMAC verification, release runbook, KPI, 6D audit,
+  and regression tests.
+
+### Security
+
+- LINE channel/access secrets and Supabase backend keys remain Function Secrets;
+  browser code uses only the existing publishable Supabase client.
+- Snapshots exclude notes, descriptions, attachments, config, tokens, API keys,
+  and local profile/task IDs.
+- This release is not deployed: production backup, migration, secrets, webhook
+  verification, and owner acceptance remain explicit gates.
+
 ## 3.81.0 — Save to Cloud, in the header, with a confirm — 2026-07-26
 
 `APP_VERSION` unchanged. Asked for as: *"move the Save to Cloud button out onto the top

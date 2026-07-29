@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-bsjHASfARubpnYkGWj5E507LuW8QhyKfWETBCdxyY40=' 'sha256-OkXD7Qd63BDEyjMv8ExYCrZm5KmQ0bBawgOpJC8AaGg=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-bsjHASfARubpnYkGWj5E507LuW8QhyKfWETBCdxyY40=' 'sha256-2QKwdvCLQLfn/x0BsxNHuO36IDX4HWtQ2wDt546K+tE=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -137,6 +137,7 @@ let state={
   ui:{view:'today',taskFilter:'today',typeFilter:'all',search:'',focusTaskId:'',workdayEnd:'18:30',storageLimitMB:10,storageAckAtBytes:0,storageAckLimitMB:0,...readJSON(LS_UI,{})},
   lang:'EN',driveFiles:[],driveBusy:false,driveError:'',timer:{remaining:1500,running:false,mode:'focus',interval:null}
 };
+let lineSyncState={loaded:false,busy:false,error:'',linked:false,snapshotUpdatedAt:null,command:'',expiresAt:null};
 state.lang=(state.data.config&&state.data.config.lang)||'EN';
 if(!state.sync.clientId)state.sync.clientId=state.data.config.googleClientId||DEFAULT_CLIENT_ID;
 
@@ -179,6 +180,58 @@ function saveLocal(markDirty=true){
   lastStorageTier=stats.acknowledged?'healthy':stats.tier;
   if(markDirty&&state.sync.autoSync&&state.sync.fileId)debounceAutoSync();
   return dataSaved&&syncSaved&&uiSaved;
+}
+async function publishLineSnapshot(payload){
+  const bridge=window.__MTP_LINE__;
+  if(!bridge?.publish)return false;
+  try{
+    const result=await bridge.publish(payload,'mobile');
+    lineSyncState={...lineSyncState,error:'',snapshotUpdatedAt:result.updatedAt||new Date().toISOString()};
+    if(state.ui.view==='sync')render();
+    return true;
+  }catch(error){
+    lineSyncState={...lineSyncState,error:error?.message||'LINE snapshot update failed.'};
+    if(state.ui.view==='sync')render();
+    return false;
+  }
+}
+async function refreshLineStatus(force=false){
+  if(lineSyncState.busy||lineSyncState.loaded&&!force)return;
+  const bridge=window.__MTP_LINE__;
+  if(!bridge?.getStatus){
+    lineSyncState={...lineSyncState,loaded:true,error:'LINE sync module is not ready. Reload and try again.'};
+    if(state.ui.view==='sync')render();
+    return;
+  }
+  lineSyncState={...lineSyncState,busy:true,error:''};
+  if(state.ui.view==='sync')render();
+  try{
+    const status=await bridge.getStatus();
+    lineSyncState={...lineSyncState,...status,loaded:true,busy:false,error:''};
+  }catch(error){
+    lineSyncState={...lineSyncState,loaded:true,busy:false,error:error?.message||'Could not read LINE status.'};
+  }
+  if(state.ui.view==='sync')render();
+}
+async function createLineLinkCode(){
+  const bridge=window.__MTP_LINE__;
+  if(!bridge?.createLinkCode){
+    lineSyncState={...lineSyncState,error:'LINE sync module is not ready. Reload and try again.'};
+    render();return;
+  }
+  lineSyncState={...lineSyncState,busy:true,error:''};render();
+  try{
+    const link=await bridge.createLinkCode();
+    lineSyncState={...lineSyncState,...link,loaded:true,busy:false,error:''};
+  }catch(error){
+    lineSyncState={...lineSyncState,busy:false,error:error?.message||'Could not create a LINE link code.'};
+  }
+  render();
+}
+async function copyLineCommand(){
+  if(!lineSyncState.command)return;
+  try{await navigator.clipboard.writeText(lineSyncState.command);toast('✓ Copied')}
+  catch{prompt('Copy this command',lineSyncState.command)}
 }
 let autoTimer;
 function debounceAutoSync(){clearTimeout(autoTimer);autoTimer=setTimeout(()=>{if(accessToken&&navigator.onLine)syncNow(true)},3500)}
@@ -238,9 +291,15 @@ function renderStorageManager(){
   const s=storageStats(),percent=Math.round(s.ratio*100),meter=Math.min(100,Math.max(0,percent)),meterClass=s.acknowledged?'warn':s.tier==='warn'?'warn':s.tier==='danger'||s.tier==='critical'?'danger':'',message=s.acknowledged?tr('storageAcknowledged'):s.tier==='healthy'?tr('storageHealthy'):s.tier==='warn'?tr('storageWarning'):tr('storageCritical');
   return `<div class="sync-card card"><h3>▣ ${tr('storageManager')}</h3><div class="storage-summary"><div class="storage-stat"><strong>${formatBytes(s.plannerBytes)}</strong><span>${tr('plannerData')}</span></div><div class="storage-stat"><strong>${formatBytes(s.browserBytes)}</strong><span>${tr('browserStorage')}</span></div><div class="storage-stat"><strong>${formatBytes(s.historyBytes)}</strong><span>${tr('historyMemory')}</span></div><div class="storage-stat"><strong>${s.totalItems}</strong><span>${tr('itemsStored')} · ${s.tasks} tasks / ${s.events} events / ${s.notes} notes</span></div></div><div class="storage-meter" role="meter" aria-label="${esc(tr('browserStorage'))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${meter}"><span class="${meterClass}" style="width:${meter}%"></span></div><div class="storage-status"><span>${percent}%</span><span>${tr('softLimit')} ${formatBytes(s.limitBytes)}</span></div><div class="storage-alert ${s.acknowledged?'ack':s.tier==='danger'||s.tier==='critical'?'danger':''}">${message}</div><div class="storage-limit-form"><label>${tr('softLimit')} (MB)<input id="storageLimitInput" type="number" min="1" max="100" step="0.5" inputmode="decimal" value="${s.limitMB}"></label><button class="secondary" id="saveStorageLimit">${tr('setLimit')}</button></div><div class="storage-limit-note">${tr('limitNote')}</div><div class="storage-actions"><button class="secondary" id="storageExport">↓ ${tr('export')}</button><button class="secondary" id="storageRefresh">↻ ${tr('refreshUsage')}</button><button class="secondary" id="clearHistory">${tr('clearHistory')}</button><button class="secondary danger-btn" id="archiveOld">${tr('archiveOld')}</button>${s.ratio>=1?`<button class="secondary" id="ackStorage">✓ ${s.acknowledged?tr('acknowledged'):tr('acknowledge')}</button>`:''}</div></div>`
 }
+function renderLineSyncCard(){
+  const th=state.lang==='TH',linked=lineSyncState.linked,updated=lineSyncState.snapshotUpdatedAt?new Date(lineSyncState.snapshotUpdatedAt).toLocaleString():(th?'ยังไม่มี — กด Save to Cloud ก่อน':'None yet — press Save to Cloud first');
+  const copy=lineSyncState.command?`<div class="file-row"><div class="file-icon">💬</div><div class="file-info"><strong>${esc(lineSyncState.command)}</strong><span>${th?'ส่งข้อความนี้ใน LINE ภายใน 10 นาที':'Send this in LINE within 10 minutes'}</span></div><button id="copyLineCode">${th?'คัดลอก':'Copy'}</button></div>`:'';
+  return `<div class="sync-card card"><h3>LINE Official · Read only</h3><p>${th?'ถามงานง่าย ๆ ใน LINE ได้ โดย snapshot จะอัปเดตหลัง Google Drive sync สำเร็จเท่านั้น':'Ask simple task questions in LINE. The snapshot updates only after Google Drive sync succeeds.'}</p><div class="note">${linked?'✓ '+(th?'เชื่อม LINE แล้ว':'LINE linked'):(th?'ยังไม่ได้เชื่อม LINE':'LINE is not linked')}<br>Snapshot: ${esc(updated)}<br>${th?'ส่งเฉพาะชื่อ สถานะ วันกำหนด หมวด และ priority — ไม่ส่ง note, description หรือ attachment':'Only title, status, due date, category, and priority are sent. Notes, descriptions, and attachments stay out.'}</div>${copy}<div class="sync-actions two" style="margin-top:10px"><button class="primary" id="createLineCode" ${lineSyncState.busy?'disabled':''}>${lineSyncState.busy?(th?'กำลังทำงาน…':'Working…'):(th?'สร้างรหัสเชื่อม LINE':'Create LINE link code')}</button><button class="secondary" id="refreshLineStatus" ${lineSyncState.busy?'disabled':''}>Refresh</button></div>${lineSyncState.error?`<div class="note" style="color:var(--red)">⚠️ ${esc(lineSyncState.error)}</div>`:''}</div>`;
+}
 function renderSync(){
   const file=state.sync.fileId?`<div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>${esc(state.sync.fileName||'Linked profile')}</strong><span>${state.sync.lastSyncAt?'Last sync '+new Date(state.sync.lastSyncAt).toLocaleString():'Not synced yet'}</span></div><button id="openFileList">Change</button></div>`:'';
   return `<div class="sync-card card"><h3>${tr('drive')}</h3><p>${tr('driveText')}</p>${file}<div class="sync-actions two" style="margin-top:12px"><button class="primary" id="connectDrive">${accessToken?tr('connected'):tr('connect')}</button><button class="secondary" id="syncNow" ${state.sync.fileId?'':'disabled'}>↻ ${tr('syncNow')}</button></div><div class="sync-actions two" style="margin-top:9px"><button class="secondary" id="selectCloud">${tr('selectFile')}</button><button class="secondary" id="createCloud">${tr('createCloud')}</button></div>${state.driveError?`<div class="note" style="color:var(--red)">${esc(state.driveError)}</div>`:''}</div>
+  ${renderLineSyncCard()}
   <div class="sync-card card"><h3>${tr('localBackup')}</h3><p>JSON version 7 · compatible with the Full app.</p><div class="sync-actions two"><button class="secondary" id="exportJson">↓ ${tr('export')}</button><button class="secondary" id="importJson">↑ ${tr('import')}</button></div></div>
   ${renderStorageManager()}
   <div class="sync-card card"><h3>${tr('settings')}</h3><div class="field"><label>${tr('language')}</label><select id="langSelect"><option value="EN" ${state.lang==='EN'?'selected':''}>English</option><option value="TH" ${state.lang==='TH'?'selected':''}>ไทย</option></select></div><div class="note">OAuth configuration is managed by this deployment. No client secret is stored in the browser.</div><label style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14px;margin-bottom:14px"><input id="autoSync" type="checkbox" style="width:22px;height:22px" ${state.sync.autoSync?'checked':''}>${tr('autoSync')}</label><button class="primary" id="saveSettings">${tr('saveSettings')}</button><div class="note">${tr('httpsNote')}</div></div>
@@ -317,16 +376,57 @@ async function showCloudFiles(){try{setDriveBusy(true);state.driveError='';await
 function showFileModal(){const rows=state.driveFiles.length?state.driveFiles.map(f=>`<div class="file-row"><div class="file-icon">📄</div><div class="file-info"><strong>${esc(f.name)}</strong><span>${new Date(f.modifiedTime).toLocaleString()}</span><a class="drive-folder-link" href="${driveFolderURL(f)}" target="_blank" rel="noopener noreferrer">↗ ${tr('openFolder')}</a></div><div class="file-actions"><button type="button" data-cloud-use="${esc(f.id)}" data-cloud-name="${esc(f.name)}">${tr('useFile')}</button><button type="button" class="file-rename" data-cloud-rename="${esc(f.id)}" data-cloud-name="${esc(f.name)}" aria-label="${esc(tr('renameFile')+' '+f.name)}">✎</button><button type="button" class="file-delete" data-cloud-delete="${esc(f.id)}" data-cloud-name="${esc(f.name)}" aria-label="${esc(tr('deleteCloudFile')+' '+f.name)}">⌫</button></div></div>`).join(''):`<div class="empty"><div class="icon">☁️</div><h4>${tr('noFiles')}</h4></div>`;showModal(tr('cloudFiles'),`<div class="sync-actions two" style="margin-bottom:12px"><button class="primary" type="button" id="modalAddCloud">＋ ${tr('addCloudFile')}</button><button class="secondary" type="button" id="modalRefreshCloud">↻ ${tr('refreshFiles')}</button></div>${rows}`);$$('[data-cloud-use]').forEach(b=>b.onclick=()=>linkCloudFile(b.dataset.cloudUse,b.dataset.cloudName));$$('[data-cloud-rename]').forEach(b=>b.onclick=()=>renameCloudFile(b.dataset.cloudRename,b.dataset.cloudName));$$('[data-cloud-delete]').forEach(b=>b.onclick=()=>deleteCloudFile(b.dataset.cloudDelete,b.dataset.cloudName));$('#modalAddCloud').onclick=beginCreateCloudFile;$('#modalRefreshCloud').onclick=showCloudFiles}
 async function renameCloudFile(id,oldName){const requested=prompt(tr('renamePrompt'),oldName);if(requested===null)return;try{setDriveBusy(true);const files=await listDriveFiles(),file=files.find(f=>sameId(f.id,id)),parentId=file?.parents?.[0]||'',name=uniqueCloudName(files,requested,parentId,id),updated=await driveRename(id,name);if(sameId(state.sync.fileId,id)){state.sync.fileName=updated.name;state.sync.lastCloudModified=updated.modifiedTime||state.sync.lastCloudModified;saveLocal(false)}state.driveFiles=await listDriveFiles();toast('✓ '+updated.name);showFileModal()}catch(e){state.driveError=e.message;toast(e.message)}finally{setDriveBusy(false);updateHeader()}}
 async function deleteCloudFile(id,name){if(!confirm(tr('deleteCloudConfirm')+'\n'+name))return;try{setDriveBusy(true);await driveDelete(id);if(sameId(state.sync.fileId,id)){state.sync={...state.sync,fileId:'',fileName:'',lastCloudModified:'',lastSyncAt:0,dirty:false};saveLocal(false)}state.driveFiles=await listDriveFiles();toast('✓ '+tr('deleteCloudFile'));showFileModal()}catch(e){state.driveError=e.message;toast(e.message)}finally{setDriveBusy(false);updateHeader()}}
-async function linkCloudFile(id,name){try{setDriveBusy(true);const text=await driveDownload(id),data=normalizeProfile(JSON.parse(text));if(!validProfile(data))throw Error('Not a My Todo Planner profile file.');pushHistory('Load cloud file');state.data=data;state.lang=data.config?.lang||state.lang;const m=await driveMeta(id);state.sync={...state.sync,fileId:id,fileName:name||m.name,lastCloudModified:m.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};saveLocal(false);closeModal();toast('✓ '+tr('synced'));render()}catch(e){toast(e.message)}finally{setDriveBusy(false)}}
-async function createCloudFile(folderTab=null){try{setDriveBusy(true);await ensureToken();const files=await listDriveFiles();let parentId=files[0]?.parents?.[0]||'';if(state.sync.fileId){const current=files.find(f=>sameId(f.id,state.sync.fileId))||await driveMeta(state.sync.fileId);parentId=current?.parents?.[0]||parentId}const name=uniqueCloudName(files,'My-Todo-Planner.json',parentId),r=await driveCreate(name,JSON.stringify(prepareForSave(),null,2),parentId);state.sync={...state.sync,fileId:r.id,fileName:r.name,lastCloudModified:r.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};state.driveFiles=[r,...files];saveLocal(false);toast('✓ '+r.name);render();navigateFolderTab(folderTab,r)}catch(e){if(folderTab&&!folderTab.closed)folderTab.close();state.driveError=e.message;toast(e.message);render()}finally{setDriveBusy(false)}}
+async function linkCloudFile(id,name){try{setDriveBusy(true);const text=await driveDownload(id),data=normalizeProfile(JSON.parse(text));if(!validProfile(data))throw Error('Not a My Todo Planner profile file.');pushHistory('Load cloud file');state.data=data;state.lang=data.config?.lang||state.lang;const m=await driveMeta(id);state.sync={...state.sync,fileId:id,fileName:name||m.name,lastCloudModified:m.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};saveLocal(false);void publishLineSnapshot(data);closeModal();toast('✓ '+tr('synced'));render()}catch(e){toast(e.message)}finally{setDriveBusy(false)}}
+async function createCloudFile(folderTab=null){try{setDriveBusy(true);await ensureToken();const files=await listDriveFiles();let parentId=files[0]?.parents?.[0]||'';if(state.sync.fileId){const current=files.find(f=>sameId(f.id,state.sync.fileId))||await driveMeta(state.sync.fileId);parentId=current?.parents?.[0]||parentId}const name=uniqueCloudName(files,'My-Todo-Planner.json',parentId),payload=prepareForSave(),r=await driveCreate(name,JSON.stringify(payload,null,2),parentId);state.sync={...state.sync,fileId:r.id,fileName:r.name,lastCloudModified:r.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};state.driveFiles=[r,...files];saveLocal(false);void publishLineSnapshot(payload);toast('✓ '+r.name);render();navigateFolderTab(folderTab,r)}catch(e){if(folderTab&&!folderTab.closed)folderTab.close();state.driveError=e.message;toast(e.message);render()}finally{setDriveBusy(false)}}
 function syncTimestamp(value){const time=Date.parse(value||'');return Number.isFinite(time)?time:0}
 function formatSyncTimestamp(value){const time=syncTimestamp(value);return time?new Date(time).toLocaleString():'Unknown'}
 function confirmConflictOverwrite(direction,action){const cloudToLocal=direction==='cloud';showModal(tr('conflict'),`<p class="note" style="font-size:14px"><strong>${cloudToLocal?'Cloud → Local':'Local → Cloud'}</strong></p><p class="note">${cloudToLocal?'This will overwrite the Local copy with the Cloud copy.':'This will overwrite the Cloud copy with the Local copy.'}</p><div class="sync-actions two"><button class="secondary" id="conflictBack">← Back</button><button class="primary" id="conflictConfirm">Confirm overwrite</button></div>`);$('#conflictBack').onclick=()=>showConflict(pendingConflictMeta);$('#conflictConfirm').onclick=action}
 let pendingConflictMeta=null;
-async function syncNow(silent=false){if(!navigator.onLine){if(!silent)toast(tr('offline'));return}if(!state.sync.fileId){if(!silent)toast(tr('selectFile'));return}try{setDriveBusy(true);state.driveError='';await ensureToken();const meta=await driveMeta(state.sync.fileId);if(meta.trashed)throw Error('Cloud file was deleted.');const cloudChanged=!!state.sync.lastCloudModified&&meta.modifiedTime!==state.sync.lastCloudModified;if(cloudChanged&&state.sync.dirty){showConflict(meta);return}if(cloudChanged&&!state.sync.dirty){const text=await driveDownload(state.sync.fileId),data=normalizeProfile(JSON.parse(text));pushHistory('Pull cloud changes');state.data=data;state.lang=data.config?.lang||state.lang;state.sync.lastCloudModified=meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;saveLocal(false);if(!silent)toast('↓ '+tr('synced'));render();return}if(state.sync.dirty){const r=await driveUpdate(state.sync.fileId,JSON.stringify(prepareForSave(),null,2));state.sync.lastCloudModified=r.modifiedTime||meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;saveLocal(false);if(!silent)toast('↑ '+tr('synced'));render();return}state.sync.lastSyncAt=Date.now();saveLocal(false);if(!silent)toast('✓ '+tr('synced'));render()}catch(e){state.driveError=e.message;if(!silent)toast(e.message);render()}finally{setDriveBusy(false)}}
-function showConflict(meta){pendingConflictMeta=meta;const cloudTime=syncTimestamp(meta.modifiedTime),localTime=syncTimestamp(state.data.savedAt),cloudNewer=cloudTime>localTime,localNewer=localTime>cloudTime,recommendation=cloudNewer?'Cloud → Local':localNewer?'Local → Cloud':'Either copy';showModal(tr('conflict'),`<p class="note" style="font-size:14px">Both copies changed. Compare their timestamps, then choose the direction. <strong>Recommended: ${recommendation}</strong></p><div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>Cloud ${cloudNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(meta.modifiedTime))}</span></div><span aria-hidden="true">→</span></div><div class="file-row"><div class="file-icon">📱</div><div class="file-info"><strong>Local ${localNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(state.data.savedAt))}</span></div><span aria-hidden="true">→</span></div><div class="sync-actions" style="margin-top:12px"><button class="${cloudNewer?'primary':'secondary'}" id="conflictPull">☁️ → 📱 ${tr('pullCloud')} ${cloudNewer?'· Recommended':''}</button><button class="${localNewer?'primary':'secondary'}" id="conflictPush">📱 → ☁️ ${tr('pushLocal')} ${localNewer?'· Recommended':''}</button><button class="secondary" id="conflictExport">${tr('exportFirst')}</button></div>`);const pull=async()=>{const text=await driveDownload(state.sync.fileId);pushHistory('Resolve conflict from cloud');state.data=normalizeProfile(JSON.parse(text));state.lang=state.data.config?.lang||state.lang;state.sync.lastCloudModified=meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;saveLocal(false);pendingConflictMeta=null;closeModal();render()},push=async()=>{const r=await driveUpdate(state.sync.fileId,JSON.stringify(prepareForSave(),null,2));state.sync.lastCloudModified=r.modifiedTime||meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;saveLocal(false);pendingConflictMeta=null;closeModal();render()};$('#conflictPull').onclick=()=>confirmConflictOverwrite('cloud',pull);$('#conflictPush').onclick=()=>confirmConflictOverwrite('local',push);$('#conflictExport').onclick=exportJSON}
+async function syncNow(silent=false){
+  if(!navigator.onLine){if(!silent)toast(tr('offline'));return}
+  if(!state.sync.fileId){if(!silent)toast(tr('selectFile'));return}
+  try{
+    setDriveBusy(true);state.driveError='';await ensureToken();
+    const meta=await driveMeta(state.sync.fileId);
+    if(meta.trashed)throw Error('Cloud file was deleted.');
+    const cloudChanged=!!state.sync.lastCloudModified&&meta.modifiedTime!==state.sync.lastCloudModified;
+    if(cloudChanged&&state.sync.dirty){showConflict(meta);return}
+    if(cloudChanged&&!state.sync.dirty){
+      const text=await driveDownload(state.sync.fileId),data=normalizeProfile(JSON.parse(text));
+      pushHistory('Pull cloud changes');state.data=data;state.lang=data.config?.lang||state.lang;
+      state.sync.lastCloudModified=meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
+      saveLocal(false);void publishLineSnapshot(data);if(!silent)toast('↓ '+tr('synced'));render();return;
+    }
+    if(state.sync.dirty){
+      const payload=prepareForSave(),r=await driveUpdate(state.sync.fileId,JSON.stringify(payload,null,2));
+      state.sync.lastCloudModified=r.modifiedTime||meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
+      saveLocal(false);void publishLineSnapshot(payload);if(!silent)toast('↑ '+tr('synced'));render();return;
+    }
+    state.sync.lastSyncAt=Date.now();saveLocal(false);void publishLineSnapshot(state.data);
+    if(!silent)toast('✓ '+tr('synced'));render();
+  }catch(e){state.driveError=e.message;if(!silent)toast(e.message);render()}
+  finally{setDriveBusy(false)}
+}
+function showConflict(meta){
+  pendingConflictMeta=meta;
+  const cloudTime=syncTimestamp(meta.modifiedTime),localTime=syncTimestamp(state.data.savedAt),cloudNewer=cloudTime>localTime,localNewer=localTime>cloudTime,recommendation=cloudNewer?'Cloud → Local':localNewer?'Local → Cloud':'Either copy';
+  showModal(tr('conflict'),`<p class="note" style="font-size:14px">Both copies changed. Compare their timestamps, then choose the direction. <strong>Recommended: ${recommendation}</strong></p><div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>Cloud ${cloudNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(meta.modifiedTime))}</span></div><span aria-hidden="true">→</span></div><div class="file-row"><div class="file-icon">📱</div><div class="file-info"><strong>Local ${localNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(state.data.savedAt))}</span></div><span aria-hidden="true">→</span></div><div class="sync-actions" style="margin-top:12px"><button class="${cloudNewer?'primary':'secondary'}" id="conflictPull">☁️ → 📱 ${tr('pullCloud')} ${cloudNewer?'· Recommended':''}</button><button class="${localNewer?'primary':'secondary'}" id="conflictPush">📱 → ☁️ ${tr('pushLocal')} ${localNewer?'· Recommended':''}</button><button class="secondary" id="conflictExport">${tr('exportFirst')}</button></div>`);
+  const pull=async()=>{
+    const text=await driveDownload(state.sync.fileId),data=normalizeProfile(JSON.parse(text));
+    pushHistory('Resolve conflict from cloud');state.data=data;state.lang=state.data.config?.lang||state.lang;
+    state.sync.lastCloudModified=meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
+    saveLocal(false);void publishLineSnapshot(data);pendingConflictMeta=null;closeModal();render();
+  };
+  const push=async()=>{
+    const payload=prepareForSave(),r=await driveUpdate(state.sync.fileId,JSON.stringify(payload,null,2));
+    state.sync.lastCloudModified=r.modifiedTime||meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
+    saveLocal(false);void publishLineSnapshot(payload);pendingConflictMeta=null;closeModal();render();
+  };
+  $('#conflictPull').onclick=()=>confirmConflictOverwrite('cloud',pull);$('#conflictPush').onclick=()=>confirmConflictOverwrite('local',push);$('#conflictExport').onclick=exportJSON;
+}
 function bindSync(){
   $('#connectDrive').onclick=connectDrive;$('#syncNow').onclick=()=>syncNow(false);$('#selectCloud').onclick=showCloudFiles;$('#createCloud').onclick=beginCreateCloudFile;$('#openFileList')&&($('#openFileList').onclick=showCloudFiles);$('#exportJson').onclick=exportJSON;$('#importJson').onclick=()=>$('#fileInput').click();
+  $('#createLineCode')&&($('#createLineCode').onclick=createLineLinkCode);$('#refreshLineStatus')&&($('#refreshLineStatus').onclick=()=>refreshLineStatus(true));$('#copyLineCode')&&($('#copyLineCode').onclick=copyLineCommand);if(!lineSyncState.loaded&&!lineSyncState.busy)setTimeout(()=>refreshLineStatus(),0);
   $('#storageExport').onclick=exportJSON;$('#storageRefresh').onclick=render;$('#clearHistory').onclick=clearEditHistory;$('#archiveOld').onclick=archiveOldCompleted;$('#saveStorageLimit').onclick=saveStorageLimit;$('#ackStorage')&&($('#ackStorage').onclick=acknowledgeStorage);
   $('#saveSettings').onclick=()=>{pushHistory('Save settings');state.lang=$('#langSelect').value;state.sync.clientId=DEFAULT_CLIENT_ID;state.sync.autoSync=$('#autoSync').checked;state.data.config={...(state.data.config||{}),lang:state.lang,googleClientId:'',gsyncAuto:state.sync.autoSync};accessToken='';saveLocal(true);applyTranslations();toast('✓ '+tr('saveSettings'));render()};
   $('#saveProfileName').onclick=()=>{pushHistory('Rename profile');state.data.profile={...(state.data.profile||{}),name:$('#profileName').value.trim()||'My Profile'};saveLocal(true);toast('✓ '+tr('save'));render()};
@@ -365,4 +465,5 @@ guard();new MutationObserver(guard).observe(document.getElementById('app')||docu
 </script>
 <script defer src="../vendor/supabase-2.110.7.js"></script>
 <script defer src="../auth.js"></script>
+<script defer src="../line-sync.js"></script>
 </body></html>
