@@ -1,21 +1,21 @@
 {
-  "version": "3.77.0-n104-ios-drive-file-list",
-  "date": "2026-07-24",
+  "version": "3.77.1-line-auth-storage-hotfix",
+  "date": "2026-07-29",
   "full": {
     "path": "index.html",
-    "sha256": "225bb478ba527f37ea3f618ec258e669986d44b4f38403125c9e2e6b5386c84b",
-    "bytes": 762118
+    "sha256": "7bfaf1d21573488a3fe5813c534c25412e0064aba26f334cc66babb3a3fc3bad",
+    "bytes": 762327
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "f0d2891bd63e6f737da0ec39fe0a1e6e74e780bb84972d6bd6e11ced9416db93",
-    "bytes": 93369,
-    "note": "unchanged from 3.76.1"
+    "sha256": "3b975102e87388ea40be7daa9e0b1c24ca514522773213f475a9edec6326c658",
+    "bytes": 98669,
+    "note": "3.75.1 auth-storage hotfix; inline CSP hashes verified by regression test"
   },
   "csp": {
     "full_hashes": 6,
     "mobile_hashes": 3,
-    "generated_by": "build/package.mjs (computed from shipped bytes, never by hand)"
+    "generated_by": "Full: build/package.mjs; Mobile: SHA-256 of shipped inline scripts, verified by build/line-contract.test.mjs"
   },
   "source": {
     "app": "src/App.jsx",

@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  document.documentElement.dataset.mtpPro='3.77.0';
+  document.documentElement.dataset.mtpPro='3.77.1';
   var skip=document.createElement('a');
   skip.id='mtp-pro-skip';skip.href='#root';skip.textContent='Skip to application';
   document.body.prepend(skip);

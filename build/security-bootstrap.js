@@ -1,17 +1,19 @@
 (function(){
 'use strict';
-const SECURITY_VERSION='3.77.0-security';
+const SECURITY_VERSION='3.77.1-security';
 const MAX_JSON_CHARS=52428800;
 const MAX_FILE_BYTES=52428800;
 const DANGEROUS_KEYS=new Set(['__proto__','prototype','constructor']);
 const SECRET_KEYS=new Set(['anthropicKey','googleApiKey','apiKey','api_key','clientSecret','client_secret','accessToken','access_token','refreshToken','refresh_token','idToken','id_token']);
+const SUPABASE_AUTH_STORAGE_KEY='sb-qjaywadzvwvcspdsjxth-auth-token';
 const originalJSONParse=JSON.parse.bind(JSON);
 const originalJSONStringify=JSON.stringify.bind(JSON);
 function secureReviver(userReviver){return function(k,v){if(DANGEROUS_KEYS.has(k))return undefined;return typeof userReviver==='function'?userReviver.call(this,k,v):v}}
 JSON.parse=function(text,reviver){if(typeof text==='string'&&text.length>MAX_JSON_CHARS)throw new Error('JSON file is too large for safe browser processing.');return originalJSONParse(text,secureReviver(reviver))};
 function redactObject(value,seen){if(!value||typeof value!=='object')return value;seen=seen||new WeakSet();if(seen.has(value))return value;seen.add(value);if(Array.isArray(value)){value.forEach(v=>redactObject(v,seen));return value}Object.keys(value).forEach(k=>{if(SECRET_KEYS.has(k))value[k]='';else redactObject(value[k],seen)});return value}
 function redactStoredValue(value){if(typeof value!=='string')return value;const s=value.trim();if(!(s.startsWith('{')||s.startsWith('[')))return value;try{const parsed=originalJSONParse(value);redactObject(parsed);return originalJSONStringify(parsed)}catch{return value}}
-try{const nativeSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){return nativeSet.call(this,k,redactStoredValue(String(v)))};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i),v=localStorage.getItem(k),safe=redactStoredValue(v);if(safe!==v)localStorage.setItem(k,safe)}}catch(e){}
+function protectStoredValue(key,value){const text=String(value);return String(key)===SUPABASE_AUTH_STORAGE_KEY?text:redactStoredValue(text)}
+try{const nativeSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){return nativeSet.call(this,k,protectStoredValue(k,v))};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i),v=localStorage.getItem(k),safe=protectStoredValue(k,v);if(safe!==v)localStorage.setItem(k,safe)}}catch(e){}
 const innerDesc=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
 const nativeInnerGet=innerDesc&&innerDesc.get;
 const nativeInnerSet=innerDesc&&innerDesc.set;

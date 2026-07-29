@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-bsjHASfARubpnYkGWj5E507LuW8QhyKfWETBCdxyY40=' 'sha256-2QKwdvCLQLfn/x0BsxNHuO36IDX4HWtQ2wDt546K+tE=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-Gcuf2ZYhOdYzGJ6JHEV5w7de6DgXkqabwUuB7v7DvX4=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -55,18 +55,20 @@
 <script id="mtp-security-bootstrap">
 (function(){
 'use strict';
-const SECURITY_VERSION='3.64.0-security';
+const SECURITY_VERSION='3.75.1-security';
 const MAX_JSON_CHARS=15728640;
 const MAX_FILE_BYTES=15728640;
 const DANGEROUS_KEYS=new Set(['__proto__','prototype','constructor']);
 const SECRET_KEYS=new Set(['anthropicKey','googleApiKey','apiKey','api_key','clientSecret','client_secret','accessToken','access_token','refreshToken','refresh_token','idToken','id_token']);
+const SUPABASE_AUTH_STORAGE_KEY='sb-qjaywadzvwvcspdsjxth-auth-token';
 const originalJSONParse=JSON.parse.bind(JSON);
 const originalJSONStringify=JSON.stringify.bind(JSON);
 function secureReviver(userReviver){return function(k,v){if(DANGEROUS_KEYS.has(k))return undefined;return typeof userReviver==='function'?userReviver.call(this,k,v):v}}
 JSON.parse=function(text,reviver){if(typeof text==='string'&&text.length>MAX_JSON_CHARS)throw new Error('JSON file is too large for safe browser processing.');return originalJSONParse(text,secureReviver(reviver))};
 function redactObject(value,seen){if(!value||typeof value!=='object')return value;seen=seen||new WeakSet();if(seen.has(value))return value;seen.add(value);if(Array.isArray(value)){value.forEach(v=>redactObject(v,seen));return value}Object.keys(value).forEach(k=>{if(SECRET_KEYS.has(k))value[k]='';else redactObject(value[k],seen)});return value}
 function redactStoredValue(value){if(typeof value!=='string')return value;const s=value.trim();if(!(s.startsWith('{')||s.startsWith('[')))return value;try{const parsed=originalJSONParse(value);redactObject(parsed);return originalJSONStringify(parsed)}catch{return value}}
-try{const nativeSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){return nativeSet.call(this,k,redactStoredValue(String(v)))};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i),v=localStorage.getItem(k),safe=redactStoredValue(v);if(safe!==v)localStorage.setItem(k,safe)}}catch(e){}
+function protectStoredValue(key,value){const text=String(value);return String(key)===SUPABASE_AUTH_STORAGE_KEY?text:redactStoredValue(text)}
+try{const nativeSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){return nativeSet.call(this,k,protectStoredValue(k,v))};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i),v=localStorage.getItem(k),safe=protectStoredValue(k,v);if(safe!==v)localStorage.setItem(k,safe)}}catch(e){}
 const innerDesc=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
 const nativeInnerGet=innerDesc&&innerDesc.get;
 const nativeInnerSet=innerDesc&&innerDesc.set;
@@ -94,7 +96,7 @@ window.__MTP_SECURITY__=Object.freeze({version:SECURITY_VERSION,sanitizeHTML,saf
 <script>
 (function(){
 'use strict';
-const APP_VERSION='3.75.0-unified-sync-conflicts';
+const APP_VERSION='3.75.1-auth-storage';
 const DEFAULT_CLIENT_ID='369687041884-u3qkbv143hfarb22b6lv2csrgec9hbs6.apps.googleusercontent.com';
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const LS_DATA='mtp-mobile-profile-v1',LS_SYNC='mtp-mobile-sync-v1',LS_UI='mtp-mobile-ui-v1';
