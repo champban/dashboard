@@ -2,6 +2,19 @@
 
 A single-file React dashboard application (`index.html`) for personal/work task planning, calendar views, Gantt timelines, activity history, local/profile JSON storage, and optional cloud integrations.
 
+## LINE Official integration (release candidate)
+
+The same repository now contains an unreleased read-only LINE bot module:
+
+- browser snapshot/link bridge: `line-sync.js`
+- database migration and RLS: `supabase/migrations/`
+- signed webhook: `supabase/functions/line-todo-webhook/`
+- activation runbook: `docs/LINE_OFFICIAL_SETUP.md`
+
+Google Drive sync completes before the app publishes a reduced Supabase task
+snapshot. LINE can answer simple deterministic Thai questions but cannot create,
+edit, or complete tasks. No AI model is required.
+
 ## Six-dimension audit
 
 This audit captures the current state of the app across six dimensions and should be updated when material behavior changes.

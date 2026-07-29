@@ -10,6 +10,41 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - Mobile application: `mobile/index.html` (separate hand-written vanilla-JS app, v3.75.0)
 - Live: https://champban.github.io/dashboard/
 
+## Unreleased: LINE Official read-only bot
+
+Branch: `feature/line-official-readonly-bot`
+
+Status: release candidate only; no migration/function/app production deployment
+
+- The feature stays in this repository because it is an integration module of
+  the same Todo Planner product, not a separate product.
+- Full and Mobile publish a privacy-minimised task snapshot to Supabase only
+  after Google Drive sync succeeds. LINE failure never fails Drive.
+- `line-sync.js` is public browser code using the existing authenticated
+  Supabase publishable client and RLS. It contains no provider/backend secret.
+- `line-todo-webhook` verifies LINE HMAC on the raw body, resolves the one-time
+  owner link, reads the snapshot, and returns deterministic Thai replies.
+- Supported commands: `งานวันนี้`, `งานสัปดาห์นี้`, `งานเกินกำหนด`,
+  `งานไม่มีวันกำหนด`, `ค้นหา <คำ>`, `สถานะ`, `ช่วยเหลือ`.
+- No AI or MCP runtime is used. Date logic is fixed to `Asia/Bangkok`.
+- Snapshot allow-list: type, title, status, due date, category/project, priority.
+  Excluded: IDs, notes, descriptions, attachments, configuration, OAuth tokens,
+  and API keys.
+- One-time link codes are CSPRNG-generated, stored as SHA-256 only, single-use,
+  and expire after 10 minutes.
+
+Release/runbook files:
+
+- `supabase/migrations/20260728155436_line_official_readonly_bot.sql`
+- `supabase/functions/line-todo-webhook/`
+- `docs/LINE_OFFICIAL_SETUP.md`
+- `docs/SECURITY_6D_AUDIT.md`
+- `docs/PROJECT_PERFORMANCE_KPI.md`
+
+Production order is backup → migration → Function Secrets → Edge Function →
+LINE webhook verify → app deploy → Full/Mobile acceptance. Never deploy or merge
+this feature without a separate explicit approval.
+
 ## Source of truth (restored in 3.77.0)
 
 Versions 3.65–3.76.1 were produced by patching the minified bundle directly;
@@ -588,6 +623,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | Add automated checks: audit.py, harness, CSP/manifest integrity on every PR. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
+| LINE-1 | LINE Official read-only bot production activation | RC implemented on feature branch. Pending Supabase backup/migration, Function Secrets, function deploy, LINE webhook verify, and Full/Mobile owner acceptance. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
