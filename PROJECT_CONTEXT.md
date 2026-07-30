@@ -5,12 +5,12 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- LINE/auth hotfix merged to `main`: `5d5b50c`
-- LINE bilingual command-menu candidate:
-  `feature/line-command-menu`; not merged or deployed
-- LINE task-detail card candidate:
-  `feature/line-task-details`; stacked on `feature/line-command-menu`, not
-  merged, migrated, or deployed
+- Production branch `main` is `f200d72`; it includes the LINE/auth hotfix,
+  bilingual command menu, and task-detail cards.
+- Supabase `line-todo-webhook` version 2 is ACTIVE and is the last known-good
+  function/rollback point before the Search-button increment.
+- Search-button release candidate:
+  `feature/line-search-button`; function-only, not yet merged or deployed.
 - `APP_VERSION` in `src/App.jsx` is the Full version source; it flows into the
   UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
   artifacts.
@@ -100,9 +100,9 @@ Recovery after the auth hotfix: sign in once, save to cloud if a fresh snapshot
 is needed, create a new link code, send it to LINE, then run the command
 acceptance set. No database rollback or data restore is required.
 
-### LINE bilingual command-menu release candidate
+### LINE bilingual command-menu production release
 
-Branch: `feature/line-command-menu`
+Branch: `feature/line-command-menu` (merged)
 
 - Edge Function source only; no database migration, snapshot schema, browser
   application, or Google Drive change.
@@ -110,12 +110,12 @@ Branch: `feature/line-command-menu`
   there are eight static message actions, below LINE's limit of 13.
 - English is the default after linking. Language choice is carried by the
   command tapped or typed and is intentionally not stored in the database.
-- Production release is a redeploy of `line-todo-webhook` after review and
-  explicit approval. Rollback is redeploying the previous function commit.
+- Production is included in `line-todo-webhook` version 2. Rollback is
+  redeploying the previous reviewed function commit.
 
-### LINE task-detail card release candidate
+### LINE task-detail card production release
 
-Branch: `feature/line-task-details`, stacked on `feature/line-command-menu`
+Branch: `feature/line-task-details` (merged)
 
 - Snapshot schema v2 adds two independent owner opt-ins:
   `lineShareSubtasks` and `lineShareAttachmentLinks`. Both default to `false`.
@@ -129,13 +129,37 @@ Branch: `feature/line-task-details`, stacked on `feature/line-command-menu`
 - Compatibility migration
   `20260730031026_line_task_details_snapshot_v2.sql` allows snapshot schema v1
   and v2 without rewriting existing rows.
-- No production change has been made for this candidate. Release order is:
-  fresh logical Supabase backup → compatibility migration → Edge Function
-  deploy → Full/Mobile app deploy → owner acceptance. GitHub is the primary
-  source for code and migrations; Drive remains supplementary recovery only.
+- The compatibility migration, Edge Function version 2, and Full/Mobile app
+  release are in production. Owner live-data acceptance remains an operational
+  check. GitHub is the primary source for code and migrations; Drive remains
+  supplementary recovery only.
 - Rollback the application and Edge Function to the prior release if needed.
   Keep the additive v1/v2 database constraint because it remains compatible
   with both old and new clients.
+
+### LINE Search-button release candidate
+
+Branch: `feature/line-search-button`
+
+- Adds one `Search` / `ค้นหา` action to both the Flex command menu and mobile
+  Quick Replies, bringing each language to nine actions (below LINE's limit of
+  thirteen).
+- The action is a fixed LINE postback with `inputOption: openKeyboard` and a
+  fixed `fillInText` value of `search ` or `ค้นหา `. Mobile users type only the
+  keyword; LINE PC receives a short typed-command fallback instruction.
+- Bare `search` / `ค้นหา` also opens the same deterministic prompt. Existing
+  `search <text>` / `ค้นหา <คำ>` behavior is unchanged.
+- Only exact `action=search_prompt&lang=en|th` postbacks are accepted; arbitrary
+  postback data is ignored. No task data is placed in the postback payload.
+- Function-only change: no database migration, snapshot resave, new secret,
+  AI/MCP runtime, browser app change, or Google Drive change.
+- Rollback is redeploying ACTIVE `line-todo-webhook` version 2.
+
+Targeted 6D audit:
+
+| Audit date | Commit SHA | Environment | Identity & access | Secrets & data | Input safety | Browser/network | Supply chain/deploy | Operations/recovery | Decision | Report |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-07-30 | `bf47521` | Supabase Production candidate | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 
 ## Source of truth (restored in 3.77.0)
 
@@ -721,7 +745,8 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | Add automated checks: audit.py, harness, CSP/manifest integrity on every PR. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
-| LINE-1 | LINE Official read-only bot production activation | Backup, migration, Function Secrets, function deploy, webhook verification, auth hotfix merge, and initial linked reply complete. Bilingual command-menu Edge Function release pending review/deploy. |
+| LINE-1 | LINE Official read-only bot production activation | Backup, migrations, Function Secrets, function v2, webhook verification, auth hotfix, menu and task cards are active. Owner live-data acceptance remains. |
+| LINE-2 | Search button owner acceptance | After Search-button deployment, verify keyboard prefill on LINE iOS/Android and fallback instruction on LINE PC. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,

@@ -25,7 +25,9 @@ state and HTTPS attachment-link metadata only after the owner enables each
 sharing option. It never receives notes, descriptions, local files, base64
 data, or raw task/Subtask/attachment IDs. Its English-first Flex menu and task
 cards work in LINE PC and mobile; Quick Replies are an additional mobile
-convenience.
+convenience. The Search action opens the keyboard and pre-fills `search ` or
+`ค้นหา ` on supported mobile clients, with a typed-command fallback for LINE
+PC.
 
 ## 1. Back up before production changes
 
@@ -143,6 +145,33 @@ supabase functions deploy line-todo-webhook
 Verify `menu` on LINE PC and both `menu` / `เมนู` plus the Quick Reply row on
 LINE iOS or Android. Roll back by deploying the previous reviewed function
 commit; do not delete LINE account mappings or snapshots.
+
+## Search-button-only update
+
+This release changes only `line-todo-webhook`. It adds `Search` / `ค้นหา` to
+the Flex menu and Quick Replies. It does not require a database migration, new
+link code, planner resave, browser deployment, or Function Secret change.
+
+After the reviewed pull request is merged and the production gate passes:
+
+```bash
+supabase functions deploy line-todo-webhook
+```
+
+Acceptance:
+
+1. Send `menu`; tap `Search`; on LINE iOS/Android confirm the keyboard opens
+   with `search ` already filled. Add a keyword and send it.
+2. Send `เมนู`; tap `ค้นหา`; confirm `ค้นหา ` is filled and the Thai result is
+   returned.
+3. On LINE PC, tap Search and confirm the bot gives the typed-command example
+   `search passport` or `ค้นหา พาสปอร์ต`.
+4. Send bare `search` and bare `ค้นหา`; each must return the same prompt.
+5. Confirm the result still uses existing read-only task cards and that no
+   database, Drive, or planner data is changed.
+
+Rollback by redeploying the prior ACTIVE function version. Do not change or
+delete LINE mappings, snapshots, migrations, or secrets.
 
 ## Rollback
 

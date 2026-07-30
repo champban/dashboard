@@ -63,6 +63,9 @@ assert.match(webhook, /messages: messages\.slice\(0, 5\)/);
 assert.match(webhook, /intent\.kind === "menu"/);
 assert.match(webhook, /buildMenuMessage\(language\)/);
 assert.match(webhook, /buildQuickReply\(language\)/);
+assert.match(webhook, /event\?\.type === "postback"/);
+assert.match(webhook, /parseSearchPromptPostback\(event\?\.postback\?\.data\)/);
+assert.match(webhook, /buildSearchPromptMessage\(language\)/);
 assert.match(webhook, /buildReplyMessages\(intent, snapshot, \{ language \}\)/);
 await assert.doesNotReject(
   transform(webhook, { loader: "ts", target: "es2022" }),

@@ -1,13 +1,58 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Audit date: 2026-07-30
+Latest audit: `2026-07-30T11:49:49+07:00` (`Asia/Bangkok`)
 
-Scope: LINE production activation, auth hotfix, bilingual command menu, and
-`feature/line-task-details`
+Scope: `feature/line-search-button`; Supabase Edge Function-only increment
 
-Decision: **CONDITIONAL / backend active; task-details v2 is not
-production-ready until backup, migration, Preview-equivalent verification, and
-owner acceptance pass**
+Decision: **PASS** for review, merge, and deployment of the exact verified
+candidate. No Critical or High findings. Production and owner-device evidence
+must be appended after deployment.
+
+## Latest targeted findings — Search button
+
+| Dimension | Result | Evidence / control | Open item |
+|---|---|---|---|
+| Identity and access | PASS | Existing raw-body LINE HMAC gate and account mapping are unchanged; postback handling occurs only after HMAC verification | None |
+| Secrets and data | PASS | No new secret, task field, log field, database access, migration, or browser bundle; postback contains only fixed action/language | None |
+| Input and content safety | PASS | Exact allow-list `action=search_prompt&lang=en\|th`; extra/unknown postback data is ignored; typed query retains existing normalization and 120-character cap | None |
+| Browser and network controls | PASS | Uses LINE-native postback, `openKeyboard`, and fixed `fillInText`; no new origin, endpoint, CORS rule, URI action, or CSP change | Owner mobile/PC acceptance |
+| Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source commit is `bf47521`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | Record deployed function version |
+| Operations and recovery | PASS | Current production Function v2 is ACTIVE and is the rollback point; no database/data change; recent logs include expected 200 and invalid-signature 401 outcomes | Post-deploy smoke test |
+
+Checks performed:
+
+- Exact English/Thai Search postback and keyboard-prefill assertions.
+- Bare `search` / `ค้นหา`, desktop fallback, and unknown-postback regression
+  coverage.
+- Clean install from the committed lockfile — PASS using an isolated writable
+  npm cache.
+- `npm test` — PASS.
+- `npm run verify` — PASS; harness `LEN 25129 / NODES 141`, static audit
+  `0 blockers`, CSP hashes `6/6`.
+- Runtime dependency audit — `0 vulnerabilities`.
+- `npm run scan-secrets` — PASS immediately before commit/push.
+
+Backup and rollback readiness:
+
+- Supabase remains the production Data/Auth source of truth and is unchanged;
+  no new backup is required for this non-destructive function-only release.
+- GitHub branch/commit is the primary source and rollback audit trail.
+- Google Drive remains supplementary planner recovery and is unchanged.
+- Roll back by redeploying ACTIVE `line-todo-webhook` version 2.
+
+Residual risk: LINE client support for automatic keyboard opening varies by
+client/version. The deterministic instruction reply is the compensating
+fallback and exposes no planner data.
+
+## Historical full-integration audit
+
+Historical audit date: 2026-07-30
+
+Historical scope: LINE production activation, auth hotfix, bilingual command
+menu, and `feature/line-task-details`
+
+Historical decision at that gate: **CONDITIONAL** pending the then-unfinished
+task-details production activation.
 
 ## 1. Functional correctness and data integrity — PASS for release candidate
 
