@@ -1,7 +1,7 @@
 # Project Performance KPI — LINE Official Read-only Bot
 
 Status: backend, bilingual command menu, task-details v2, and Search button
-active in production; owner LINE mobile/PC acceptance remains
+active in production and owner-accepted on LINE mobile and LINE for PC
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -102,7 +102,7 @@ Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
   `line-todo-webhook` version 3 became ACTIVE at
   `2026-07-30T12:05:31+07:00`. Production source matches merged `main`; direct
   GET returned 405 and unsigned POST returned 401, both recorded against
-  version 3. Owner LINE mobile/PC acceptance remains.
+  version 3. Owner LINE mobile/PC acceptance passed on `2026-07-30`.
 
 ## Activation incident measurement
 
@@ -174,3 +174,55 @@ Manual-step analysis, per the progress and manual-assist skill:
   default branch. Any future CI addition intended to be verified before merge
   needs a `pull_request` trigger, or verification has to be accepted as
   post-merge.
+
+## M6 Production Verified — LINE integration, 2026-07-30
+
+The LINE Official integration reaches `M6 Production Verified`. All five
+outstanding items closed on the same day; the remaining Medium residual
+(LINE-5) is accepted with compensating controls, not deferred work.
+
+| Evidence | Result |
+|---|---|
+| GitHub SHA = deployed SHA | `main` `e7ea377`; Edge Function v3 bundle SHA-256 `d4ed04ca…51f6` matches the recorded value, deployed source matches merged `main` |
+| Migration version verified | `20260728155436` and `20260730041511` applied; repo/database filename drift recorded rather than silently renamed |
+| Auth/RLS critical flow | Anonymous read of `mtp_line_snapshots` denied with 401, asserted every day by `line-health` |
+| Smoke test | `line-health` run 1 — `PASS (3/3)` |
+| Owner acceptance | Rich Menu 7 steps, Search button 5 steps, live-data 7 steps — all passed on LINE mobile and LINE for PC |
+| Rollback ready | Edge Function v2; `git revert` for the application; additive v1/v2 constraint deliberately kept |
+| 6D audit | `PASS`, one accepted Medium residual |
+
+Acceptance detail worth keeping, because it is the part that carries real
+privacy risk rather than the part that is merely visible: an HTTP link, a local
+file attachment and base64 data were each confirmed **absent** from LINE output,
+and disabling each sharing opt-in separately removed only that opt-in's data
+from the next reply. Subtask and attachment sharing are independent, and the
+acceptance proved they are independent in production rather than only in tests.
+
+Milestone timing for this increment:
+
+- `M0` 2026-07-30 20:17 → `M4` 20:52 → `M6` 2026-07-30, approximately `1.5`
+  measured wall-clock hours end to end.
+- Comparability: **Not comparable** to the Shared Calendar `M4` baseline. That
+  baseline covers building an application; this covers verifying, documenting
+  and monitoring one that already existed. Do not publish a speed-improvement
+  percentage against it.
+
+Final KPI counts for the increment:
+
+| KPI | Value |
+|---|---|
+| Failed deploys | `0` |
+| CI retries | `0` |
+| Rework cycles | `2` — the anonymous-read assertion, and the `*/2` cadence |
+| Known-error recurrences | `0` |
+| Production escapes | `1` — the `*/2` cadence reached `main` in PR #45 and was corrected by PR #46 before any scheduled run fired |
+| Manual interventions | `3` — PNG upload, live verification, owner acceptance; none delegable |
+| Prevention closure rate | `100%` |
+
+The production escape is recorded rather than argued away. PR #45 merged one
+commit short of the cadence fix, so `main` briefly carried a keepalive that
+could allow the pause it exists to prevent. No scheduled run fired in that
+window and PR #46 closed it the same hour, but it reached the production branch,
+and the prevention is stated where the next person will read it: **verify what
+landed on `main` after a merge; do not infer it from the branch that was
+pushed.**
