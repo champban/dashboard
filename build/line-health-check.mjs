@@ -57,26 +57,39 @@ const CHECKS = [
     },
   },
   {
-    name: 'database is awake and RLS denies anonymous reads',
-    why: 'the project is not paused, PostgREST is up, and snapshots stay owner-scoped',
+    // This check asserts DENIAL, not a successful read, and the distinction is the
+    // whole design. The activation migration does
+    //   revoke all on table public.mtp_line_snapshots from anon;
+    // so an anonymous caller never gets rows and never gets 200 — it gets a
+    // privilege error. Expecting "200 with an empty array" would fail forever.
+    //
+    // Asserting denial is also the stronger assertion: a 200 here, empty array or
+    // not, means the revoke was undone and anonymous callers can reach owner
+    // snapshots. That is Critical, and this is the only automated thing watching
+    // for it.
+    //
+    // It doubles as the keepalive because the privilege check happens inside
+    // Postgres — the request reaches the database even though it is refused. A
+    // paused project cannot refuse it: it fails to connect, or answers 5xx from
+    // the gateway, which is why "denied" and "down" stay distinguishable.
+    name: 'database refuses anonymous access to snapshots',
+    why: 'the project is awake, PostgREST is up, and the anon revoke still holds',
     async run(fetchImpl) {
       const res = await fetchImpl(SNAPSHOT_URL, {
         headers: { apikey: PUBLISHABLE_KEY, authorization: `Bearer ${PUBLISHABLE_KEY}` },
       });
-      if (res.status !== 200) {
-        return { ok: false, detail: `status ${res.status}, expected 200 (paused project or PostgREST down)` };
+      if (res.status === 200) {
+        return { ok: false, detail: 'status 200 — anon can read mtp_line_snapshots, GRANT/RLS REGRESSION' };
       }
-      // An anonymous caller must see zero rows. Rows here would mean RLS on
-      // mtp_line_snapshots has been weakened — a Critical finding, not a flaky check.
-      const rows = await res.json();
-      if (!Array.isArray(rows)) {
-        return { ok: false, detail: 'response was not a JSON array' };
-      }
+      // PostgREST answers insufficient_privilege as 401 or 403 depending on role
+      // and version. Both mean the same thing here, so accept either rather than
+      // pinning a code that an upgrade could legitimately change.
+      const denied = res.status === 401 || res.status === 403;
       return {
-        ok: rows.length === 0,
-        detail: rows.length === 0
-          ? 'status 200, 0 rows (RLS holding)'
-          : `status 200 but ${rows.length} row(s) visible anonymously — RLS REGRESSION`,
+        ok: denied,
+        detail: denied
+          ? `status ${res.status} (anon denied, database reachable)`
+          : `status ${res.status}, expected 401 or 403 — project paused or PostgREST down`,
       };
     },
   },
@@ -117,7 +130,7 @@ function report(results) {
 async function selftest() {
   const healthy = {
     [FUNCTION_URL]: (opts) => ({ status: opts?.method === 'GET' ? 405 : 401 }),
-    [SNAPSHOT_URL]: () => ({ status: 200, json: async () => [] }),
+    [SNAPSHOT_URL]: () => ({ status: 401 }),
   };
   const stub = (overrides = {}) => async (url, opts) => {
     const handler = overrides[url] || healthy[url];
@@ -127,12 +140,15 @@ async function selftest() {
 
   const cases = [
     ['healthy production passes', stub(), 0],
+    // 403 is as valid a denial as 401; a version bump must not turn CI red.
+    ['anon denial via 403 also passes', stub({ [SNAPSHOT_URL]: () => ({ status: 403 }) }), 0],
     ['function gone (404) is caught', stub({ [FUNCTION_URL]: () => ({ status: 404 }) }), 2],
     ['HMAC gate bypassed (unsigned POST accepted) is caught',
       stub({ [FUNCTION_URL]: (o) => ({ status: o?.method === 'GET' ? 405 : 200 }) }), 1],
     ['paused project (503) is caught', stub({ [SNAPSHOT_URL]: () => ({ status: 503 }) }), 1],
-    ['RLS regression (anon sees rows) is caught',
-      stub({ [SNAPSHOT_URL]: () => ({ status: 200, json: async () => [{ updated_at: 'x' }] }) }), 1],
+    // The one this file exists to catch: anon reaching owner snapshots at all.
+    ['grant regression (anon read succeeds) is caught',
+      stub({ [SNAPSHOT_URL]: () => ({ status: 200, json: async () => [] }) }), 1],
     ['network failure is caught', () => { throw new Error('ECONNREFUSED'); }, 3],
   ];
 
