@@ -13,21 +13,33 @@ place the live menu is defined, and it has no version history of its own.
 | File | What it is | Status |
 |---|---|---|
 | `line-rich-menu-menu-v1.json` | Rich Menu configuration sent to the Messaging API | Committed |
-| `line-rich-menu-menu-v1.png` | Final deployment image — the composed menu, 2500 × 843 px, ~419 KB | **See "Missing binary" below** |
-| `line-rich-menu-background-v1.png` | Background plate without the `Menu` label | Not supplied |
+| `line-rich-menu-menu-v1.png` | Final deployment image — the composed menu currently live in Manager | Committed |
+| `line-rich-menu-background-v1.png` | Background plate without the `Menu` label | Not supplied — optional |
 
-## Missing binary
+The background plate only matters if the label text ever needs re-typesetting
+over the same artwork. Its absence does not affect recreating the live menu.
 
-`line-rich-menu-menu-v1.png` is the image currently live in LINE Official
-Account Manager. It was produced in an earlier session on the owner's machine
-and has never been committed. It must be uploaded as the **original bytes** —
-a re-encoded copy is a different image and defeats the purpose of this backup.
+### Verified properties of `line-rich-menu-menu-v1.png`
 
-Until it is committed, the Rich Menu is recoverable in *configuration* only, not
-in *appearance*. Treat that as an open gap, not a finished backup.
+Recorded so a future maintainer can tell the original from a re-encoded copy
+without opening an image editor. Re-check with
+`node -e "const b=require('fs').readFileSync(process.argv[1]);console.log(b.readUInt32BE(16),b.readUInt32BE(20),b.length,require('crypto').createHash('sha256').update(b).digest('hex'))" <file>`.
 
-`line-rich-menu-background-v1.png` is optional; it only matters if the label
-text ever needs re-typesetting over the same artwork.
+| Property | Value |
+|---|---|
+| Dimensions | 2500 × 843 (matches the specification below) |
+| Size | 418,567 bytes |
+| Encoding | PNG, 8-bit, colour type 3 (indexed palette) |
+| SHA-256 | `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4` |
+
+Chunks present: `IHDR cHRM PLTE bKGD tIME IDAT IEND`. There is **no `tEXt`,
+`iTXt`, or `eXIf` chunk**, so the file carries no author name, software string,
+GPS coordinate, or other metadata — it is safe in a public repository as-is.
+If this file is ever replaced, re-check that, because most image editors add a
+software string on save.
+
+**A differing SHA-256 means the file is not the image that was deployed.** Do
+not silently accept a replacement: version it as `-v2` and record why.
 
 ## Specification
 
@@ -84,7 +96,9 @@ curl -s -X POST "https://api.line.me/v2/bot/user/all/richmenu/<richMenuId>" \
   -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN"
 ```
 
-Step 2 needs the PNG. See "Missing binary" above.
+Verify the PNG's SHA-256 against the table above before step 2 — uploading a
+re-encoded copy would replace the live design with something that only looks
+similar.
 
 Creating a menu through the API does not delete the Manager-created one. If both
 exist, the API-created default wins for users it is applied to. Confirm which

@@ -2,9 +2,12 @@
 
 Latest audit: `2026-07-30T20:48:00+07:00` (`Asia/Bangkok`)
 
-Scope: branch `claude/todo-planner-line-handover-yrm2ei` at `ac7a798`
-(Rich Menu asset versioning, project-context corrections, scheduled LINE health
-check). Auditor: Claude Opus 5 via Claude Code.
+Scope: branch `claude/todo-planner-line-handover-yrm2ei`, pull request #45
+(Rich Menu asset versioning including the deployment image, project-context
+corrections, scheduled LINE health check). Auditor: Claude Opus 5 via Claude
+Code. The one binary added is an image asset, never executed and never served
+by the application — it is inert in the repository and read only by a human or
+by a manual `curl` upload to LINE.
 
 Decision: **CONDITIONAL PASS**. No Critical or High findings. The condition is
 that the new health check has never executed against production — see
@@ -66,7 +69,7 @@ Residual risks:
 | Risk | Severity | Owner | Status |
 |---|---|---|---|
 | Health check never executed against production; the sandbox egress policy refuses `CONNECT` to `supabase.co`, and `workflow_dispatch` is not available until the workflow reaches `main` | Medium | Owner runs `npm run health-check` locally, or first post-merge run | Open — LINE-4 stays open until a real run passes |
-| `line-rich-menu-menu-v1.png` still uncommitted; the Rich Menu is recoverable in configuration only, not appearance. LINE OA Manager has no version history, so deleting the menu there loses the artwork | Medium | Owner uploads original bytes | Open — LINE-3 |
+| ~~`line-rich-menu-menu-v1.png` uncommitted~~ | ~~Medium~~ | Owner | **Closed** — uploaded at `6b25938` and verified: 2500 × 843, 418,567 bytes, PNG 8-bit indexed, SHA-256 `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4`. Chunk walk found `IHDR cHRM PLTE bKGD tIME IDAT IEND` and **no `tEXt`, `iTXt`, or `eXIf`**, so the file carries no author name, software string, or GPS data into a public repository. Hash recorded in `docs/assets/line/README.md` so a future re-encode is detectable. Rich Menu is now recoverable in appearance as well as configuration; only the 7-step owner acceptance remains |
 | Publishable key and project URL now appear in both `auth.js` and `build/line-health-check.mjs`. Not a disclosure risk — both are public by design — but the two can drift if the project is ever migrated | Low | Next maintainer | Accepted; `line-health-check.mjs` names `auth.js` as the source of truth and supports `MTP_SUPABASE_URL` / `MTP_SUPABASE_PUBLISHABLE_KEY` overrides |
 | Scheduled workflows are disabled by GitHub after 60 days of repository inactivity, which would silently stop the monitoring | Low | Next maintainer | Accepted and documented in the workflow file |
 
