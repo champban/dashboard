@@ -1,13 +1,18 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Latest audit: `2026-07-30T20:48:00+07:00` (`Asia/Bangkok`)
+Latest audit: `2026-07-30T22:05:00+07:00` (`Asia/Bangkok`)
 
-Scope: branch `claude/todo-planner-line-handover-yrm2ei`, pull request #45
-(Rich Menu asset versioning including the deployment image, project-context
-corrections, scheduled LINE health check). Auditor: Claude Opus 5 via Claude
-Code. The one binary added is an image asset, never executed and never served
-by the application — it is inert in the repository and read only by a human or
-by a manual `curl` upload to LINE.
+Scope: branch `claude/todo-planner-line-handover-yrm2ei`, delivered by pull
+requests #45 and #46 (Rich Menu asset versioning including the deployment image,
+project-context corrections, scheduled LINE health check, owner acceptance
+closure). Auditor: Claude Opus 5 via Claude Code. The one binary added is an
+image asset, never executed and never served by the application — it is inert in
+the repository and read only by a human or by a manual `curl` upload to LINE.
+
+Note on delivery: #45 merged one commit short of the cadence fix, and #46's
+first merge attempt pushed `e7ea377` to `main` without closing the PR. Both are
+recorded rather than tidied away — the audit's evidence is only worth what its
+account of how the code actually reached production is worth.
 
 Decision: **PASS**. No Critical or High findings. Every condition this audit was
 opened under has been closed:
