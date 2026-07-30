@@ -159,7 +159,7 @@ Targeted 6D audit:
 
 | Audit date | Commit SHA | Environment | Identity & access | Secrets & data | Input safety | Browser/network | Supply chain/deploy | Operations/recovery | Decision | Report |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 2026-07-30 | `07c8ffa` | Supabase Production candidate | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-07-30 | `bf47521` | Supabase Production candidate | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 
 ## Source of truth (restored in 3.77.0)
 
