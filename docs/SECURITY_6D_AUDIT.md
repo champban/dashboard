@@ -1,30 +1,34 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Latest audit: `2026-07-30T20:48:00+07:00` (`Asia/Bangkok`)
+Latest audit: `2026-07-30T22:05:00+07:00` (`Asia/Bangkok`)
 
-Scope: branch `claude/todo-planner-line-handover-yrm2ei`, pull request #45
-(Rich Menu asset versioning including the deployment image, project-context
-corrections, scheduled LINE health check). Auditor: Claude Opus 5 via Claude
-Code. The one binary added is an image asset, never executed and never served
-by the application — it is inert in the repository and read only by a human or
-by a manual `curl` upload to LINE.
+Scope: branch `claude/todo-planner-line-handover-yrm2ei`, delivered by pull
+requests #45 and #46 (Rich Menu asset versioning including the deployment image,
+project-context corrections, scheduled LINE health check, owner acceptance
+closure). Auditor: Claude Opus 5 via Claude Code. The one binary added is an
+image asset, never executed and never served by the application — it is inert in
+the repository and read only by a human or by a manual `curl` upload to LINE.
 
-Decision: **CONDITIONAL PASS**. No Critical or High findings.
+Note on delivery: #45 merged one commit short of the cadence fix, and #46's
+first merge attempt pushed `e7ea377` to `main` without closing the PR. Both are
+recorded rather than tidied away — the audit's evidence is only worth what its
+account of how the code actually reached production is worth.
 
-The original condition — an unverified health check — is now **satisfied**:
-`line-health` run 1 against `main` at `2b54e02` returned `PASS (3/3)` on
-`2026-07-30T21:12:57+07:00`. Two conditions replaced it, both raised by
-automated review after the merge:
+Decision: **PASS**. No Critical or High findings. Every condition this audit was
+opened under has been closed:
 
-1. **LINE-5 is an accepted open Medium.** A green run means "deployed and
-   configured", never "working" — an expired-but-present LINE token still
-   answers 401 and passes. Scoped, not fixed, because closing it puts a token
-   that can post as the Official Account into repository secrets.
-2. **The audited tree is not what is on `main`.** `main` merged at `372c3ee`
-   and does **not** contain the cadence fix or the LINE-5 scoping; those live
-   at `9ba654f` on the feature branch with no delivery path yet. Until they
-   land, `main` carries a keepalive that can let the project pause — see the
-   cadence row in Residual risks.
+1. **Health check verified live.** `line-health` run 1 against `main` at
+   `2b54e02` returned `PASS (3/3)` on `2026-07-30T21:12:57+07:00`. Monitoring
+   is an active control, not a theoretical one.
+2. **Cadence fix delivered.** PR #46 merged as `e7ea377`; `main` now carries
+   `cron: '0 3 * * *'`, the `SCOPE` block, and the LINE-5 record. Verified
+   against the remote, not assumed from a local branch.
+3. **LINE-5 accepted by the owner on 2026-07-30**, with compensating controls
+   recorded below rather than left as an open decision.
+
+One Medium residual remains and is **accepted, not open** — see LINE-5 in
+Residual risks. A green health-check run means "deployed and configured", never
+"working", and every surface that reports it says so.
 
 ## Latest targeted findings — Rich Menu assets and health check
 
@@ -39,7 +43,7 @@ Secret, snapshot, or browser-bundle modification.
 | Input and content safety | PASS | The checker consumes **no** response body — it branches on `res.status` only, so a hostile or malformed response cannot reach a parser. Rich Menu JSON is static, validated against the specification (2500×843, one area, `text: "menu"`, `chatBarText: "Menu"`), and is never executed | None |
 | Browser and network controls | PASS | `index.html` and `BUILD-MANIFEST.json` regenerate **byte-for-byte** from source, so merging changes nothing GitHub Pages serves. No new origin, endpoint, CORS rule, or CSP hash. Outbound requests originate from GitHub runners to already-public Supabase endpoints, never from a user's browser | None |
 | Supply chain and deployment | PASS | New workflow declares `permissions: contents: read` (least privilege) and runs **no `npm ci`** — it imports nothing and uses only built-in `fetch`, so it adds no dependency surface and cannot be broken by a compromised package. Actions pinned to the same major tags as the existing `verify.yml` (`actions/checkout@v5`, `actions/setup-node@v5`). Lockfile unchanged; `npm audit --omit=dev --audit-level=high` reports 0 vulnerabilities | None |
-| Operations and recovery | **CONDITIONAL** | This change exists to close a monitoring gap and it does add the control, but the control is unproven. `--selftest` (7 cases, offline, in `npm test`) proves the logic catches a dead function, a bypassed HMAC gate, a paused project, a grant regression, and a network failure. The live path has never run | Live verification required before LINE-4 closes |
+| Operations and recovery | PASS | Was `CONDITIONAL` while the control was unproven — a monitor that has never executed is a control on paper. Closed by `line-health` run 1 against `main` at `2b54e02`: `PASS (3/3)` on `2026-07-30T21:12:57+07:00`. `--selftest` (7 cases, offline, in `npm test`) separately proves the logic catches a dead function, a bypassed HMAC gate, a paused project, a grant regression, and a network failure | None — bounded by LINE-5, which is accepted, not open |
 
 Checks performed:
 
@@ -81,9 +85,9 @@ Residual risks:
 | Risk | Severity | Owner | Status |
 |---|---|---|---|
 | ~~Health check never executed against production~~ | ~~Medium~~ | — | **Closed** — `line-health` run 1 against `main` at `2b54e02` on `2026-07-30T21:12:57+07:00` returned `PASS (3/3)`: GET 405, unsigned POST 401, anonymous snapshot read denied with 401. PostgREST answered 401 rather than 403, confirming the decision to accept either rather than pin one code |
-| Health check cannot distinguish a working credential from an invalid one. `index.ts` guards secrets by emptiness, then answers 401 on the missing signature before calling LINE or the database — so a deleted secret fails the check (500) but an expired or rotated channel access token still passes (401) while the bot is dead | Medium | Owner decides whether to store a LINE token in CI | Open — LINE-5. **Scoped rather than closed**: adding `GET /v2/bot/info` would put a token that can post as the Official Account into repository secrets, reachable by any workflow and anyone with write access. That tradeoff is the owner's to make. The workflow, the checker's SCOPE comment and this table all state that green means "deployed and configured", never "working" |
-| Scheduled cadence `*/2` in day-of-month: succeed on the 1st, miss the 3rd, 5th and 7th, and the next attempt falls on the 9th — eight days of database inactivity, past the 7-day pause window the keepalive exists to prevent | Medium | Owner | **Fixed at `9ba654f`, NOT on `main`.** PR #45 merged at `372c3ee`, one commit earlier, so `main` still carries `*/2` and the comment claiming three misses are survivable. Daily survives five consecutive misses within six days. The exposure is bounded — the project only pauses after 7 days with no other activity, and ordinary owner use also counts — but the control does not currently do what its own comment says. Needs a delivery path; not re-opened or re-PR'd without instruction |
-| ~~`line-rich-menu-menu-v1.png` uncommitted~~ | ~~Medium~~ | Owner | **Closed** — uploaded at `6b25938` and verified: 2500 × 843, 418,567 bytes, PNG 8-bit indexed, SHA-256 `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4`. Chunk walk found `IHDR cHRM PLTE bKGD tIME IDAT IEND` and **no `tEXt`, `iTXt`, or `eXIf`**, so the file carries no author name, software string, or GPS data into a public repository. Hash recorded in `docs/assets/line/README.md` so a future re-encode is detectable. Rich Menu is now recoverable in appearance as well as configuration; only the 7-step owner acceptance remains |
+| Health check cannot distinguish a working credential from an invalid one. `index.ts` guards secrets by emptiness, then answers 401 on the missing signature before calling LINE or the database — so a deleted secret fails the check (500) but an expired or rotated channel access token still passes (401) while the bot is dead | Medium | Owner (`champban`) | **Accepted 2026-07-30 — LINE-5.** Closing it would require `GET /v2/bot/info` and therefore a token able to post as the Official Account living in repository secrets, reachable by any workflow and anyone with write access, in a public repo that has already had two key leaks. The owner judged that cost higher than the residual. Compensating controls: LINE channel access tokens are long-lived and do not lapse unprompted, so the failure needs a deliberate rotation the owner performs knowingly and can re-test at once; and with one owner-user a dead bot surfaces on first use. No due date — this is an accepted position, not deferred work. **Revisit if** a second user is onboarded or a token expires unexpectedly; either invalidates a compensating control |
+| Scheduled cadence `*/2` in day-of-month: succeed on the 1st, miss the 3rd, 5th and 7th, and the next attempt falls on the 9th — eight days of database inactivity, past the 7-day pause window the keepalive exists to prevent | ~~Medium~~ | — | **Closed.** Fixed at `9ba654f`, delivered by PR #46 and merged as `e7ea377`. `main` now carries `cron: '0 3 * * *'`, which survives five consecutive missed runs within six days. Verified by reading the workflow from the remote rather than assuming the merge landed — PR #45 had already merged one commit short of this fix once |
+| ~~`line-rich-menu-menu-v1.png` uncommitted~~ | ~~Medium~~ | Owner | **Closed** — uploaded at `6b25938` and verified: 2500 × 843, 418,567 bytes, PNG 8-bit indexed, SHA-256 `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4`. Chunk walk found `IHDR cHRM PLTE bKGD tIME IDAT IEND` and **no `tEXt`, `iTXt`, or `eXIf`**, so the file carries no author name, software string, or GPS data into a public repository. Hash recorded in `docs/assets/line/README.md` so a future re-encode is detectable. Rich Menu is now recoverable in appearance as well as configuration. The 7-step owner acceptance passed on mobile and PC on `2026-07-30` |
 | Publishable key and project URL now appear in both `auth.js` and `build/line-health-check.mjs`. Not a disclosure risk — both are public by design — but the two can drift if the project is ever migrated | Low | Next maintainer | Accepted; `line-health-check.mjs` names `auth.js` as the source of truth and supports `MTP_SUPABASE_URL` / `MTP_SUPABASE_PUBLISHABLE_KEY` overrides |
 | Scheduled workflows are disabled by GitHub after 60 days of repository inactivity, which would silently stop the monitoring | Low | Next maintainer | Accepted and documented in the workflow file |
 
@@ -99,9 +103,9 @@ to watch after merge.
 | Identity and access | PASS | Existing raw-body LINE HMAC gate and account mapping are unchanged; postback handling occurs only after HMAC verification | None |
 | Secrets and data | PASS | No new secret, task field, log field, database access, migration, or browser bundle; postback contains only fixed action/language | None |
 | Input and content safety | PASS | Exact allow-list `action=search_prompt&lang=en\|th`; extra/unknown postback data is ignored; typed query retains existing normalization and 120-character cap | None |
-| Browser and network controls | PASS | Uses LINE-native postback, `openKeyboard`, and fixed `fillInText`; no new origin, endpoint, CORS rule, URI action, or CSP change | Owner mobile/PC acceptance |
+| Browser and network controls | PASS | Uses LINE-native postback, `openKeyboard`, and fixed `fillInText`; no new origin, endpoint, CORS rule, URI action, or CSP change | Closed — owner acceptance passed `2026-07-30` |
 | Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source anchor is `bf47521`, merged as `ad3067f`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | None |
-| Operations and recovery | PASS | Function v3 is ACTIVE; all three deployed files exactly match merged `main`; direct GET 405 and unsigned POST 401 are recorded in v3 logs; version 2 remains the rollback point | Owner functional acceptance |
+| Operations and recovery | PASS | Function v3 is ACTIVE; all three deployed files exactly match merged `main`; direct GET 405 and unsigned POST 401 are recorded in v3 logs; version 2 remains the rollback point | Closed — owner acceptance passed `2026-07-30` |
 
 Checks performed:
 
