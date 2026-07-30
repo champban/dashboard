@@ -11,6 +11,7 @@ const packager = read("build/package.mjs");
 const browserBridge = read("line-sync.js");
 const webhook = read("supabase/functions/line-todo-webhook/index.ts");
 const migration = read("supabase/migrations/20260728155436_line_official_readonly_bot.sql");
+const snapshotV2Migration = read("supabase/migrations/20260730031026_line_task_details_snapshot_v2.sql");
 const config = read("supabase/config.toml");
 
 assert.match(packager, /<script defer src="line-sync\.js"><\/script>/);
@@ -30,12 +31,20 @@ assert.match(mobile, /await driveDownload[\s\S]{0,700}void publishLineSnapshot\(
 assert.doesNotMatch(browserBridge, /LINE_CHANNEL_(?:SECRET|ACCESS_TOKEN)/);
 assert.doesNotMatch(browserBridge, /service_role|sb_secret_/);
 assert.doesNotMatch(browserBridge, /anthropic\.com|openai\.com/);
+assert.match(browserBridge, /SNAPSHOT_SCHEMA = 2/);
+assert.match(browserBridge, /lineShareSubtasks===true/);
+assert.match(browserBridge, /lineShareAttachmentLinks===true/);
+assert.match(browserBridge, /item\?\.type!=="link"/);
 
 assert.match(migration, /enable row level security/g);
 assert.match(migration, /using \(\(select auth\.uid\(\)\) = owner_id\)/);
 assert.match(migration, /security definer/);
 assert.match(migration, /revoke all on function public\.mtp_claim_line_link/);
 assert.match(migration, /grant execute on function public\.mtp_claim_line_link\(text, text\) to service_role/);
+assert.match(snapshotV2Migration, /check \(schema_version in \(1, 2\)\)/);
+assert.match(snapshotV2Migration, /not valid/);
+assert.match(snapshotV2Migration, /validate constraint mtp_line_snapshots_schema_version_check/);
+assert.doesNotMatch(snapshotV2Migration, /\b(?:delete|truncate)\s+from\b/i);
 assert.match(config, /\[functions\.line-todo-webhook\][\s\S]*verify_jwt = false/);
 
 const rawBodyAt = webhook.indexOf("const rawBody = await request.text()");
@@ -54,6 +63,7 @@ assert.match(webhook, /messages: messages\.slice\(0, 5\)/);
 assert.match(webhook, /intent\.kind === "menu"/);
 assert.match(webhook, /buildMenuMessage\(language\)/);
 assert.match(webhook, /buildQuickReply\(language\)/);
+assert.match(webhook, /buildReplyMessages\(intent, snapshot, \{ language \}\)/);
 await assert.doesNotReject(
   transform(webhook, { loader: "ts", target: "es2022" }),
   "Edge Function TypeScript must parse",

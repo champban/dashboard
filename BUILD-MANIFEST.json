@@ -1,16 +1,16 @@
 {
-  "version": "3.77.1-line-auth-storage-hotfix",
-  "date": "2026-07-29",
+  "version": "3.77.2-line-task-details",
+  "date": "2026-07-30",
   "full": {
     "path": "index.html",
-    "sha256": "7bfaf1d21573488a3fe5813c534c25412e0064aba26f334cc66babb3a3fc3bad",
-    "bytes": 762327
+    "sha256": "b41507e63788a87324bb7e0987ae6f4d9dde61b1a49a1d812b2e9376354dcc5b",
+    "bytes": 763772
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "3b975102e87388ea40be7daa9e0b1c24ca514522773213f475a9edec6326c658",
-    "bytes": 98669,
-    "note": "3.75.1 auth-storage hotfix; inline CSP hashes verified by regression test"
+    "sha256": "a1d82f3fda8d051d29548faf767802fdcdaa090bd5f517361d02493092514a57",
+    "bytes": 100237,
+    "note": "3.75.2 LINE task details; inline CSP hashes verified by regression test"
   },
   "csp": {
     "full_hashes": 6,

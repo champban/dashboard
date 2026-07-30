@@ -8,12 +8,15 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - LINE/auth hotfix merged to `main`: `5d5b50c`
 - LINE bilingual command-menu candidate:
   `feature/line-command-menu`; not merged or deployed
+- LINE task-detail card candidate:
+  `feature/line-task-details`; stacked on `feature/line-command-menu`, not
+  merged, migrated, or deployed
 - `APP_VERSION` in `src/App.jsx` is the Full version source; it flows into the
   UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
   artifacts.
 - Full application: `index.html` — **generated, do not edit directly**
 - Mobile application: `mobile/index.html` (separate hand-written vanilla-JS
-  app, hotfix candidate v3.75.1)
+  app, task-details candidate v3.75.2)
 - Live: https://champban.github.io/dashboard/
 
 ## LINE Official read-only bot activation
@@ -27,8 +30,8 @@ Status on 2026-07-29:
 - LINE Function Secrets configured, `line-todo-webhook` deployed, and the LINE
   console returned **Success** for webhook verification.
 - Production owner acceptance found a client auth-storage incident before any
-  link code or snapshot row was created. The hotfix is implemented and locally
-  verified but is not merged/deployed.
+  link code or snapshot row was created. The hotfix was subsequently verified,
+  merged to `main`, deployed, and the initial linked reply completed.
 
 - The feature stays in this repository because it is an integration module of
   the same Todo Planner product, not a separate product.
@@ -49,9 +52,11 @@ Status on 2026-07-29:
   excludes overdue/completed tasks. `high priority` includes active High or
   Urgent tasks regardless of due date.
 - No AI or MCP runtime is used. Date logic is fixed to `Asia/Bangkok`.
-- Snapshot allow-list: type, title, status, due date, category/project, priority.
-  Excluded: IDs, notes, descriptions, attachments, configuration, OAuth tokens,
-  and API keys.
+- Snapshot v2 always allows only type, title, status, due date,
+  category/project, and priority. The owner may separately opt in to sanitised
+  Subtask text/done state and HTTPS attachment-link metadata. Raw IDs, notes,
+  descriptions, local/base64 file data, configuration, OAuth tokens, and API
+  keys remain excluded.
 - One-time link codes are CSPRNG-generated, stored as SHA-256 only, single-use,
   and expire after 10 minutes.
 
@@ -65,8 +70,8 @@ Release/runbook files:
 
 Production order is backup → migration → Function Secrets → Edge Function →
 LINE webhook verify → app deploy → Full/Mobile acceptance. The first five are
-complete. Never merge/deploy the auth-storage hotfix without a separate
-explicit approval.
+complete, and the auth-storage hotfix has since shipped. Never merge, migrate,
+or deploy a later release candidate without separate explicit approval.
 
 ### LINE activation incident: Supabase session tokens erased
 
@@ -107,6 +112,30 @@ Branch: `feature/line-command-menu`
   command tapped or typed and is intentionally not stored in the database.
 - Production release is a redeploy of `line-todo-webhook` after review and
   explicit approval. Rollback is redeploying the previous function commit.
+
+### LINE task-detail card release candidate
+
+Branch: `feature/line-task-details`, stacked on `feature/line-command-menu`
+
+- Snapshot schema v2 adds two independent owner opt-ins:
+  `lineShareSubtasks` and `lineShareAttachmentLinks`. Both default to `false`.
+- Subtasks are reduced to text/done state. Attachments are reduced to a label,
+  detected kind, and validated HTTPS URL; HTTP, URLs with embedded
+  username/password credentials, local files, base64 data, raw IDs, notes, and
+  descriptions are never published.
+- LINE list commands return deterministic Flex task cards. Each card shows at
+  most five Subtasks and three attachment buttons; a carousel has at most 12
+  cards and stays below LINE's 50 KiB Flex JSON limit.
+- Compatibility migration
+  `20260730031026_line_task_details_snapshot_v2.sql` allows snapshot schema v1
+  and v2 without rewriting existing rows.
+- No production change has been made for this candidate. Release order is:
+  fresh logical Supabase backup → compatibility migration → Edge Function
+  deploy → Full/Mobile app deploy → owner acceptance. GitHub is the primary
+  source for code and migrations; Drive remains supplementary recovery only.
+- Rollback the application and Edge Function to the prior release if needed.
+  Keep the additive v1/v2 database constraint because it remains compatible
+  with both old and new clients.
 
 ## Source of truth (restored in 3.77.0)
 

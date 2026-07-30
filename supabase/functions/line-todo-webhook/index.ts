@@ -4,6 +4,7 @@ import {
   buildMenuMessage,
   buildQuickReply,
   buildReply,
+  buildReplyMessages,
   commandLanguage,
   extractLinkCode,
   parseIntent,
@@ -154,12 +155,10 @@ async function handleTextEvent(
     updated_at: record.updated_at,
     data_updated_at: record.data_updated_at,
   };
-  await replyText(
+  await replyLine(
     replyToken,
-    buildReply(intent, snapshot, { language }),
+    buildReplyMessages(intent, snapshot, { language }),
     accessToken,
-    language,
-    true,
   );
 }
 

@@ -8,6 +8,7 @@ import {
   buildMenuMessage,
   buildQuickReply,
   buildReply,
+  buildReplyMessages,
   commandLanguage,
   extractLinkCode,
   parseIntent,
@@ -21,7 +22,25 @@ const now = new Date("2026-07-28T02:00:00.000Z"); // 09:00 Asia/Bangkok
 const snapshot = {
   dataUpdatedAt: "2026-07-28T01:30:00.000Z",
   tasks: [
-    { type: "work", title: "ส่งรายงาน", status: "todo", due: "2026-07-28", project: "Alpha", priority: "High" },
+    {
+      type: "work",
+      title: "ส่งรายงาน",
+      status: "todo",
+      due: "2026-07-28",
+      project: "Alpha",
+      priority: "High",
+      subtasks: [
+        { text: "ตรวจตัวเลข", done: true },
+        { text: "ส่งให้ทีม", done: false },
+      ],
+      subtaskCountTotal: 2,
+      attachments: [
+        { kind: "image", label: "Diagram", url: "https://example.com/diagram.png" },
+        { kind: "video", label: "Demo", url: "https://youtu.be/demo" },
+        { kind: "link", label: "Spec", url: "https://example.com/spec" },
+        { kind: "link", label: "Unsafe", url: "http://example.com/unsafe" },
+      ],
+    },
     { type: "personal", title: "จ่ายบิล", status: "pending", due: "2026-07-27", category: "Home" },
     { type: "work", title: "ประชุมปลายสัปดาห์", status: "todo", due: "2026-08-02", project: "Alpha" },
     { type: "work", title: "งานสัปดาห์หน้า", status: "todo", due: "2026-08-03", project: "Beta" },
@@ -60,6 +79,26 @@ assert.match(todayReply, /ส่งรายงาน/);
 assert.doesNotMatch(todayReply, /งานที่จบแล้ว/);
 assert.doesNotMatch(todayReply, /จ่ายบิล/);
 
+const todayMessages = buildReplyMessages(parseIntent("งานวันนี้"), snapshot, {
+  now,
+  language: "th",
+});
+assert.equal(todayMessages.length, 1);
+assert.equal(todayMessages[0].type, "flex");
+assert.equal(todayMessages[0].contents.type, "bubble");
+assert.equal(todayMessages[0].quickReply.items.length, 8);
+const todayFlexText = JSON.stringify(todayMessages[0]);
+assert.match(todayFlexText, /ส่งรายงาน/);
+assert.match(todayFlexText, /ตรวจตัวเลข/);
+assert.match(todayFlexText, /ส่งให้ทีม/);
+assert.match(todayFlexText, /https:\/\/example\.com\/diagram\.png/);
+assert.match(todayFlexText, /https:\/\/youtu\.be\/demo/);
+assert.doesNotMatch(todayFlexText, /http:\/\/example\.com\/unsafe/);
+const attachmentActions = todayMessages[0].contents.footer.contents.map((button) => button.action);
+assert.ok(attachmentActions.every((action) => action.type === "uri"));
+assert.ok(attachmentActions.every((action) => action.uri.startsWith("https://")));
+assert.ok(attachmentActions.every((action) => action.altUri.desktop === action.uri));
+
 const weekReply = buildReply(parseIntent("งานสัปดาห์นี้"), snapshot, { now });
 assert.match(weekReply, /ส่งรายงาน/);
 assert.match(weekReply, /ประชุมปลายสัปดาห์/);
@@ -86,6 +125,12 @@ assert.equal(
 );
 assert.match(buildReply(parseIntent("ไม่รู้"), snapshot, { now }), /ยังไม่เข้าใจ/);
 assert.ok(truncateReply("ก".repeat(6000)).length <= 4800);
+const emptyMessages = buildReplyMessages(parseIntent("งานวันนี้"), { tasks: [] }, {
+  now,
+  language: "th",
+});
+assert.equal(emptyMessages[0].type, "text");
+assert.match(emptyMessages[0].text, /ไม่พบงาน/);
 
 const rangeSnapshot = {
   dataUpdatedAt: "2026-07-28T01:30:00.000Z",
@@ -118,6 +163,39 @@ assert.match(highReply, /After boundary/);
 assert.match(highReply, /High no date/);
 assert.doesNotMatch(highReply, /Today boundary/);
 assert.doesNotMatch(highReply, /Done high/);
+
+const carouselSnapshot = {
+  dataUpdatedAt: "2026-07-28T01:30:00.000Z",
+  tasks: Array.from({ length: 16 }, (_, index) => ({
+    type: "work",
+    title: `Task ${index} ${"x".repeat(180)}`,
+    status: "todo",
+    due: "2026-07-28",
+    project: "Travel",
+    priority: "High",
+    subtasks: Array.from({ length: 20 }, (_, subIndex) => ({
+      text: `Subtask ${subIndex} ${"y".repeat(120)}`,
+      done: subIndex % 2 === 0,
+    })),
+    subtaskCountTotal: 20,
+    attachments: Array.from({ length: 3 }, (_, attachmentIndex) => ({
+      kind: "link",
+      label: `Attachment ${attachmentIndex}`,
+      url: `https://example.com/${index}/${attachmentIndex}/${"z".repeat(700)}`,
+    })),
+  })),
+};
+const carouselMessages = buildReplyMessages(parseIntent("today"), carouselSnapshot, {
+  now,
+  language: "en",
+});
+assert.equal(carouselMessages[0].type, "flex");
+assert.equal(carouselMessages[0].contents.type, "carousel");
+assert.ok(carouselMessages[0].contents.contents.length <= 12);
+assert.ok(carouselMessages[0].contents.contents.length > 0);
+assert.ok(
+  new TextEncoder().encode(JSON.stringify(carouselMessages[0].contents)).byteLength <= 50 * 1024,
+);
 
 for (const language of ["en", "th"]) {
   const quickReply = buildQuickReply(language);

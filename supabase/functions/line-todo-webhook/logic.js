@@ -1,6 +1,8 @@
 export const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 export const MAX_REPLY_CHARS = 4800;
 export const MAX_REPLY_TASKS = 12;
+export const MAX_FLEX_SUBTASKS = 5;
+export const MAX_FLEX_CAROUSEL_BYTES = 50 * 1024;
 
 export const HELP_TEXT_TH = [
   "คำสั่งที่ใช้ได้",
@@ -244,6 +246,312 @@ function listReply(title, tasks, snapshot, language) {
   return truncateReply(lines.join("\n"), MAX_REPLY_CHARS, lang);
 }
 
+function selectTaskList(intent, tasks, active, today, language) {
+  const lang = normalizeLanguage(language);
+  if (intent.kind === "today") {
+    return {
+      title: lang === "th" ? "📅 งานวันนี้" : "📅 Today",
+      tasks: active.filter((task) => isoDate(task?.due) === today),
+    };
+  }
+  if (intent.kind === "week") {
+    const { start, end } = weekBounds(today);
+    return {
+      title: lang === "th" ? "🗓 งานสัปดาห์นี้" : "🗓 This week",
+      tasks: active.filter((task) => {
+        const due = isoDate(task?.due);
+        return due && due >= start && due <= end;
+      }),
+    };
+  }
+  if (intent.kind === "next_four_weeks") {
+    const end = addDaysISO(today, 28);
+    return {
+      title: lang === "th" ? "🗓 วันนี้ถึง 4 สัปดาห์ข้างหน้า" : "🗓 Today through the next 4 weeks",
+      tasks: active.filter((task) => {
+        const due = isoDate(task?.due);
+        return due && due >= today && due <= end;
+      }),
+    };
+  }
+  if (intent.kind === "overdue") {
+    return {
+      title: lang === "th" ? "⚠️ งานเกินกำหนด" : "⚠️ Overdue",
+      tasks: active.filter((task) => isoDate(task?.due) && isoDate(task.due) < today),
+    };
+  }
+  if (intent.kind === "high_priority") {
+    return {
+      title: lang === "th" ? "🔴 งานสำคัญสูง" : "🔴 High priority",
+      tasks: active.filter(isHighPriority),
+    };
+  }
+  if (intent.kind === "no_date") {
+    return {
+      title: lang === "th" ? "📌 งานไม่มีวันกำหนด" : "📌 No due date",
+      tasks: active.filter((task) => !isoDate(task?.due)),
+    };
+  }
+  if (intent.kind === "search") {
+    const query = String(intent.query || "").toLocaleLowerCase("th-TH");
+    return {
+      title: lang === "th"
+        ? `🔎 ผลค้นหา “${cleanText(intent.query, 80)}”`
+        : `🔎 Search results for “${cleanText(intent.query, 80)}”`,
+      tasks: tasks.filter((task) => [
+        task?.title,
+        task?.project,
+        task?.category,
+        task?.type,
+      ].some((value) => String(value ?? "").toLocaleLowerCase("th-TH").includes(query))),
+    };
+  }
+  return null;
+}
+
+function safeAttachment(value) {
+  const uri = String(value?.url ?? "").trim();
+  if (!uri || uri.length > 1000) return null;
+  try {
+    const parsed = new URL(uri);
+    if (parsed.protocol !== "https:" || !parsed.hostname || parsed.username || parsed.password) {
+      return null;
+    }
+    const kind = ["image", "video", "link"].includes(value?.kind) ? value.kind : "link";
+    return {
+      kind,
+      label: cleanText(value?.label, 80) || parsed.hostname,
+      uri: parsed.href,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function attachmentButton(item, language) {
+  const lang = normalizeLanguage(language);
+  const icon = item.kind === "image" ? "🖼️" : item.kind === "video" ? "▶️" : "🔗";
+  const fallback = item.kind === "image"
+    ? (lang === "th" ? "รูปภาพ" : "Picture")
+    : item.kind === "video"
+    ? (lang === "th" ? "วิดีโอ" : "Video")
+    : (lang === "th" ? "ลิงก์" : "Link");
+  return {
+    type: "button",
+    style: "link",
+    height: "sm",
+    action: {
+      type: "uri",
+      label: [...`${icon} ${cleanText(item.label, 16) || fallback}`].slice(0, 20).join(""),
+      uri: item.uri,
+      altUri: { desktop: item.uri },
+    },
+  };
+}
+
+function taskBubble(task, index, shownCount, totalCount, language, extraTaskCount = 0) {
+  const lang = normalizeLanguage(language);
+  const title = cleanText(task?.title) || (lang === "th" ? "(ไม่มีชื่อ)" : "(Untitled)");
+  const type = task?.type === "work"
+    ? (lang === "th" ? "งาน" : "Work")
+    : (lang === "th" ? "ส่วนตัว" : "Personal");
+  const group = cleanText(task?.project || task?.category, 80);
+  const priority = cleanText(task?.priority, 24);
+  const status = isDone(task)
+    ? (lang === "th" ? "เสร็จแล้ว" : "Done")
+    : (lang === "th" ? "ค้าง" : "Pending");
+  const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : [];
+  const subtaskTotal = Math.max(subtasks.length, Number(task?.subtaskCountTotal) || 0);
+  const doneSubtasks = subtasks.filter((item) => item?.done === true).length;
+  const shownSubtasks = subtasks.slice(0, MAX_FLEX_SUBTASKS);
+  const remainingSubtasks = Math.max(0, subtaskTotal - shownSubtasks.length);
+  const attachments = (Array.isArray(task?.attachments) ? task.attachments : [])
+    .map(safeAttachment)
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const bodyContents = [
+    {
+      type: "text",
+      text: title,
+      weight: "bold",
+      size: "lg",
+      color: "#0F3D3E",
+      wrap: true,
+      maxLines: 2,
+    },
+    {
+      type: "text",
+      text: [type, group].filter(Boolean).join(" · "),
+      size: "xs",
+      color: "#64748B",
+      margin: "sm",
+      wrap: true,
+      maxLines: 2,
+    },
+    {
+      type: "text",
+      text: [formatDate(task?.due, lang), priority, status].filter(Boolean).join(" · "),
+      size: "sm",
+      color: isHighPriority(task) ? "#DC2626" : "#334155",
+      margin: "sm",
+      wrap: true,
+    },
+  ];
+
+  if (subtaskTotal > 0) {
+    bodyContents.push({
+      type: "separator",
+      margin: "md",
+      color: "#D7E7E3",
+    }, {
+      type: "text",
+      text: lang === "th"
+        ? `งานย่อย ${doneSubtasks}/${subtaskTotal}`
+        : `Subtasks ${doneSubtasks}/${subtaskTotal}`,
+      size: "xs",
+      weight: "bold",
+      color: "#0F766E",
+      margin: "md",
+    });
+    for (const item of shownSubtasks) {
+      bodyContents.push({
+        type: "text",
+        text: `${item?.done === true ? "☑" : "☐"} ${cleanText(item?.text, 120) || (lang === "th" ? "(ไม่มีชื่อ)" : "(Untitled)")}`,
+        size: "xs",
+        color: item?.done === true ? "#94A3B8" : "#334155",
+        margin: "sm",
+        wrap: true,
+        maxLines: 2,
+      });
+    }
+    if (remainingSubtasks > 0) {
+      bodyContents.push({
+        type: "text",
+        text: lang === "th"
+          ? `+${remainingSubtasks} งานย่อยเพิ่มเติม`
+          : `+${remainingSubtasks} more subtasks`,
+        size: "xxs",
+        color: "#64748B",
+        margin: "sm",
+      });
+    }
+  }
+
+  if (attachments.length > 0) {
+    bodyContents.push({
+      type: "text",
+      text: lang === "th"
+        ? `📎 ${attachments.length} ลิงก์ไฟล์แนบ`
+        : `📎 ${attachments.length} attachment links`,
+      size: "xxs",
+      color: "#B45309",
+      margin: "md",
+    });
+  }
+  if (extraTaskCount > 0) {
+    bodyContents.push({
+      type: "text",
+      text: lang === "th"
+        ? `…และอีก ${extraTaskCount} งาน`
+        : `…and ${extraTaskCount} more tasks`,
+      size: "xxs",
+      color: "#64748B",
+      margin: "md",
+    });
+  }
+
+  return {
+    type: "bubble",
+    size: "kilo",
+    header: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#E7F6F2",
+      paddingAll: "md",
+      contents: [{
+        type: "text",
+        text: lang === "th"
+          ? `Todo ${index + 1}/${shownCount} · ทั้งหมด ${totalCount}`
+          : `Todo ${index + 1}/${shownCount} · ${totalCount} total`,
+        size: "xs",
+        weight: "bold",
+        color: "#0F766E",
+      }],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      paddingAll: "lg",
+      contents: bodyContents,
+    },
+    ...(attachments.length > 0 ? {
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "xs",
+        paddingAll: "sm",
+        separator: true,
+        contents: attachments.map((item) => attachmentButton(item, lang)),
+      },
+    } : {}),
+  };
+}
+
+export function buildReplyMessages(
+  intent,
+  snapshot,
+  { now = new Date(), language = "th" } = {},
+) {
+  const lang = normalizeLanguage(language);
+  const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+  const today = bangkokToday(now);
+  const active = tasks.filter((task) => !isDone(task));
+  const result = selectTaskList(intent, tasks, active, today, lang);
+
+  if (!result || !result.tasks.length) {
+    return [{
+      type: "text",
+      text: truncateReply(buildReply(intent, snapshot, { now, language: lang }), undefined, lang),
+      quickReply: buildQuickReply(lang),
+    }];
+  }
+
+  const ordered = sortTasks(result.tasks).slice(0, MAX_REPLY_TASKS);
+  let visible = [...ordered];
+  let bubbles = [];
+  while (visible.length) {
+    const omitted = result.tasks.length - visible.length;
+    bubbles = visible.map((task, index) => taskBubble(
+      task,
+      index,
+      visible.length,
+      result.tasks.length,
+      lang,
+      index === visible.length - 1 ? omitted : 0,
+    ));
+    const contents = visible.length === 1
+      ? bubbles[0]
+      : { type: "carousel", contents: bubbles };
+    if (new TextEncoder().encode(JSON.stringify(contents)).byteLength <= MAX_FLEX_CAROUSEL_BYTES) {
+      const altText = truncateReply(`${result.title} (${result.tasks.length})`, 400, lang);
+      return [{
+        type: "flex",
+        altText,
+        contents,
+        quickReply: buildQuickReply(lang),
+      }];
+    }
+    visible.pop();
+  }
+
+  return [{
+    type: "text",
+    text: truncateReply(buildReply(intent, snapshot, { now, language: lang }), undefined, lang),
+    quickReply: buildQuickReply(lang),
+  }];
+}
+
 function messageAction(item) {
   return {
     type: "action",
@@ -380,79 +688,8 @@ export function buildReply(
     ].filter(Boolean).join("\n");
   }
 
-  if (intent.kind === "today") {
-    return listReply(
-      lang === "th" ? "📅 งานวันนี้" : "📅 Today",
-      active.filter((task) => isoDate(task?.due) === today),
-      snapshot,
-      lang,
-    );
-  }
-  if (intent.kind === "week") {
-    const { start, end } = weekBounds(today);
-    return listReply(
-      lang === "th" ? "🗓 งานสัปดาห์นี้" : "🗓 This week",
-      active.filter((task) => {
-        const due = isoDate(task?.due);
-        return due && due >= start && due <= end;
-      }),
-      snapshot,
-      lang,
-    );
-  }
-  if (intent.kind === "next_four_weeks") {
-    const end = addDaysISO(today, 28);
-    return listReply(
-      lang === "th" ? "🗓 วันนี้ถึง 4 สัปดาห์ข้างหน้า" : "🗓 Today through the next 4 weeks",
-      active.filter((task) => {
-        const due = isoDate(task?.due);
-        return due && due >= today && due <= end;
-      }),
-      snapshot,
-      lang,
-    );
-  }
-  if (intent.kind === "overdue") {
-    return listReply(
-      lang === "th" ? "⚠️ งานเกินกำหนด" : "⚠️ Overdue",
-      active.filter((task) => isoDate(task?.due) && isoDate(task.due) < today),
-      snapshot,
-      lang,
-    );
-  }
-  if (intent.kind === "high_priority") {
-    return listReply(
-      lang === "th" ? "🔴 งานสำคัญสูง" : "🔴 High priority",
-      active.filter(isHighPriority),
-      snapshot,
-      lang,
-    );
-  }
-  if (intent.kind === "no_date") {
-    return listReply(
-      lang === "th" ? "📌 งานไม่มีวันกำหนด" : "📌 No due date",
-      active.filter((task) => !isoDate(task?.due)),
-      snapshot,
-      lang,
-    );
-  }
-  if (intent.kind === "search") {
-    const query = String(intent.query || "").toLocaleLowerCase("th-TH");
-    const matches = tasks.filter((task) => [
-      task?.title,
-      task?.project,
-      task?.category,
-      task?.type,
-    ].some((value) => String(value ?? "").toLocaleLowerCase("th-TH").includes(query)));
-    return listReply(
-      lang === "th"
-        ? `🔎 ผลค้นหา “${cleanText(intent.query, 80)}”`
-        : `🔎 Search results for “${cleanText(intent.query, 80)}”`,
-      matches,
-      snapshot,
-      lang,
-    );
-  }
+  const result = selectTaskList(intent, tasks, active, today, lang);
+  if (result) return listReply(result.title, result.tasks, snapshot, lang);
   return helpText;
 }
 

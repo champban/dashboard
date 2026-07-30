@@ -1,9 +1,11 @@
 # Project Performance KPI — LINE Official Read-only Bot
 
 Status: backend activated; auth hotfix merged; bilingual command-menu release
-candidate awaiting review/deploy approval
+candidate plus task-details v2 awaiting review/deploy approval
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
+
+Task-details increment M0: `2026-07-30T10:10:26+07:00`
 
 ## Outcome
 
@@ -19,6 +21,10 @@ privacy-minimised task snapshot, without running an AI model.
 | Link-code lifetime | 10 minutes | Browser and SQL contract implemented | Pending live expiry test |
 | Link code reuse | 0 successful reuses | Atomic SQL claim + `used_at` row lock | Pending live replay test |
 | Sensitive fields in snapshot | 0 | Snapshot leakage regression test passes | Pending owner data spot-check |
+| LINE sharing default | Subtasks/link attachments OFF | Full/Mobile defaults and UI contract tests | Pending owner device check |
+| Subtask card detail | Up to 5 rows + done/total + remaining count | Flex task-card tests pass | Pending owner LINE check |
+| Attachment action safety | HTTPS only; max 3/task; no local/base64 | URL, credential, local-file, and URI-action tests pass | Pending owner LINE click test |
+| Flex carousel payload | `<= 50 KiB`; `<= 12` bubbles | Oversized fixture truncates safely | Pending largest live result |
 | Supported deterministic command groups | 10 | Parser/filter unit tests pass | Pending LINE acceptance test |
 | Menu action validity | 8/8 per language | Flex and Quick Reply actions resolve to known commands; Quick Reply count is below 13 | Pending LINE PC/iOS/Android acceptance |
 | Next-4-weeks boundary | Today through day 28 inclusive | Day 0/+28 included; overdue/+29/completed excluded | Pending live spot-check |
@@ -42,6 +48,14 @@ privacy-minimised task snapshot, without running an AI model.
 6. Type `menu` and `เมนู`; each must return the corresponding language.
 7. Confirm day +28 is included in `Next 4 weeks`, while overdue, day +29, and
    completed tasks are excluded.
+8. Enable Subtask sharing, Save to Cloud, and confirm a task card shows
+   done/total, at most five rows, and `+N` for the remainder.
+9. Enable HTTPS attachment-link sharing, Save to Cloud, and confirm link,
+   picture-link, and video-link buttons open.
+10. Confirm HTTP, embedded-credential, local-file, and base64 attachments never
+    appear.
+11. Disable each sharing option, save again, and confirm the corresponding data
+    disappears.
 
 Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
 
@@ -56,7 +70,8 @@ Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
   verification returned Success. Invalid-signature live outcome remains
   pending; do not log message bodies or user IDs.
 - M3 — Full and Mobile owner acceptance: record each command/menu action, link
-  replay, stale snapshot, and induced LINE/Supabase error result.
+  replay, Subtask/attachment opt-in and opt-out, stale snapshot, and induced
+  LINE/Supabase error result.
 - M4 — 30-day review: reply success rate, p95 latency, snapshot truncation count,
   and actual cost.
 

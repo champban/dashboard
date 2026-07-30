@@ -6,6 +6,7 @@ For the LINE Official integration, start with:
 
 - `line-sync.js` — privacy-minimised browser snapshot and one-time link code
 - `supabase/migrations/20260728155436_line_official_readonly_bot.sql`
+- `supabase/migrations/20260730031026_line_task_details_snapshot_v2.sql`
 - `supabase/functions/line-todo-webhook/`
 - `docs/LINE_OFFICIAL_SETUP.md`
 - `docs/SECURITY_6D_AUDIT.md`
@@ -13,3 +14,7 @@ For the LINE Official integration, start with:
 
 Do not put provider secrets in code, do not edit generated `index.html`, and do
 not merge/deploy without explicit approval.
+
+Snapshot v2 Subtasks and HTTPS attachment links are separate owner opt-ins.
+Never send local files, base64 data, raw IDs, notes, descriptions, HTTP links,
+URLs with embedded username/password, or secrets.
