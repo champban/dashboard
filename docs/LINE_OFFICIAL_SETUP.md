@@ -173,6 +173,39 @@ Acceptance:
 Rollback by redeploying the prior ACTIVE function version. Do not change or
 delete LINE mappings, snapshots, migrations, or secrets.
 
+## Rich Menu
+
+A compact persistent Rich Menu was created manually through LINE Official
+Account Manager. It changes no code: it sends the text `menu`, which the
+existing webhook already answers with the English Flex command menu.
+
+Specification, configuration JSON, and recreation commands are versioned in
+`docs/assets/line/` — see that directory's `README.md`. The deployment image
+itself is still uncommitted; until it is, the menu is recoverable in
+configuration only, not in appearance.
+
+**A Rich Menu created through Manager may not be returned by the Messaging API
+Rich Menu list endpoint.** An empty list is not evidence that the menu is
+missing. Verify in the LINE app using the acceptance steps below.
+
+Changing the text the Rich Menu sends requires a matching change to
+`parseIntent()` in `supabase/functions/line-todo-webhook/logic.js`. Without it
+the tap becomes an unrecognised command and returns help text instead of the
+menu.
+
+### Owner acceptance
+
+1. Leave and reopen the LINE chat.
+2. Confirm the Rich Menu appears at the bottom.
+3. Tap `Menu`.
+4. Confirm LINE sends `menu`.
+5. Confirm the bot returns the English Flex menu.
+6. Confirm the returned menu contains `Search`.
+7. Repeat on LINE mobile and LINE for PC.
+
+Record the result in `PROJECT_CONTEXT.md`. Do not paste LINE user IDs, task
+titles, or message bodies into the evidence.
+
 ## Rollback
 
 1. Disable “Use webhook” in LINE Developers Console.

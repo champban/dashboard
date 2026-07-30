@@ -116,3 +116,61 @@ Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
 - Preventive measure: exact auth-key exemption plus Full/Mobile regression test.
 - Manual recovery after deployment: one fresh sign-in, then repeat link-code and
   command acceptance.
+
+## Handover increment — Rich Menu assets, context corrections, health check
+
+- M0 activation confirmed: `2026-07-30T20:17:00+07:00` (`Asia/Bangkok`) —
+  mandatory global context, five skills, asset registry and repository
+  agreements read before inspection.
+- M4 quality gate: `2026-07-30T20:52:00+07:00` — approximately `0.6` measured
+  wall-clock hours from M0, covering inspection, plan, three documentation
+  changes, one new CI workflow, and a targeted 6D audit.
+- Comparability: **Not comparable** to the Shared Calendar baseline or to the
+  Search-button increment. This is a documentation, asset and CI increment with
+  no runtime change, not a feature release, and no milestone above M4 applies —
+  there is nothing to deploy. Do not publish a speed-improvement percentage
+  against it.
+
+Measured quality KPIs for this increment:
+
+| KPI | Value | Note |
+|---|---|---|
+| Failed deploys | `0` | Nothing deployed |
+| CI retries | `0` | |
+| Rework cycles | `1` | The health check's anonymous-read assertion was wrong on first write and was corrected before push — see below |
+| Known-error recurrences | `0` | |
+| Production escapes | `0` | |
+| Manual interventions | `3` | Rich Menu PNG upload, live health-check verification, and the three outstanding owner acceptance sets — all blocked on owner-controlled access, none delegable |
+| Prevention closure rate | `100%` | The one defect found carries a regression case in `--selftest` |
+
+Rework cycle detail — the only defect in this increment:
+
+- Symptom: `build/line-health-check.mjs` asserted that an anonymous read of
+  `mtp_line_snapshots` returns `200` with an empty array.
+- Root cause: the assertion was written from an assumption about RLS behavior
+  rather than from the migration. `20260728155436_line_official_readonly_bot.sql`
+  line 97 revokes all privileges on that table from `anon`, so the request is
+  refused outright and never returns `200`.
+- Detection: reading the migration to verify the assumption, before any push of
+  the workflow that would have run it.
+- Impact if shipped: the scheduled job fails on every run. A monitor that is
+  always red is one everybody learns to ignore, which is how the control would
+  have been silently lost.
+- Fix: assert denial (`401` or `403`) instead, which is also the stronger
+  property — a `200` means the revoke was undone.
+- Prevention: `--selftest` case `grant regression (anon read succeeds) is
+  caught`, run by `npm test`, fails if that assertion is ever loosened back.
+
+Manual-step analysis, per the progress and manual-assist skill:
+
+- All three manual interventions require owner-controlled access — a physical
+  LINE client, the original image file, and unrestricted network egress. None
+  can be automated away.
+- The development sandbox's egress policy refuses `CONNECT` to `supabase.co`,
+  so any live check against the production project has to run from a GitHub
+  runner or the owner's machine. This is a recurring constraint for this
+  repository, not a one-off: record it here rather than rediscovering it.
+- `workflow_dispatch` cannot trigger a workflow that has not yet reached the
+  default branch. Any future CI addition intended to be verified before merge
+  needs a `pull_request` trigger, or verification has to be accepted as
+  post-merge.

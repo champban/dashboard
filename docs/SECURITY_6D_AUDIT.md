@@ -1,13 +1,84 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Latest audit: `2026-07-30T12:06:15+07:00` (`Asia/Bangkok`)
+Latest audit: `2026-07-30T20:48:00+07:00` (`Asia/Bangkok`)
 
-Scope: merged PR #43 and Supabase `line-todo-webhook` version 3
+Scope: branch `claude/todo-planner-line-handover-yrm2ei`, pull request #45
+(Rich Menu asset versioning including the deployment image, project-context
+corrections, scheduled LINE health check). Auditor: Claude Opus 5 via Claude
+Code. The one binary added is an image asset, never executed and never served
+by the application — it is inert in the repository and read only by a human or
+by a manual `curl` upload to LINE.
 
-Decision: **PASS** for production technical deployment. No Critical or High
-findings. Owner-device behavior remains the only acceptance item.
+Decision: **CONDITIONAL PASS**. No Critical or High findings. The condition is
+that the new health check has never executed against production — see
+Residual risks — so it must not be treated as an active control until a real
+run passes.
 
-## Latest targeted findings — Search button
+## Latest targeted findings — Rich Menu assets and health check
+
+Change class: documentation, versioned assets, and one new CI workflow. **No
+runtime change.** No source, Edge Function, migration, RLS policy, Function
+Secret, snapshot, or browser-bundle modification.
+
+| Dimension | Result | Evidence / control | Open item |
+|---|---|---|---|
+| Identity and access | PASS | Nothing touches auth, the LINE HMAC gate, account mapping, link codes, or any RLS policy. The health check authenticates as nobody — it sends only the publishable key and asserts it is refused | None |
+| Secrets and data | PASS | Workflow needs **zero repository secrets**; the project URL and publishable key it uses already ship to every browser in `auth.js:3-4`. Rich Menu recreation commands read `$LINE_CHANNEL_ACCESS_TOKEN` from the shell environment and the README states the token must not reach chat, commit, log, or repo. `npm run scan-secrets` PASS over 70 tracked files. Check output is restricted to status codes — no task data, LINE user id, or token can appear | Publishable key now duplicated in two files (Low, see residuals) |
+| Input and content safety | PASS | The checker consumes **no** response body — it branches on `res.status` only, so a hostile or malformed response cannot reach a parser. Rich Menu JSON is static, validated against the specification (2500×843, one area, `text: "menu"`, `chatBarText: "Menu"`), and is never executed | None |
+| Browser and network controls | PASS | `index.html` and `BUILD-MANIFEST.json` regenerate **byte-for-byte** from source, so merging changes nothing GitHub Pages serves. No new origin, endpoint, CORS rule, or CSP hash. Outbound requests originate from GitHub runners to already-public Supabase endpoints, never from a user's browser | None |
+| Supply chain and deployment | PASS | New workflow declares `permissions: contents: read` (least privilege) and runs **no `npm ci`** — it imports nothing and uses only built-in `fetch`, so it adds no dependency surface and cannot be broken by a compromised package. Actions pinned to the same major tags as the existing `verify.yml` (`actions/checkout@v5`, `actions/setup-node@v5`). Lockfile unchanged; `npm audit --omit=dev --audit-level=high` reports 0 vulnerabilities | None |
+| Operations and recovery | **CONDITIONAL** | This change exists to close a monitoring gap and it does add the control, but the control is unproven. `--selftest` (7 cases, offline, in `npm test`) proves the logic catches a dead function, a bypassed HMAC gate, a paused project, a grant regression, and a network failure. The live path has never run | Live verification required before LINE-4 closes |
+
+Checks performed:
+
+- `npm test` — PASS, including the new offline `--selftest`.
+- `npm run verify` — PASS; static audit `0 blockers`, CSP hashes `6/6`.
+- `git diff -- index.html BUILD-MANIFEST.json` after `verify` — **empty**;
+  the shipped artifact is provably unchanged by this branch.
+- `npm run scan-secrets` — PASS (selftest + 70 tracked files).
+- `npm audit --omit=dev --audit-level=high` — `0 vulnerabilities`.
+- Rich Menu JSON asserted field-by-field against the recorded specification.
+- Migration drift confirmed against the live project: repo filename
+  `20260730031026_…` vs applied version `20260730041511`, same migration.
+- Production Edge Function re-confirmed: version 3 ACTIVE, `verify_jwt=false`,
+  bundle SHA-256 `d4ed04cad2935502009ca61275062bd3130752780179f0f099d76ed2a3ab51f6`
+  matching the recorded value; deployed source matches merged `main`.
+
+Defect found and corrected during this audit:
+
+- The health check initially asserted that an anonymous snapshot read returns
+  `200` with an empty array. The activation migration revokes all privileges on
+  `mtp_line_snapshots` from `anon`, so that assertion could never pass and the
+  job would have failed on every run — the reliable way to get a check ignored
+  and then deleted. Corrected at `fb8692f` to assert **denial** (401 or 403),
+  which is the stronger property: a `200` now means the revoke was undone and
+  anonymous callers can reach owner snapshots. Nothing else in this repository
+  watches for that.
+
+Backup and rollback readiness:
+
+- No backup required: no migration, no destructive operation, no production
+  data touched.
+- Rollback is `git revert` of the branch. Reverting the workflow file stops the
+  schedule; nothing else has to be undone, because nothing else was changed.
+- Supabase, Google Drive, and the deployed application are all untouched.
+- Function version 2 remains the Edge Function rollback point, unchanged.
+
+Residual risks:
+
+| Risk | Severity | Owner | Status |
+|---|---|---|---|
+| Health check never executed against production; the sandbox egress policy refuses `CONNECT` to `supabase.co`, and `workflow_dispatch` is not available until the workflow reaches `main` | Medium | Owner runs `npm run health-check` locally, or first post-merge run | Open — LINE-4 stays open until a real run passes |
+| ~~`line-rich-menu-menu-v1.png` uncommitted~~ | ~~Medium~~ | Owner | **Closed** — uploaded at `6b25938` and verified: 2500 × 843, 418,567 bytes, PNG 8-bit indexed, SHA-256 `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4`. Chunk walk found `IHDR cHRM PLTE bKGD tIME IDAT IEND` and **no `tEXt`, `iTXt`, or `eXIf`**, so the file carries no author name, software string, or GPS data into a public repository. Hash recorded in `docs/assets/line/README.md` so a future re-encode is detectable. Rich Menu is now recoverable in appearance as well as configuration; only the 7-step owner acceptance remains |
+| Publishable key and project URL now appear in both `auth.js` and `build/line-health-check.mjs`. Not a disclosure risk — both are public by design — but the two can drift if the project is ever migrated | Low | Next maintainer | Accepted; `line-health-check.mjs` names `auth.js` as the source of truth and supports `MTP_SUPABASE_URL` / `MTP_SUPABASE_PUBLISHABLE_KEY` overrides |
+| Scheduled workflows are disabled by GitHub after 60 days of repository inactivity, which would silently stop the monitoring | Low | Next maintainer | Accepted and documented in the workflow file |
+
+Deployment note: merging this branch to `main` republishes GitHub Pages, but the
+served bytes are identical, so there is no user-visible release. The real effect
+of the merge is **activating the scheduled workflow**. That is the only thing
+to watch after merge.
+
+## Historical targeted findings — Search button
 
 | Dimension | Result | Evidence / control | Open item |
 |---|---|---|---|

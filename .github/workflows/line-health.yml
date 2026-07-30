@@ -1,0 +1,57 @@
+# Scheduled liveness check for the LINE Official Account integration.
+#
+# Every failure mode this integration has is silent — the webhook is only ever
+# called by LINE, and its error path deliberately logs nothing. Without this, a
+# dead bot is discovered by tapping Menu and getting no reply, with no way to
+# tell how long it has been down.
+#
+# It is also the keepalive. Supabase's free tier pauses a project after 7 days
+# of inactivity; touching the database on a schedule is what prevents that. One
+# job does both — do not add a second cron for the keepalive.
+#
+# NO REPOSITORY SECRETS ARE REQUIRED, and none should be added. Every endpoint
+# checked is public: the project URL and publishable key already ship to every
+# browser in auth.js. A check that needs the service-role key or a LINE channel
+# token does not belong in CI.
+name: line-health
+
+on:
+  schedule:
+    # 03:00 UTC every other day = 10:00 Asia/Bangkok. Well inside Supabase's
+    # 7-day pause window, so three consecutive missed runs are still survivable
+    # (GitHub delays or drops scheduled runs under load — this is not a
+    # guaranteed timer).
+    - cron: '0 3 */2 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: line-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      # No npm ci: the checker uses only built-in fetch and imports nothing.
+      # Installing the toolchain here would make a liveness check depend on the
+      # build toolchain being healthy, which is a different question.
+      - name: LINE integration health
+        run: node build/line-health-check.mjs
+
+# On failure GitHub emails the user whose credentials the schedule runs under —
+# no notification configuration needed. If this workflow starts failing, read
+# the step output before touching production: it distinguishes "function gone"
+# from "project paused" from "RLS regression", and each has a different fix.
+#
+# GitHub disables scheduled workflows in a repository with no activity for 60
+# days. If the bot silently stops being checked, confirm this workflow is still
+# enabled before concluding the checks were passing.
