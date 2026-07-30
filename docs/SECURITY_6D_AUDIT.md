@@ -9,10 +9,22 @@ Code. The one binary added is an image asset, never executed and never served
 by the application — it is inert in the repository and read only by a human or
 by a manual `curl` upload to LINE.
 
-Decision: **CONDITIONAL PASS**. No Critical or High findings. The condition is
-that the new health check has never executed against production — see
-Residual risks — so it must not be treated as an active control until a real
-run passes.
+Decision: **CONDITIONAL PASS**. No Critical or High findings.
+
+The original condition — an unverified health check — is now **satisfied**:
+`line-health` run 1 against `main` at `2b54e02` returned `PASS (3/3)` on
+`2026-07-30T21:12:57+07:00`. Two conditions replaced it, both raised by
+automated review after the merge:
+
+1. **LINE-5 is an accepted open Medium.** A green run means "deployed and
+   configured", never "working" — an expired-but-present LINE token still
+   answers 401 and passes. Scoped, not fixed, because closing it puts a token
+   that can post as the Official Account into repository secrets.
+2. **The audited tree is not what is on `main`.** `main` merged at `372c3ee`
+   and does **not** contain the cadence fix or the LINE-5 scoping; those live
+   at `9ba654f` on the feature branch with no delivery path yet. Until they
+   land, `main` carries a keepalive that can let the project pause — see the
+   cadence row in Residual risks.
 
 ## Latest targeted findings — Rich Menu assets and health check
 
@@ -68,9 +80,9 @@ Residual risks:
 
 | Risk | Severity | Owner | Status |
 |---|---|---|---|
-| Health check never executed against production; the sandbox egress policy refuses `CONNECT` to `supabase.co`, and `workflow_dispatch` is not available until the workflow reaches `main` | Medium | Owner runs `npm run health-check` locally, or first post-merge run | Open — LINE-4 stays open until a real run passes |
+| ~~Health check never executed against production~~ | ~~Medium~~ | — | **Closed** — `line-health` run 1 against `main` at `2b54e02` on `2026-07-30T21:12:57+07:00` returned `PASS (3/3)`: GET 405, unsigned POST 401, anonymous snapshot read denied with 401. PostgREST answered 401 rather than 403, confirming the decision to accept either rather than pin one code |
 | Health check cannot distinguish a working credential from an invalid one. `index.ts` guards secrets by emptiness, then answers 401 on the missing signature before calling LINE or the database — so a deleted secret fails the check (500) but an expired or rotated channel access token still passes (401) while the bot is dead | Medium | Owner decides whether to store a LINE token in CI | Open — LINE-5. **Scoped rather than closed**: adding `GET /v2/bot/info` would put a token that can post as the Official Account into repository secrets, reachable by any workflow and anyone with write access. That tradeoff is the owner's to make. The workflow, the checker's SCOPE comment and this table all state that green means "deployed and configured", never "working" |
-| Scheduled cadence was `*/2` in day-of-month: succeed on the 1st, miss the 3rd, 5th and 7th, and the next attempt falls on the 9th — eight days of database inactivity, past the 7-day pause window the keepalive exists to prevent | ~~Medium~~ | — | **Closed** — changed to daily, which survives up to five consecutive missed runs within six days. The original comment claimed three misses were survivable; the arithmetic said otherwise. Raised by automated review on PR #45 |
+| Scheduled cadence `*/2` in day-of-month: succeed on the 1st, miss the 3rd, 5th and 7th, and the next attempt falls on the 9th — eight days of database inactivity, past the 7-day pause window the keepalive exists to prevent | Medium | Owner | **Fixed at `9ba654f`, NOT on `main`.** PR #45 merged at `372c3ee`, one commit earlier, so `main` still carries `*/2` and the comment claiming three misses are survivable. Daily survives five consecutive misses within six days. The exposure is bounded — the project only pauses after 7 days with no other activity, and ordinary owner use also counts — but the control does not currently do what its own comment says. Needs a delivery path; not re-opened or re-PR'd without instruction |
 | ~~`line-rich-menu-menu-v1.png` uncommitted~~ | ~~Medium~~ | Owner | **Closed** — uploaded at `6b25938` and verified: 2500 × 843, 418,567 bytes, PNG 8-bit indexed, SHA-256 `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4`. Chunk walk found `IHDR cHRM PLTE bKGD tIME IDAT IEND` and **no `tEXt`, `iTXt`, or `eXIf`**, so the file carries no author name, software string, or GPS data into a public repository. Hash recorded in `docs/assets/line/README.md` so a future re-encode is detectable. Rich Menu is now recoverable in appearance as well as configuration; only the 7-step owner acceptance remains |
 | Publishable key and project URL now appear in both `auth.js` and `build/line-health-check.mjs`. Not a disclosure risk — both are public by design — but the two can drift if the project is ever migrated | Low | Next maintainer | Accepted; `line-health-check.mjs` names `auth.js` as the source of truth and supports `MTP_SUPABASE_URL` / `MTP_SUPABASE_PUBLISHABLE_KEY` overrides |
 | Scheduled workflows are disabled by GitHub after 60 days of repository inactivity, which would silently stop the monitoring | Low | Next maintainer | Accepted and documented in the workflow file |
