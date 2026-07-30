@@ -68,6 +68,8 @@ Release/runbook files:
 - `docs/LINE_OFFICIAL_SETUP.md`
 - `docs/SECURITY_6D_AUDIT.md`
 - `docs/PROJECT_PERFORMANCE_KPI.md`
+- `docs/assets/line/` — Rich Menu configuration, specification and recreation
+  commands
 
 Production order is backup → migration → Function Secrets → Edge Function →
 LINE webhook verify → app deploy → Full/Mobile acceptance. The first five are
@@ -130,6 +132,16 @@ Branch: `feature/line-task-details` (merged)
 - Compatibility migration
   `20260730031026_line_task_details_snapshot_v2.sql` allows snapshot schema v1
   and v2 without rewriting existing rows.
+- **The repository filename and the applied database version do not match.**
+  The repo file is `20260730031026_…`; Supabase records the applied migration as
+  version `20260730041511`, name `line_task_details_snapshot_v2`. Same
+  migration, different timestamp — production is correct, but a `db push` or
+  diff will treat the repo file as unapplied and may try to re-run it. The
+  migration is additive and re-runnable (`drop constraint if exists` → `add` →
+  `validate`), so a re-run is not destructive, but do not assume the two
+  identifiers refer to different things. Renaming the repo file is **not** the
+  fix — that would break anything already pinned to the current name; record the
+  mapping here instead and check it before any migration tooling runs.
 - The compatibility migration, Edge Function version 2, and Full/Mobile app
   release are in production. Owner live-data acceptance remains an operational
   check. GitHub is the primary source for code and migrations; Drive remains
@@ -163,6 +175,29 @@ Targeted 6D audit:
 | Audit date | Commit SHA | Environment | Identity & access | Secrets & data | Input safety | Browser/network | Supply chain/deploy | Operations/recovery | Decision | Report |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 2026-07-30 | `bf47521` / merge `ad3067f` | Supabase Production v3 | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
+
+### LINE persistent Rich Menu
+
+Created manually through LINE Official Account Manager, not through the
+Messaging API. **It changes no code**: it sends the text `menu`, which
+`parseIntent()` already matches (`/^(?:เมนู|menu)$/u`) and answers with the
+English Flex command menu containing `Search`.
+
+- Canvas 2500 × 843, one full-width clickable area, label and chat bar text
+  `Menu`, action type Text/Message, exact text `menu`, default display Show.
+- Configuration, full specification and recreation commands are versioned in
+  `docs/assets/line/`. **The deployment image
+  `line-rich-menu-menu-v1.png` is still uncommitted** — the menu is currently
+  recoverable in configuration only, not in appearance. See LINE-3 below.
+- A Manager-created Rich Menu may not be returned by the Messaging API Rich Menu
+  list endpoint. An empty list is **not** evidence the menu is missing; verify in
+  the LINE app.
+- Because no code, function version, migration, secret or snapshot changes,
+  there is nothing to roll back on the server side. Reverting means deleting or
+  hiding the menu in Manager; function version 3 stays ACTIVE either way and
+  typed `menu` / `เมนู` keeps working.
+- Owner acceptance (7 steps, mobile and PC) is in `docs/LINE_OFFICIAL_SETUP.md`
+  → "Rich Menu" and is still outstanding.
 
 ## Source of truth (restored in 3.77.0)
 
@@ -746,10 +781,12 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | N105 | Connection drops on a device that already connected | iOS standalone vs Safari-tab are separate storage contexts; confirm mode first. |
 | — | OneDrive sync | Not started; needs Azure App Registration client ID. |
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
-| — | CI | Add automated checks: audit.py, harness, CSP/manifest integrity on every PR. |
+| — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
 | LINE-1 | LINE Official read-only bot production activation | Backup, migrations, Function Secrets, function v2, webhook verification, auth hotfix, menu and task cards are active. Owner live-data acceptance remains. |
 | LINE-2 | Search button owner acceptance | After Search-button deployment, verify keyboard prefill on LINE iOS/Android and fallback instruction on LINE PC. |
+| LINE-3 | Rich Menu image not backed up | `docs/assets/line/` holds the configuration, specification and recreation commands, but not `line-rich-menu-menu-v1.png` (2500 × 843, ~419 KB). It exists only on the owner's machine and inside LINE Official Account Manager, which has no version history. It must be committed as the **original bytes** — a re-encoded or regenerated copy is a different image and would silently replace the live design in any future recreation. Optional companion: `line-rich-menu-background-v1.png`. Owner acceptance of the menu itself (7 steps, mobile and PC) is also outstanding. |
+| LINE-4 | No runtime monitoring | Nothing reports webhook success rate, latency, LINE API errors or snapshot freshness. An expired channel access token or a Supabase free-tier pause (7 days idle) takes the bot down silently — discovered only by tapping Menu and getting nothing back. A scheduled check would also serve as the keepalive noted under Infrastructure notes, so build one job, not two. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
