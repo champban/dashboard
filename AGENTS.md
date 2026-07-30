@@ -22,9 +22,12 @@ policy, also read `champban/Engineering1` → branch `Doc` →
 - Google Drive reconciliation succeeds before a LINE snapshot is published.
 - A LINE snapshot is secondary and read-only. Its failure must not fail or roll
   back a successful Drive save.
-- Snapshot fields are limited to task type, title, status, due date, category,
-  and priority. Never include notes, descriptions, attachments, configuration,
-  tokens, or API keys.
+- Snapshot v2 always limits core fields to task type, title, status, due date,
+  category, and priority. It may additionally include sanitised Subtask
+  text/done state and HTTPS attachment-link metadata only when the owner enables
+  the corresponding opt-in. Never include raw IDs, notes, descriptions, local
+  files, base64 data, HTTP URLs, URLs with embedded username/password,
+  configuration, tokens, or API keys.
 - Verify `x-line-signature` against the untouched raw request body before parsing
   JSON.
 - Keep `line-todo-webhook` deterministic; do not add AI or MCP runtime without a

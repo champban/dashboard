@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import React from "react";
 
 // ─── App Version ──────────────────────────────────────────────────────────────
-const APP_VERSION   = "3.77.1";
-const APP_BUILD     = "2026-06-27";
+const APP_VERSION   = "3.77.2";
+const APP_BUILD     = "2026-07-30";
 
 // ─── All configurable defaults — overridable from Config tab ─────────────────
 const DEFAULT_CONFIG = {
@@ -38,6 +38,8 @@ const DEFAULT_CONFIG = {
   defaultFileName: "", // Q2: user's preferred save filename (folder handle stored separately in IDB)
   defaultStartFolder: "documents", // N25: which system folder file dialogs open in by default
   backupReminderWeeks: 1, // A1: nudge to back up every N weeks (user-configurable, 1-16)
+  lineShareSubtasks: false, // explicit opt-in: sanitised text + done state only
+  lineShareAttachmentLinks: false, // explicit opt-in: HTTPS link metadata only
   calFontSize: 12,        // N36: calendar day-cell font size (px), configurable in Calendar
   calFontFamily: "system", // N36: calendar font family
   // AI + Cloud keys (user-supplied, stored in profile file)
@@ -11306,7 +11308,7 @@ function SyncPanel({
   diskFileName, diskSavedAt, onSaveToDisk, onOpenFromDisk,
   onConnect, onDisconnect, onSyncNow, onCheckNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
-  lineSync, onLineCreateCode, onLineRefresh,
+  lineSync, lineSharing, onLineSharingChange, onLineCreateCode, onLineRefresh,
 }) {
   const [pos, setPos] = React.useState(()=>({ x: Math.max(12, window.innerWidth - 372), y: 76 }));
   const [busy, setBusy] = React.useState(false);
@@ -11554,8 +11556,28 @@ function SyncPanel({
         <div style={box}>
           <div style={label}>💬 LINE Official — read only</div>
           <div style={{fontSize:11,color:"var(--c-text-muted)",lineHeight:1.5}}>
-            ถามงานง่าย ๆ ใน LINE ได้ โดยส่งเฉพาะชื่อ สถานะ วันกำหนด หมวด และ priority
-            ไป Supabase หลัง Google Drive sync สำเร็จ ไม่ส่ง note, description หรือ attachment
+            ถามงานง่าย ๆ ใน LINE ได้ Snapshot จะอัปเดตหลัง Google Drive sync สำเร็จเท่านั้น
+            โดยไม่ส่ง note, description, local file หรือข้อมูล base64
+          </div>
+          <div style={{display:"grid",gap:6,marginTop:8,padding:"8px 9px",
+            borderRadius:7,background:"var(--c-input)",border:"1px solid var(--c-border)"}}>
+            <label style={{display:"flex",alignItems:"flex-start",gap:7,fontSize:10.5,
+              color:"var(--c-text)",fontWeight:700,lineHeight:1.4,cursor:"pointer"}}>
+              <input type="checkbox" checked={lineSharing?.subtasks===true}
+                onChange={e=>onLineSharingChange?.({lineShareSubtasks:e.target.checked})}
+                style={{marginTop:1}}/>
+              Share sanitised Subtasks with LINE
+            </label>
+            <label style={{display:"flex",alignItems:"flex-start",gap:7,fontSize:10.5,
+              color:"var(--c-text)",fontWeight:700,lineHeight:1.4,cursor:"pointer"}}>
+              <input type="checkbox" checked={lineSharing?.attachmentLinks===true}
+                onChange={e=>onLineSharingChange?.({lineShareAttachmentLinks:e.target.checked})}
+                style={{marginTop:1}}/>
+              Share HTTPS attachment links with LINE
+            </label>
+            <div style={{fontSize:9.5,color:"var(--c-text-muted)",lineHeight:1.45}}>
+              ปิดเป็นค่าเริ่มต้น · กด Save to Cloud หลังเปลี่ยนค่า · รูป/วิดีโอที่เป็น local file จะไม่ถูกส่ง
+            </div>
           </div>
           <div style={{marginTop:7,fontSize:11,fontWeight:800,
             color:lineSync?.linked?"#16a34a":"var(--c-text-muted)"}}>
@@ -14406,7 +14428,16 @@ export default function App() {
         onSetAuto={setGsyncAutoPersist} onRename={gsyncRename} onRelink={gsyncRelink} onUnlink={gsyncUnlink} onOpenFolder={gsyncOpenFolder}
         listFiles={()=>GDrive.listFiles()}
         minimized={gsyncPanelMin} onToggleMin={()=>setGsyncPanelMin(m=>!m)}
-        lineSync={lineSync} onLineCreateCode={createLineLinkCode} onLineRefresh={refreshLineStatus}
+        lineSync={lineSync}
+        lineSharing={{
+          subtasks:config.lineShareSubtasks===true,
+          attachmentLinks:config.lineShareAttachmentLinks===true,
+        }}
+        onLineSharingChange={patch=>{
+          void patchConfig(patch);
+          setDataLastUpdated(new Date().toISOString());
+        }}
+        onLineCreateCode={createLineLinkCode} onLineRefresh={refreshLineStatus}
         onClose={()=>setGsyncPanel(false)} />}
       {importConflict && <ImportDirectionDialog
         fileName={importConflict.fileName}

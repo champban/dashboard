@@ -4,9 +4,14 @@
 // Public browser bridge: it contains no LINE or Supabase backend secret.
 // The signed-in Supabase session comes from auth.js and RLS keeps every write
 // scoped to auth.uid().
-const SNAPSHOT_SCHEMA = 1;
+const SNAPSHOT_SCHEMA = 2;
 const MAX_TASKS = 500;
 const MAX_SNAPSHOT_BYTES = 240 * 1024;
+const MAX_SUBTASKS_PER_TASK = 20;
+const MAX_SUBTASK_CHARS = 120;
+const MAX_ATTACHMENTS_PER_TASK = 3;
+const MAX_ATTACHMENT_LABEL_CHARS = 80;
+const MAX_ATTACHMENT_URL_CHARS = 1000;
 const LINK_TTL_MS = 10 * 60 * 1000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -42,8 +47,65 @@ function isoTimestamp(value){
   return Number.isFinite(time)?new Date(time).toISOString():null;
 }
 
-function projectTask(task,type){
+function httpsUrl(value){
+  const raw=String(value??"").trim();
+  if(!raw || raw.length>MAX_ATTACHMENT_URL_CHARS)return "";
+  try{
+    const parsed=new URL(raw);
+    if(parsed.protocol!=="https:" || !parsed.hostname || parsed.username || parsed.password)return "";
+    return parsed.href;
+  }catch{
+    return "";
+  }
+}
+
+function attachmentKind(value){
+  const url=String(value??"").toLowerCase();
+  if(/\.(?:jpg|jpeg|png|gif|webp|svg|bmp)(?:[?#]|$)/.test(url))return "image";
+  if(/\.(?:mp4|mov|webm|avi|mkv)(?:[?#]|$)/.test(url)
+    || /(?:youtube\.com|youtu\.be|vimeo\.com)/.test(url))return "video";
+  return "link";
+}
+
+function projectSubtasks(task){
+  const source=Array.isArray(task?.subtasks)?task.subtasks:[];
+  const subtasks=source.slice(0,MAX_SUBTASKS_PER_TASK).map(item=>({
+    text:cleanText(item?.text,MAX_SUBTASK_CHARS)||"(ไม่มีชื่อ)",
+    done:item?.done===true,
+  }));
   return {
+    subtasks,
+    subtaskCountTotal:source.length,
+    subtasksTruncated:source.length>subtasks.length,
+  };
+}
+
+function projectAttachments(task){
+  const source=Array.isArray(task?.attachments)?task.attachments:[];
+  const valid=[];
+  for(const item of source){
+    if(item?.type!=="link")continue;
+    const url=httpsUrl(item.url);
+    if(!url)continue;
+    valid.push({
+      kind:attachmentKind(url),
+      label:cleanText(item?.label||item?.name,MAX_ATTACHMENT_LABEL_CHARS)
+        || cleanText(new URL(url).hostname,MAX_ATTACHMENT_LABEL_CHARS)
+        || "Attachment",
+      url,
+    });
+    if(valid.length>=MAX_ATTACHMENTS_PER_TASK)break;
+  }
+  const shareableTotal=source.filter(item=>item?.type==="link" && !!httpsUrl(item.url)).length;
+  return {
+    attachments:valid,
+    attachmentCountTotal:shareableTotal,
+    attachmentsTruncated:shareableTotal>valid.length,
+  };
+}
+
+function projectTask(task,type,sharing){
+  const projected={
     type,
     title:cleanText(task?.title,240)||"(ไม่มีชื่อ)",
     status:cleanText(task?.status,32)||"pending",
@@ -51,6 +113,9 @@ function projectTask(task,type){
     category:cleanText(task?.project||task?.cat,100),
     priority:cleanText(task?.priority,24),
   };
+  if(sharing.subtasks)Object.assign(projected,projectSubtasks(task));
+  if(sharing.attachmentLinks)Object.assign(projected,projectAttachments(task));
+  return projected;
 }
 
 function taskOrder(a,b){
@@ -64,24 +129,42 @@ function buildSnapshot(payload,source){
   if (!payload || !Array.isArray(payload.personal) || !Array.isArray(payload.work)) {
     throw new Error("Planner data is not a valid profile payload.");
   }
+  const sharing={
+    subtasks:payload?.config?.lineShareSubtasks===true,
+    attachmentLinks:payload?.config?.lineShareAttachmentLinks===true,
+  };
   const all=[
-    ...payload.personal.map(task=>projectTask(task,"personal")),
-    ...payload.work.map(task=>projectTask(task,"work")),
+    ...payload.personal.map(task=>projectTask(task,"personal",sharing)),
+    ...payload.work.map(task=>projectTask(task,"work",sharing)),
   ].sort(taskOrder);
-  const tasks=all.slice(0,MAX_TASKS);
-  const snapshot={
+  const snapshotBase={
     schemaVersion:SNAPSHOT_SCHEMA,
     appVersion:cleanText(payload.appVersion,40),
     source:source==="mobile"?"mobile":"full",
     syncedAt:new Date().toISOString(),
     dataUpdatedAt:isoTimestamp(payload.dataLastUpdated||payload.savedAt),
     driveSavedAt:isoTimestamp(payload.savedAt),
+    sharing,
     taskCountTotal:all.length,
+    truncated:false,
+    tasks:[],
+  };
+  const tasks=[];
+  let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
+  for(const task of all){
+    if(tasks.length>=MAX_TASKS)break;
+    const taskBytes=new Blob([JSON.stringify(task)]).size+(tasks.length?1:0);
+    if(bytes+taskBytes>MAX_SNAPSHOT_BYTES)break;
+    tasks.push(task);
+    bytes+=taskBytes;
+  }
+  const snapshot={
+    ...snapshotBase,
     truncated:all.length>tasks.length,
     tasks,
   };
-  if (new Blob([JSON.stringify(snapshot)]).size>MAX_SNAPSHOT_BYTES) {
-    throw new Error("LINE task snapshot is too large. Archive old completed tasks first.");
+  if(new Blob([JSON.stringify(snapshot)]).size>MAX_SNAPSHOT_BYTES){
+    throw new Error("LINE task snapshot exceeded its safe size limit.");
   }
   return snapshot;
 }

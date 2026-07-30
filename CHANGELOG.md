@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased — 3.77.2 LINE task details — 2026-07-30
+
+### Added
+
+- LINE task results are Flex cards with title, due date, project/category,
+  priority, status, and optional Subtasks.
+- Each card shows up to five Subtasks with done state and a remaining-count
+  indicator.
+- Up to three user-approved HTTPS attachment links per task are rendered as
+  URI buttons for links, pictures, and videos. LINE for PC receives the same
+  desktop URI.
+- Full and Mobile settings now provide separate opt-in controls for Subtasks
+  and HTTPS attachment links. Both are off by default.
+
+### Privacy and compatibility
+
+- Snapshot schema v2 includes only sanitised Subtask text/done state and
+  HTTPS-link metadata. Raw task/Subtask/attachment IDs, notes, descriptions,
+  local files, base64 data, URLs with embedded username/password, HTTP links,
+  and secrets stay out.
+- Snapshot size is capped at 240 KiB by truncating at task boundaries instead
+  of failing a successful Google Drive save.
+- Migration `20260730031026_line_task_details_snapshot_v2.sql` accepts both
+  schema v1 and v2 during staged rollout and does not rewrite existing rows.
+- The Edge Function reads both versions. Results fall back to text if a Flex
+  payload cannot remain under LINE's 50 KiB carousel limit.
+
+### Deployment
+
+- Required order: fresh Supabase logical backup → apply migration → redeploy
+  `line-todo-webhook` → deploy Full/Mobile app → owner acceptance.
+- No production migration, merge, function deploy, or app deploy is performed
+  by this branch without explicit approval.
+
 ## Unreleased — LINE bilingual command menu — 2026-07-30
 
 ### Added
