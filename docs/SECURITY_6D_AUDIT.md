@@ -1,11 +1,13 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Audit date: 2026-07-29
+Audit date: 2026-07-30
 
-Scope: LINE production activation and `hotfix/supabase-auth-storage`
+Scope: LINE production activation, auth hotfix, bilingual command menu, and
+`feature/line-task-details`
 
-Decision: **CONDITIONAL / backend active; client hotfix not production-ready
-until the remaining gates below pass**
+Decision: **CONDITIONAL / backend active; task-details v2 is not
+production-ready until backup, migration, Preview-equivalent verification, and
+owner acceptance pass**
 
 ## 1. Functional correctness and data integrity — PASS for release candidate
 
@@ -14,7 +16,13 @@ until the remaining gates below pass**
 - LINE publication errors are contained and cannot reverse a successful Drive
   operation.
 - Date commands use `Asia/Bangkok`; week boundaries are Monday–Sunday.
+- The next-four-weeks filter uses an inclusive today/day-28 boundary and
+  excludes overdue and completed tasks; High priority excludes completed tasks.
 - Deterministic command, filtering, sort, cap, HMAC, and privacy tests pass.
+- Snapshot v2 keeps the 240 KiB browser budget by truncating at task
+  boundaries; PostgreSQL retains the 256 KiB hard limit.
+- Task Flex cards cap visible Subtasks at five, attachment actions at three,
+  tasks at twelve, and carousel JSON at 50 KiB.
 - Google Drive remains independent of the webhook; the function cannot mutate
   planner tasks.
 - Activation diagnostics prove the failed link attempt stopped in the browser:
@@ -30,8 +38,13 @@ owner data.
 
 - Full Sync Manager and Mobile Sync show link state, snapshot time, one-time
   code, copy action, refresh, busy state, and errors.
+- The default English Flex menu works in LINE PC and mobile; linked mobile
+  replies additionally carry eight Quick Reply actions. A static Thai/English
+  switch does not require storing a language preference.
 - The UI states that LINE is read-only and names fields excluded from the
   snapshot.
+- Full and Mobile expose separate Subtask and HTTPS attachment-link opt-ins;
+  both default to off and state that another Save to Cloud is required.
 - Existing touch/button styling and focus behavior are reused.
 - A visible signed-in profile is no longer accepted as sufficient auth evidence
   in testing; link-code acceptance must also produce a database row.
@@ -43,8 +56,11 @@ iPhone and desktop browser.
 
 - No AI, MCP server, vector database, cron, or new browser polling loop.
 - A LINE query is one account lookup, one snapshot lookup, and one reply call.
+  Task lists use one Flex bubble/carousel; status/help/empty results use text;
+  successful linking contains two messages, below LINE's five-message limit.
 - Snapshot is capped at 500 tasks / 240 KiB browser-side and 256 KiB in
-  PostgreSQL; replies are capped at 12 tasks / 4,800 characters.
+  PostgreSQL; replies are capped at 12 tasks, 50 KiB per Flex carousel, or
+  4,800 characters for text fallback.
 - Supabase JS is version-pinned for the Edge Function.
 
 Production gate: measure webhook p95 and reply success after activation.
@@ -66,16 +82,25 @@ Controls:
 - The claim function is `SECURITY DEFINER` with an empty `search_path`; execution
   is revoked from public/anon/authenticated and granted only to `service_role`.
 - LINE and Supabase backend keys exist only in Function Secrets.
-- Snapshot regression tests prove that profile IDs, notes, descriptions,
-  attachments, config, and API-key fields are excluded.
+- Snapshot regression tests prove that profile/task/Subtask/attachment IDs,
+  notes, descriptions, local files, base64 data, config, HTTP URLs, URLs with
+  embedded username/password, and API-key fields are excluded. Only explicitly
+  enabled, sanitised Subtask text/done state and HTTPS attachment-link metadata
+  are allowed.
 - Function errors do not log request bodies, LINE user IDs, task data, or
   secrets.
+- All menu buttons are fixed message actions that resolve to the deterministic
+  parser; they cannot inject a query, URL, user ID, or task field.
 
 Residuals:
 
 - Task title, status, due date, category, and priority are copied to Supabase and
   may be delivered into LINE chat history. Users must not treat either location
   as suitable for highly sensitive information.
+- When enabled, Subtask text and HTTPS attachment URLs also enter Supabase and
+  LINE chat history. A URI button opens user-provided content in LINE's in-app
+  browser; the app validates HTTPS and rejects embedded credentials but cannot
+  certify third-party content.
 - The MVP does not persist LINE `webhookEventId`; a provider retry can attempt
   the same one-time reply twice. LINE reply tokens are single-use, so the second
   attempt should fail rather than duplicate a state change, but operational
@@ -93,6 +118,9 @@ Residuals:
   re-linking the owner; the mapping remains one owner ↔ one LINE user.
 - Database migration, function source, tests, and runbook are versioned in
   GitHub.
+- Snapshot v2 migration is additive and accepts both v1/v2; it rewrites no
+  planner rows. Rollback is the previous app/function commit while retaining
+  the compatibility constraint.
 - The failed activation wrote no LINE rows and changed no task/Drive data, so
   recovery needs a client redeploy and fresh login rather than a database
   restore.
@@ -115,13 +143,19 @@ confirm recovery and retry behavior.
 
 Remaining production items:
 
-1. Merge/deploy hotfix 3.77.1 only after explicit owner approval.
-2. Sign in once to replace the already-redacted browser session.
-3. Create and claim a new one-time link code; verify a row is created without
-   exposing its value in logs or documentation.
-4. Complete Full/Mobile owner acceptance and the seven LINE commands.
-5. Exercise an invalid-signature request and induced provider failures.
-6. Re-run this audit with live evidence and change the decision explicitly.
+1. Create and verify a fresh logical Supabase backup.
+2. Apply and verify migration `20260730031026_line_task_details_snapshot_v2.sql`.
+3. Review and merge the stacked pull requests only after explicit owner
+   approval.
+4. Redeploy `line-todo-webhook` and the Full/Mobile app only after separate
+   explicit deploy approval.
+5. Verify the English Flex menu in LINE PC and the Quick Replies in LINE
+   iOS/Android; switch to and from Thai.
+6. Verify Subtask display, all three HTTPS attachment kinds, opt-out behavior,
+   and local-file exclusion with owner data.
+7. Complete the expanded command and day-0/day-28 boundary acceptance set.
+8. Exercise an invalid-signature request and induced provider failures.
+9. Re-run this audit with live evidence and change the decision explicitly.
 
 ## Verification evidence
 

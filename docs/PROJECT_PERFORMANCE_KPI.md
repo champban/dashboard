@@ -1,15 +1,17 @@
 # Project Performance KPI — LINE Official Read-only Bot
 
-Status: backend activated; client hotfix verified locally and awaiting
-merge/deploy approval
+Status: backend activated; auth hotfix merged; bilingual command-menu release
+candidate plus task-details v2 awaiting review/deploy approval
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
+Task-details increment M0: `2026-07-30T10:10:26+07:00`
+
 ## Outcome
 
-The owner can link one LINE user to the signed-in My Todo Planner account and ask
-simple Thai questions against the latest privacy-minimised task snapshot, without
-running an AI model.
+The owner can link one LINE user to the signed-in My Todo Planner account and
+tap or type simple English or Thai questions against the latest
+privacy-minimised task snapshot, without running an AI model.
 
 ## KPI and release gates
 
@@ -19,7 +21,13 @@ running an AI model.
 | Link-code lifetime | 10 minutes | Browser and SQL contract implemented | Pending live expiry test |
 | Link code reuse | 0 successful reuses | Atomic SQL claim + `used_at` row lock | Pending live replay test |
 | Sensitive fields in snapshot | 0 | Snapshot leakage regression test passes | Pending owner data spot-check |
-| Supported deterministic commands | 7 | Parser/filter unit tests pass | Pending LINE acceptance test |
+| LINE sharing default | Subtasks/link attachments OFF | Full/Mobile defaults and UI contract tests | Pending owner device check |
+| Subtask card detail | Up to 5 rows + done/total + remaining count | Flex task-card tests pass | Pending owner LINE check |
+| Attachment action safety | HTTPS only; max 3/task; no local/base64 | URL, credential, local-file, and URI-action tests pass | Pending owner LINE click test |
+| Flex carousel payload | `<= 50 KiB`; `<= 12` bubbles | Oversized fixture truncates safely | Pending largest live result |
+| Supported deterministic command groups | 10 | Parser/filter unit tests pass | Pending LINE acceptance test |
+| Menu action validity | 8/8 per language | Flex and Quick Reply actions resolve to known commands; Quick Reply count is below 13 | Pending LINE PC/iOS/Android acceptance |
+| Next-4-weeks boundary | Today through day 28 inclusive | Day 0/+28 included; overdue/+29/completed excluded | Pending live spot-check |
 | Reply size | `< 5,000` characters | Capped at 4,800 and 12 tasks | Pending largest live reply |
 | Snapshot task cap | 500 | Browser snapshot test passes | Monitor truncation flag |
 | Snapshot follows successful Drive sync | 100% of accepted Drive paths | Full/Mobile static contracts + existing Drive regression suite | Activation exposed erased auth tokens before PostgREST; 3.77.1 regression passes, live round-trip pending |
@@ -30,13 +38,24 @@ running an AI model.
 
 ## Command acceptance set
 
-1. `งานวันนี้`
-2. `งานสัปดาห์นี้`
-3. `งานเกินกำหนด`
-4. `งานไม่มีวันกำหนด`
-5. `ค้นหา <คำ>`
-6. `สถานะ`
-7. `ช่วยเหลือ`
+1. Link successfully; an English Flex menu must appear automatically.
+2. Tap `Today`, `Next 4 weeks`, `Overdue`, `High priority`, `No due date`, and
+   `Status`.
+3. Tap `ภาษาไทย`; the Thai menu must appear.
+4. Tap `วันนี้`, `4 สัปดาห์`, `เกินกำหนด`, `สำคัญสูง`, `ไม่มีวันกำหนด`, and
+   `สถานะ`.
+5. Type legacy commands `งานสัปดาห์นี้` and `ค้นหา <คำ>`.
+6. Type `menu` and `เมนู`; each must return the corresponding language.
+7. Confirm day +28 is included in `Next 4 weeks`, while overdue, day +29, and
+   completed tasks are excluded.
+8. Enable Subtask sharing, Save to Cloud, and confirm a task card shows
+   done/total, at most five rows, and `+N` for the remainder.
+9. Enable HTTPS attachment-link sharing, Save to Cloud, and confirm link,
+   picture-link, and video-link buttons open.
+10. Confirm HTTP, embedded-credential, local-file, and base64 attachments never
+    appear.
+11. Disable each sharing option, save again, and confirm the corresponding data
+    disappears.
 
 Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
 
@@ -50,8 +69,9 @@ Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
 - M2 — **partially complete 2026-07-29**: LINE console valid webhook
   verification returned Success. Invalid-signature live outcome remains
   pending; do not log message bodies or user IDs.
-- M3 — Full and Mobile owner acceptance: record each command, link replay, stale
-  snapshot, and induced LINE/Supabase error result.
+- M3 — Full and Mobile owner acceptance: record each command/menu action, link
+  replay, Subtask/attachment opt-in and opt-out, stale snapshot, and induced
+  LINE/Supabase error result.
 - M4 — 30-day review: reply success rate, p95 latency, snapshot truncation count,
   and actual cost.
 
