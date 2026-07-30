@@ -18,6 +18,25 @@
 // check ever seems to need the service-role key or a LINE token, that check belongs
 // somewhere else.
 //
+// SCOPE — what this does NOT prove. These checks are an endpoint and
+// configuration check, not an end-to-end one, and the boundary is exact:
+//
+//   index.ts guards credentials by EMPTINESS only (`!accessToken`), then
+//   returns 401 on the missing signature before it ever calls the LINE API or
+//   touches the database with the backend key.
+//
+// So a DELETED secret returns 500 `server_not_configured` and check 2 fails —
+// caught. A secret that is PRESENT BUT INVALID (an expired or rotated LINE
+// channel access token, a stale backend key) still returns 401, and every check
+// here goes green while real LINE events fail and the owner gets no reply.
+//
+// Closing that gap means putting a LINE channel access token into repository
+// secrets so a check can call `GET /v2/bot/info`, which is a deliberate
+// security tradeoff — a token that can post as the Official Account would then
+// live in CI, reachable by any workflow and anyone with write access. That is
+// the owner's decision, not a detail to slip in. Until it is made, a green run
+// here means "deployed and configured", never "working".
+//
 // Run: node build/line-health-check.mjs            check production
 //      node build/line-health-check.mjs --selftest prove the checks still bite
 
@@ -43,8 +62,10 @@ const CHECKS = [
     },
   },
   {
+    // A 500 here means `server_not_configured` — a secret is missing entirely —
+    // so deletion is caught. An expired-but-present token is not: see SCOPE.
     name: 'function rejects an unsigned POST with 401',
-    why: 'raw-body HMAC verification still runs before anything is parsed',
+    why: 'raw-body HMAC verification runs before parsing, and no secret is empty',
     async run(fetchImpl) {
       // No x-line-signature header. verifyLineSignature() returns false on a missing
       // signature without touching the body, so this never reaches event handling.
