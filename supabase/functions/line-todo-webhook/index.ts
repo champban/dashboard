@@ -5,9 +5,11 @@ import {
   buildQuickReply,
   buildReply,
   buildReplyMessages,
+  buildSearchPromptMessage,
   commandLanguage,
   extractLinkCode,
   parseIntent,
+  parseSearchPromptPostback,
   sha256Hex,
   truncateReply,
   verifyLineSignature,
@@ -121,12 +123,18 @@ async function handleTextEvent(
 
   const language = commandLanguage(text);
   const intent = parseIntent(text);
-  if (intent.kind === "menu") {
+  if (intent.kind === "menu" || intent.kind === "search_prompt") {
     await supabase
       .from("mtp_line_accounts")
       .update({ last_seen_at: new Date().toISOString() })
       .eq("owner_id", account.owner_id);
-    await replyLine(replyToken, [buildMenuMessage(language)], accessToken);
+    await replyLine(
+      replyToken,
+      [intent.kind === "menu"
+        ? buildMenuMessage(language)
+        : buildSearchPromptMessage(language)],
+      accessToken,
+    );
     return;
   }
 
@@ -158,6 +166,20 @@ async function handleTextEvent(
   await replyLine(
     replyToken,
     buildReplyMessages(intent, snapshot, { language }),
+    accessToken,
+  );
+}
+
+async function handlePostbackEvent(
+  event: Record<string, any>,
+  accessToken: string,
+) {
+  const replyToken = String(event?.replyToken || "");
+  const language = parseSearchPromptPostback(event?.postback?.data);
+  if (!replyToken || !language) return;
+  await replyLine(
+    replyToken,
+    [buildSearchPromptMessage(language)],
     accessToken,
   );
 }
@@ -210,6 +232,11 @@ Deno.serve(async (request) => {
         && event?.source?.type === "user"
       ) {
         await handleTextEvent(event, supabase, accessToken);
+      } else if (
+        event?.type === "postback"
+        && event?.source?.type === "user"
+      ) {
+        await handlePostbackEvent(event, accessToken);
       }
     }
     return jsonResponse({ ok: true });
