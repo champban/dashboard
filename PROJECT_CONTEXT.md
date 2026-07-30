@@ -175,6 +175,14 @@ Targeted 6D audit:
 | Audit date | Commit SHA | Environment | Identity & access | Secrets & data | Input safety | Browser/network | Supply chain/deploy | Operations/recovery | Decision | Report |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 2026-07-30 | `bf47521` / merge `ad3067f` | Supabase Production v3 | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-07-30 | `ac7a798` (branch `claude/todo-planner-line-handover-yrm2ei`) | Docs, assets and CI only — no runtime change | Pass | Pass | Pass | Pass | Pass | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
+
+The second row covers Rich Menu asset versioning, the project-context
+corrections, and the scheduled health check. Operations is `Conditional` for one
+reason: the health check has never run against production, so it is a control on
+paper until a real run passes. `index.html` and `BUILD-MANIFEST.json` regenerate
+byte-for-byte, so merging changes nothing GitHub Pages serves — the only effect
+of the merge is activating the scheduled workflow.
 
 ### LINE persistent Rich Menu
 
