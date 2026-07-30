@@ -175,14 +175,20 @@ Targeted 6D audit:
 | Audit date | Commit SHA | Environment | Identity & access | Secrets & data | Input safety | Browser/network | Supply chain/deploy | Operations/recovery | Decision | Report |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 2026-07-30 | `bf47521` / merge `ad3067f` | Supabase Production v3 | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
-| 2026-07-30 | `ac7a798` (branch `claude/todo-planner-line-handover-yrm2ei`) | Docs, assets and CI only — no runtime change | Pass | Pass | Pass | Pass | Pass | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-07-30 | merge `e7ea377` (PRs #45 and #46) | Docs, assets and CI only — no runtime change | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 
 The second row covers Rich Menu asset versioning, the project-context
-corrections, and the scheduled health check. Operations is `Conditional` for one
-reason: the health check has never run against production, so it is a control on
-paper until a real run passes. `index.html` and `BUILD-MANIFEST.json` regenerate
-byte-for-byte, so merging changes nothing GitHub Pages serves — the only effect
-of the merge is activating the scheduled workflow.
+corrections, and the scheduled health check. `index.html` and
+`BUILD-MANIFEST.json` regenerate byte-for-byte, so the merge changed nothing
+GitHub Pages serves — its only effect was activating the scheduled workflow.
+Operations reached `Pass` once `line-health` run 1 returned `PASS (3/3)` against
+production; before that it was `Conditional`, because a control that has never
+executed is a control on paper. One accepted Medium residual remains (LINE-5).
+
+Delivery note worth keeping: PR #45 merged at `372c3ee`, one commit short of the
+cadence fix, which left `main` briefly carrying a keepalive that could allow the
+very pause it exists to prevent. PR #46 closed it. **Verify what actually landed
+on `main` after a merge — do not infer it from the branch you pushed.**
 
 ### LINE persistent Rich Menu
 
@@ -795,7 +801,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | LINE-2 | Search button owner acceptance | After Search-button deployment, verify keyboard prefill on LINE iOS/Android and fallback instruction on LINE PC. |
 | LINE-3 | Rich Menu owner acceptance | **Backup closed; acceptance open.** `docs/assets/line/` now holds the configuration, the specification, the recreation commands and the deployment image — `line-rich-menu-menu-v1.png`, uploaded as original bytes and verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, with no `tEXt`/`iTXt`/`eXIf` metadata. The menu is now recoverable in both configuration and appearance. What remains is the 7-step owner acceptance on LINE mobile and LINE for PC in `docs/LINE_OFFICIAL_SETUP.md`. Optional and still absent: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |
 | LINE-4 | No runtime monitoring | **Built, not yet verified.** `.github/workflows/line-health.yml` runs `build/line-health-check.mjs` daily: function GET → 405, unsigned POST → 401, anonymous snapshot read → denied (401/403). The third doubles as the keepalive for the free-tier 7-day pause and is the only automated guard on the `anon` revoke, so this replaces the separate keepalive cron in Infrastructure notes. Needs no repository secret — every endpoint is already public. **Live run verified** on `2026-07-30T21:12:57+07:00`, run 1 of `line-health` against `main` at `2b54e02`: `PASS (3/3)` — GET 405, unsigned POST 401, anonymous snapshot read denied with **401**. PostgREST answered 401 rather than 403, which is why the check accepts either instead of pinning one code. `--selftest` (offline, in `npm test`) proves the logic both directions. Monitoring is now an active control — subject to LINE-5 below, which bounds what "green" means. |
-| LINE-5 | Health check cannot see an invalid credential | `index.ts` guards credentials by emptiness only, then answers 401 on the missing signature before it calls LINE or touches the database. A **deleted** secret therefore returns 500 and fails the check, but an **expired or rotated** LINE channel access token still returns 401 and LINE-4 stays green while every real event fails and the owner gets no reply. Closing it means storing a LINE channel access token in repository secrets so a check can call `GET /v2/bot/info` — a token able to post as the Official Account would then live in CI, reachable by any workflow and anyone with write access. **Owner decision, deliberately not taken unilaterally.** Until then the workflow, the checker's SCOPE comment, and the 6D audit all state that green means "deployed and configured", never "working". Raised by automated review on PR #45. |
+| LINE-5 | Health check cannot see an invalid credential | `index.ts` guards credentials by emptiness only, then answers 401 on the missing signature before it calls LINE or touches the database. A **deleted** secret therefore returns 500 and fails the check, but an **expired or rotated** LINE channel access token still returns 401 and LINE-4 stays green while every real event fails and the owner gets no reply. Closing it means storing a LINE channel access token in repository secrets so a check can call `GET /v2/bot/info` — a token able to post as the Official Account would then live in CI, reachable by any workflow and anyone with write access. **Owner decided on 2026-07-30 not to store the token — risk accepted, not open.** The workflow, the checker's SCOPE comment and the 6D audit all state the same limit: green means "deployed and configured", never "working". Compensating controls: a LINE channel access token is long-lived and does not lapse on its own, so this failure requires a deliberate rotation the owner performs knowingly and can re-test immediately (`docs/LINE_OFFICIAL_SETUP.md` → Rollback already lists rotation as an incident step); and with a single owner-user, a dead bot surfaces on first use rather than sitting unnoticed. **Revisit if** a second user is onboarded, or if a token ever does expire unexpectedly — either breaks a compensating control. Raised by automated review on PR #45. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
