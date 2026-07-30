@@ -5,12 +5,13 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production branch `main` is `f200d72`; it includes the LINE/auth hotfix,
-  bilingual command menu, and task-detail cards.
-- Supabase `line-todo-webhook` version 2 is ACTIVE and is the last known-good
-  function/rollback point before the Search-button increment.
-- Search-button release candidate:
-  `feature/line-search-button`; function-only, not yet merged or deployed.
+- Production branch `main` is `ad3067f`; it includes the LINE/auth hotfix,
+  bilingual command menu, task-detail cards, and Search button.
+- Supabase `line-todo-webhook` version 3 is ACTIVE. Its three deployed source
+  files exactly match merged `main`; bundle SHA-256 is
+  `d4ed04cad2935502009ca61275062bd3130752780179f0f099d76ed2a3ab51f6`.
+- Search-button release merged in PR #43 and deployed at
+  `2026-07-30T12:05:31+07:00`. Owner LINE mobile/PC acceptance remains.
 - `APP_VERSION` in `src/App.jsx` is the Full version source; it flows into the
   UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
   artifacts.
@@ -46,7 +47,7 @@ Status on 2026-07-29:
   priority, no due date, search, status, menu, and help, with English and Thai
   aliases.
 - After a successful link, the bot sends an English Flex command menu. `menu`
-  opens English and `เมนู` opens Thai. Linked text replies carry eight mobile
+  opens English and `เมนู` opens Thai. Linked text replies carry nine mobile
   Quick Reply actions; the Flex menu remains usable in LINE for PC.
 - `next 4 weeks` means today through day 28 inclusive in `Asia/Bangkok` and
   excludes overdue/completed tasks. `high priority` includes active High or
@@ -137,9 +138,9 @@ Branch: `feature/line-task-details` (merged)
   Keep the additive v1/v2 database constraint because it remains compatible
   with both old and new clients.
 
-### LINE Search-button release candidate
+### LINE Search-button production release
 
-Branch: `feature/line-search-button`
+Branch: `feature/line-search-button` (merged in PR #43)
 
 - Adds one `Search` / `ค้นหา` action to both the Flex command menu and mobile
   Quick Replies, bringing each language to nine actions (below LINE's limit of
@@ -153,13 +154,15 @@ Branch: `feature/line-search-button`
   postback data is ignored. No task data is placed in the postback payload.
 - Function-only change: no database migration, snapshot resave, new secret,
   AI/MCP runtime, browser app change, or Google Drive change.
-- Rollback is redeploying ACTIVE `line-todo-webhook` version 2.
+- Production is `line-todo-webhook` version 3. Source parity with merged `main`
+  passed; direct smoke checks returned expected GET 405 and unsigned POST 401
+  on version 3. Rollback is redeploying version 2.
 
 Targeted 6D audit:
 
 | Audit date | Commit SHA | Environment | Identity & access | Secrets & data | Input safety | Browser/network | Supply chain/deploy | Operations/recovery | Decision | Report |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 2026-07-30 | `bf47521` | Supabase Production candidate | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-07-30 | `bf47521` / merge `ad3067f` | Supabase Production v3 | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 
 ## Source of truth (restored in 3.77.0)
 
