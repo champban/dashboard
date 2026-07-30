@@ -16,7 +16,7 @@ must be appended after deployment.
 | Secrets and data | PASS | No new secret, task field, log field, database access, migration, or browser bundle; postback contains only fixed action/language | None |
 | Input and content safety | PASS | Exact allow-list `action=search_prompt&lang=en\|th`; extra/unknown postback data is ignored; typed query retains existing normalization and 120-character cap | None |
 | Browser and network controls | PASS | Uses LINE-native postback, `openKeyboard`, and fixed `fillInText`; no new origin, endpoint, CORS rule, URI action, or CSP change | Owner mobile/PC acceptance |
-| Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source commit is `07c8ffa`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | Record deployed function version |
+| Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source commit is `bf47521`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | Record deployed function version |
 | Operations and recovery | PASS | Current production Function v2 is ACTIVE and is the rollback point; no database/data change; recent logs include expected 200 and invalid-signature 401 outcomes | Post-deploy smoke test |
 
 Checks performed:
