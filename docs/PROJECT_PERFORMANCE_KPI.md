@@ -1,7 +1,7 @@
 # Project Performance KPI — LINE Official Read-only Bot
 
-Status: backend, bilingual command menu, and task-details v2 active in
-production; Search-button increment is a verified release candidate
+Status: backend, bilingual command menu, task-details v2, and Search button
+active in production; owner LINE mobile/PC acceptance remains
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -22,7 +22,7 @@ privacy-minimised task snapshot, without running an AI model.
 
 | KPI | Target | RC evidence | Production evidence |
 |---|---:|---|---|
-| Invalid LINE signatures rejected | 100% | Automated valid/tampered HMAC tests pass | Valid webhook verification passed; live tampered request pending |
+| Invalid LINE signatures rejected | 100% | Automated valid/tampered HMAC tests pass | Valid webhook verification passed; direct unsigned POST rejected with 401 on function v3 |
 | Link-code lifetime | 10 minutes | Browser and SQL contract implemented | Pending live expiry test |
 | Link code reuse | 0 successful reuses | Atomic SQL claim + `used_at` row lock | Pending live replay test |
 | Sensitive fields in snapshot | 0 | Snapshot leakage regression test passes | Pending owner data spot-check |
@@ -92,12 +92,17 @@ Date calculations use `Asia/Bangkok`; the week is Monday through Sunday.
 - Preview equivalent: deterministic message/postback contract tests; there is
   no paid Supabase development branch for this function-only increment.
 - Rollback: redeploy production Function version 2.
-- M4 quality gate: complete; failed deploys `0`, CI retries `0`, rework cycles
-  `0`, known-error recurrences `0`, production escapes `0`, manual
-  interventions `0`. One local dependency-install retry was resolved with an
-  isolated writable npm cache and did not change source or lockfile.
-- M6 timestamp, GitHub commit, function version, and owner acceptance are
-  recorded after the corresponding gate completes.
+- M4 quality gate: complete; failed production versions `0`, CI retries `0`,
+  rework cycles `0`, known-error recurrences `0`, production escapes `0`,
+  manual interventions `0`. One local dependency-install retry used an
+  isolated writable npm cache. The first deploy request was rejected before
+  version creation because `import_map_path` was omitted; the corrected request
+  created version 3. Neither retry changed source or lockfile.
+- M6 technical deployment: PR #43 merged as `ad3067f`;
+  `line-todo-webhook` version 3 became ACTIVE at
+  `2026-07-30T12:05:31+07:00`. Production source matches merged `main`; direct
+  GET returned 405 and unsigned POST returned 401, both recorded against
+  version 3. Owner LINE mobile/PC acceptance remains.
 
 ## Activation incident measurement
 
