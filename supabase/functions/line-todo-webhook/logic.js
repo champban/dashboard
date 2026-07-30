@@ -42,6 +42,7 @@ const MENU_ACTIONS = {
     { label: "Overdue", text: "overdue" },
     { label: "High priority", text: "high priority" },
     { label: "No due date", text: "no due date" },
+    { label: "Search", kind: "search_prompt", language: "en" },
     { label: "Status", text: "status" },
     { label: "Help", text: "help" },
     { label: "ภาษาไทย", text: "เมนู" },
@@ -52,6 +53,7 @@ const MENU_ACTIONS = {
     { label: "เกินกำหนด", text: "งานเกินกำหนด" },
     { label: "สำคัญสูง", text: "งานสำคัญ" },
     { label: "ไม่มีวันกำหนด", text: "งานไม่มีวันกำหนด" },
+    { label: "ค้นหา", kind: "search_prompt", language: "th" },
     { label: "สถานะ", text: "สถานะ" },
     { label: "ช่วยเหลือ", text: "ช่วยเหลือ" },
     { label: "English", text: "menu" },
@@ -108,6 +110,7 @@ export function parseIntent(value) {
   if (/^(?:สถานะ|status)$/u.test(folded)) return { kind: "status" };
   if (/^(?:ช่วยเหลือ|ช่วย|คำสั่ง|help)$/u.test(folded)) return { kind: "help" };
   if (/^(?:เมนู|menu)$/u.test(folded)) return { kind: "menu" };
+  if (/^(?:ค้นหา|หา|search)$/u.test(folded)) return { kind: "search_prompt" };
 
   const search = text.match(/^(?:ค้นหา|หา|search)\s+(.+)$/iu);
   if (search) return { kind: "search", query: cleanText(search[1], 120) };
@@ -172,6 +175,17 @@ export function sortTasks(tasks) {
 
 function normalizeLanguage(language) {
   return language === "th" ? "th" : "en";
+}
+
+export function parseSearchPromptPostback(value) {
+  const match = String(value ?? "").match(/^action=search_prompt&lang=(en|th)$/);
+  return match ? match[1] : "";
+}
+
+export function buildSearchPromptText(language = "en") {
+  return normalizeLanguage(language) === "th"
+    ? "พิมพ์คำที่ต้องการหลัง “ค้นหา ” แล้วกดส่ง\nตัวอย่าง: ค้นหา พาสปอร์ต"
+    : "Type a keyword after “search ”, then send.\nExample: search passport";
 }
 
 function formatDate(value, language) {
@@ -552,21 +566,44 @@ export function buildReplyMessages(
   }];
 }
 
-function messageAction(item) {
+function lineAction(item) {
+  if (item.kind === "search_prompt") {
+    const lang = normalizeLanguage(item.language);
+    return {
+      type: "postback",
+      label: item.label,
+      data: `action=search_prompt&lang=${lang}`,
+      inputOption: "openKeyboard",
+      fillInText: lang === "th" ? "ค้นหา " : "search ",
+    };
+  }
+  return {
+    type: "message",
+    label: item.label,
+    text: item.text,
+  };
+}
+
+function actionItem(item) {
   return {
     type: "action",
-    action: {
-      type: "message",
-      label: item.label,
-      text: item.text,
-    },
+    action: lineAction(item),
   };
 }
 
 export function buildQuickReply(language = "en") {
   const lang = normalizeLanguage(language);
   return {
-    items: MENU_ACTIONS[lang].map(messageAction),
+    items: MENU_ACTIONS[lang].map(actionItem),
+  };
+}
+
+export function buildSearchPromptMessage(language = "en") {
+  const lang = normalizeLanguage(language);
+  return {
+    type: "text",
+    text: buildSearchPromptText(lang),
+    quickReply: buildQuickReply(lang),
   };
 }
 
@@ -584,7 +621,7 @@ export function buildMenuMessage(language = "en") {
         style: "secondary",
         height: "sm",
         flex: 1,
-        action: messageAction(item).action,
+        action: lineAction(item),
       })),
     });
   }
@@ -656,6 +693,8 @@ export function buildReply(
   const today = bangkokToday(now);
   const active = tasks.filter((task) => !isDone(task));
   const helpText = lang === "th" ? HELP_TEXT_TH : HELP_TEXT_EN;
+
+  if (intent.kind === "search_prompt") return buildSearchPromptText(lang);
 
   if (intent.kind === "help" || intent.kind === "unknown") {
     return intent.kind === "unknown"
