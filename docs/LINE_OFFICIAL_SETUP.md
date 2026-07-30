@@ -16,11 +16,13 @@ LINE user
        └─ Supabase Edge Function
             ├─ verify raw-body HMAC
             ├─ resolve one-time account link
-            └─ read snapshot → deterministic Thai reply
+            └─ read snapshot → deterministic English/Thai reply + menu
 ```
 
 The function sends replies only. It does not push notifications, call an AI
-model, read Google Drive, or receive notes/descriptions/attachments.
+model, read Google Drive, or receive notes/descriptions/attachments. Its
+English-first Flex menu works in LINE PC and mobile; Quick Replies are an
+additional mobile convenience.
 
 ## 1. Back up before production changes
 
@@ -97,7 +99,9 @@ https://qjaywadzvwvcspdsjxth.supabase.co/functions/v1/line-todo-webhook
 3. Open Sync → LINE Official → `สร้างรหัสเชื่อม LINE`.
 4. Send the displayed `เชื่อม MTP-XXXX-XXXX` command to the Official Account
    within 10 minutes.
-5. Send every command listed in `docs/PROJECT_PERFORMANCE_KPI.md`.
+5. Confirm the English command menu appears automatically, switch to Thai and
+   back, then run every command listed in
+   `docs/PROJECT_PERFORMANCE_KPI.md`.
 6. Re-send the same link code; it must fail.
 7. Alter a task locally but make Drive fail; LINE must continue showing the old
    snapshot.
@@ -107,6 +111,22 @@ https://qjaywadzvwvcspdsjxth.supabase.co/functions/v1/line-todo-webhook
 
 Do not include real secret values, LINE user IDs, task titles, or message bodies
 in test evidence.
+
+## Command-menu-only update
+
+The bilingual menu release changes only `line-todo-webhook`. It does not require
+a database migration, a new link code, a planner resave, or changes to Function
+Secrets.
+
+After pull-request approval, but only with separate production deploy approval:
+
+```bash
+supabase functions deploy line-todo-webhook
+```
+
+Verify `menu` on LINE PC and both `menu` / `เมนู` plus the Quick Reply row on
+LINE iOS or Android. Roll back by deploying the previous reviewed function
+commit; do not delete LINE account mappings or snapshots.
 
 ## Rollback
 

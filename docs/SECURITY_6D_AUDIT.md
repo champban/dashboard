@@ -1,11 +1,12 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Audit date: 2026-07-29
+Audit date: 2026-07-30
 
-Scope: LINE production activation and `hotfix/supabase-auth-storage`
+Scope: LINE production activation, auth hotfix, and
+`feature/line-command-menu`
 
-Decision: **CONDITIONAL / backend active; client hotfix not production-ready
-until the remaining gates below pass**
+Decision: **CONDITIONAL / backend active; bilingual command menu is not
+production-ready until the remaining gates below pass**
 
 ## 1. Functional correctness and data integrity — PASS for release candidate
 
@@ -14,6 +15,8 @@ until the remaining gates below pass**
 - LINE publication errors are contained and cannot reverse a successful Drive
   operation.
 - Date commands use `Asia/Bangkok`; week boundaries are Monday–Sunday.
+- The next-four-weeks filter uses an inclusive today/day-28 boundary and
+  excludes overdue and completed tasks; High priority excludes completed tasks.
 - Deterministic command, filtering, sort, cap, HMAC, and privacy tests pass.
 - Google Drive remains independent of the webhook; the function cannot mutate
   planner tasks.
@@ -30,6 +33,9 @@ owner data.
 
 - Full Sync Manager and Mobile Sync show link state, snapshot time, one-time
   code, copy action, refresh, busy state, and errors.
+- The default English Flex menu works in LINE PC and mobile; linked mobile
+  replies additionally carry eight Quick Reply actions. A static Thai/English
+  switch does not require storing a language preference.
 - The UI states that LINE is read-only and names fields excluded from the
   snapshot.
 - Existing touch/button styling and focus behavior are reused.
@@ -43,6 +49,8 @@ iPhone and desktop browser.
 
 - No AI, MCP server, vector database, cron, or new browser polling loop.
 - A LINE query is one account lookup, one snapshot lookup, and one reply call.
+  The reply contains one task text message or one menu Flex message; successful
+  linking contains two messages, below LINE's five-message reply limit.
 - Snapshot is capped at 500 tasks / 240 KiB browser-side and 256 KiB in
   PostgreSQL; replies are capped at 12 tasks / 4,800 characters.
 - Supabase JS is version-pinned for the Edge Function.
@@ -70,6 +78,8 @@ Controls:
   attachments, config, and API-key fields are excluded.
 - Function errors do not log request bodies, LINE user IDs, task data, or
   secrets.
+- All menu buttons are fixed message actions that resolve to the deterministic
+  parser; they cannot inject a query, URL, user ID, or task field.
 
 Residuals:
 
@@ -93,6 +103,8 @@ Residuals:
   re-linking the owner; the mapping remains one owner ↔ one LINE user.
 - Database migration, function source, tests, and runbook are versioned in
   GitHub.
+- The command-menu update has no migration or data mutation. Rollback is an
+  Edge Function redeploy from the previous Git commit.
 - The failed activation wrote no LINE rows and changed no task/Drive data, so
   recovery needs a client redeploy and fresh login rather than a database
   restore.
@@ -115,11 +127,12 @@ confirm recovery and retry behavior.
 
 Remaining production items:
 
-1. Merge/deploy hotfix 3.77.1 only after explicit owner approval.
-2. Sign in once to replace the already-redacted browser session.
-3. Create and claim a new one-time link code; verify a row is created without
-   exposing its value in logs or documentation.
-4. Complete Full/Mobile owner acceptance and the seven LINE commands.
+1. Review and merge the command-menu pull request only after explicit owner
+   approval.
+2. Redeploy `line-todo-webhook` only after separate explicit deploy approval.
+3. Verify the English Flex menu in LINE PC and the Quick Replies in LINE
+   iOS/Android; switch to and from Thai.
+4. Complete the expanded command and day-0/day-28 boundary acceptance set.
 5. Exercise an invalid-signature request and induced provider failures.
 6. Re-run this audit with live evidence and change the decision explicitly.
 

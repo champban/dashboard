@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import {
+  buildLinkReplyMessages,
+  buildMenuMessage,
+  buildQuickReply,
   buildReply,
+  commandLanguage,
   extractLinkCode,
   parseIntent,
   sha256Hex,
@@ -41,7 +45,11 @@ function backendKey() {
     || "";
 }
 
-async function replyLine(replyToken: string, text: string, accessToken: string) {
+async function replyLine(
+  replyToken: string,
+  messages: Array<Record<string, unknown>>,
+  accessToken: string,
+) {
   const response = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
@@ -50,10 +58,24 @@ async function replyLine(replyToken: string, text: string, accessToken: string) 
     },
     body: JSON.stringify({
       replyToken,
-      messages: [{ type: "text", text: truncateReply(text) }],
+      messages: messages.slice(0, 5),
     }),
   });
   if (!response.ok) throw new Error(`LINE reply failed (${response.status})`);
+}
+
+async function replyText(
+  replyToken: string,
+  text: string,
+  accessToken: string,
+  language = "th",
+  withQuickReply = false,
+) {
+  await replyLine(replyToken, [{
+    type: "text",
+    text: truncateReply(text, undefined, language),
+    ...(withQuickReply ? { quickReply: buildQuickReply(language) } : {}),
+  }], accessToken);
 }
 
 async function handleTextEvent(
@@ -77,12 +99,7 @@ async function handleTextEvent(
       .single();
     if (error) throw new Error("Could not claim LINE link code");
     const status = data?.status;
-    const message = status === "linked"
-      ? "เชื่อม My Todo Planner สำเร็จแล้วครับ พิมพ์ “ช่วยเหลือ” เพื่อดูคำสั่ง"
-      : status === "line_in_use"
-      ? "LINE บัญชีนี้เชื่อมกับ Planner บัญชีอื่นอยู่แล้ว"
-      : "รหัสเชื่อมไม่ถูกต้อง หมดอายุ หรือถูกใช้แล้ว กรุณาสร้างรหัสใหม่ในหน้า Sync";
-    await replyLine(replyToken, message, accessToken);
+    await replyLine(replyToken, buildLinkReplyMessages(status), accessToken);
     return;
   }
 
@@ -93,11 +110,22 @@ async function handleTextEvent(
     .maybeSingle();
   if (accountError) throw new Error("Could not read LINE account mapping");
   if (!account?.owner_id) {
-    await replyLine(
+    await replyText(
       replyToken,
       "ยังไม่ได้เชื่อม My Todo Planner ครับ\nเปิดหน้า Sync → LINE Official → สร้างรหัส แล้วส่ง “เชื่อม MTP-XXXX-XXXX” ที่นี่",
       accessToken,
     );
+    return;
+  }
+
+  const language = commandLanguage(text);
+  const intent = parseIntent(text);
+  if (intent.kind === "menu") {
+    await supabase
+      .from("mtp_line_accounts")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("owner_id", account.owner_id);
+    await replyLine(replyToken, [buildMenuMessage(language)], accessToken);
     return;
   }
 
@@ -108,7 +136,7 @@ async function handleTextEvent(
     .maybeSingle();
   if (snapshotError) throw new Error("Could not read planner snapshot");
   if (!record?.snapshot) {
-    await replyLine(
+    await replyText(
       replyToken,
       "เชื่อมบัญชีแล้ว แต่ยังไม่มี snapshot งาน กรุณากด Save to Cloud ใน Todo Planner หนึ่งครั้ง",
       accessToken,
@@ -126,7 +154,13 @@ async function handleTextEvent(
     updated_at: record.updated_at,
     data_updated_at: record.data_updated_at,
   };
-  await replyLine(replyToken, buildReply(parseIntent(text), snapshot), accessToken);
+  await replyText(
+    replyToken,
+    buildReply(intent, snapshot, { language }),
+    accessToken,
+    language,
+    true,
+  );
 }
 
 Deno.serve(async (request) => {

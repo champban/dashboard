@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — LINE bilingual command menu — 2026-07-30
+
+### Added
+
+- An English-first Flex Message command menu that works in LINE for PC and
+  mobile. It is sent automatically after a successful account link and can be
+  opened again with `menu`.
+- A Thai menu opened with `เมนู`, plus an English/Thai switch action in both
+  menus.
+- Eight mobile Quick Reply actions on linked task replies, within LINE's
+  13-action limit.
+- Deterministic `next 4 weeks` / `4 สัปดาห์ข้างหน้า` and `high priority` /
+  `งานสำคัญ` filters. The four-week range includes today through day 28 and
+  excludes overdue and completed tasks.
+
+### Safety and deployment
+
+- No database schema, planner snapshot, Google Drive, AI, MCP, or push-message
+  behavior changed. The update is limited to the existing read-only Edge
+  Function.
+- Boundary, language, Flex/Quick Reply action, message-limit, HMAC, privacy, and
+  existing command regressions are covered before handoff.
+- Production requires a reviewed redeploy of `line-todo-webhook`; this branch is
+  not deployed by the pull request itself.
+
 ## Unreleased — 3.77.1 Supabase auth storage hotfix — 2026-07-29
 
 ### Fixed
@@ -24,9 +49,9 @@
 
 ### Deployment
 
-- This hotfix is not deployed yet. After deployment, the owner must sign in
-  once to replace the session whose tokens the previous build already erased,
-  then create a new LINE link code.
+- Merged to `main` in `5d5b50c`; owner acceptance subsequently produced a
+  linked LINE reply. The LINE command-menu update above remains a separate Edge
+  Function release.
 
 ## Unreleased — LINE Official read-only bot — 2026-07-28
 

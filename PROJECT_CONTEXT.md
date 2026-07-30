@@ -5,9 +5,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Live production commit before this hotfix: `82c8886`
-- Hotfix candidate: `3.77.1-line-auth-storage-hotfix` on
-  `hotfix/supabase-auth-storage`; not merged or deployed
+- LINE/auth hotfix merged to `main`: `5d5b50c`
+- LINE bilingual command-menu candidate:
+  `feature/line-command-menu`; not merged or deployed
 - `APP_VERSION` in `src/App.jsx` is the Full version source; it flows into the
   UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
   artifacts.
@@ -37,9 +37,17 @@ Status on 2026-07-29:
 - `line-sync.js` is public browser code using the existing authenticated
   Supabase publishable client and RLS. It contains no provider/backend secret.
 - `line-todo-webhook` verifies LINE HMAC on the raw body, resolves the one-time
-  owner link, reads the snapshot, and returns deterministic Thai replies.
-- Supported commands: `งานวันนี้`, `งานสัปดาห์นี้`, `งานเกินกำหนด`,
-  `งานไม่มีวันกำหนด`, `ค้นหา <คำ>`, `สถานะ`, `ช่วยเหลือ`.
+  owner link, reads the snapshot, and returns deterministic English or Thai
+  replies.
+- Supported command groups: today, this week, next 4 weeks, overdue, high
+  priority, no due date, search, status, menu, and help, with English and Thai
+  aliases.
+- After a successful link, the bot sends an English Flex command menu. `menu`
+  opens English and `เมนู` opens Thai. Linked text replies carry eight mobile
+  Quick Reply actions; the Flex menu remains usable in LINE for PC.
+- `next 4 weeks` means today through day 28 inclusive in `Asia/Bangkok` and
+  excludes overdue/completed tasks. `high priority` includes active High or
+  Urgent tasks regardless of due date.
 - No AI or MCP runtime is used. Date logic is fixed to `Asia/Bangkok`.
 - Snapshot allow-list: type, title, status, due date, category/project, priority.
   Excluded: IDs, notes, descriptions, attachments, configuration, OAuth tokens,
@@ -83,9 +91,22 @@ Fix: Full and Mobile bypass redaction for that one exact storage key only.
 Ordinary and lookalike keys remain protected. Regression coverage lives in
 `build/auth-storage-security.test.mjs`.
 
-Recovery after deployment: sign in once, save to cloud if a fresh snapshot is
-needed, create a new link code, send it to LINE, then run the command acceptance
-set. No database rollback or data restore is required.
+Recovery after the auth hotfix: sign in once, save to cloud if a fresh snapshot
+is needed, create a new link code, send it to LINE, then run the command
+acceptance set. No database rollback or data restore is required.
+
+### LINE bilingual command-menu release candidate
+
+Branch: `feature/line-command-menu`
+
+- Edge Function source only; no database migration, snapshot schema, browser
+  application, or Google Drive change.
+- Cross-platform menu uses Flex Message. Mobile replies also use Quick Reply;
+  there are eight static message actions, below LINE's limit of 13.
+- English is the default after linking. Language choice is carried by the
+  command tapped or typed and is intentionally not stored in the database.
+- Production release is a redeploy of `line-todo-webhook` after review and
+  explicit approval. Rollback is redeploying the previous function commit.
 
 ## Source of truth (restored in 3.77.0)
 
@@ -671,7 +692,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | Add automated checks: audit.py, harness, CSP/manifest integrity on every PR. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
-| LINE-1 | LINE Official read-only bot production activation | Backup, migration, Function Secrets, function deploy, and webhook verification complete. Client hotfix and Full/Mobile owner acceptance pending. |
+| LINE-1 | LINE Official read-only bot production activation | Backup, migration, Function Secrets, function deploy, webhook verification, auth hotfix merge, and initial linked reply complete. Bilingual command-menu Edge Function release pending review/deploy. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,

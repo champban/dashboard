@@ -41,11 +41,19 @@ assert.match(config, /\[functions\.line-todo-webhook\][\s\S]*verify_jwt = false/
 const rawBodyAt = webhook.indexOf("const rawBody = await request.text()");
 const signatureAt = webhook.indexOf("verifyLineSignature(rawBody");
 const parseAt = webhook.indexOf("body = JSON.parse(rawBody)");
+const menuAt = webhook.indexOf('intent.kind === "menu"');
+const snapshotAt = webhook.indexOf('.from("mtp_line_snapshots")');
 assert.ok(rawBodyAt >= 0 && signatureAt > rawBodyAt && parseAt > signatureAt,
   "raw LINE body must be verified before JSON parsing");
+assert.ok(menuAt >= 0 && snapshotAt > menuAt,
+  "a linked menu request must not require a planner snapshot read");
 assert.doesNotMatch(webhook, /console\.(?:log|warn|error)/);
 assert.match(webhook, /event\?\.source\?\.type === "user"/);
 assert.match(webhook, /api\.line\.me\/v2\/bot\/message\/reply/);
+assert.match(webhook, /messages: messages\.slice\(0, 5\)/);
+assert.match(webhook, /intent\.kind === "menu"/);
+assert.match(webhook, /buildMenuMessage\(language\)/);
+assert.match(webhook, /buildQuickReply\(language\)/);
 await assert.doesNotReject(
   transform(webhook, { loader: "ts", target: "es2022" }),
   "Edge Function TypeScript must parse",

@@ -12,8 +12,9 @@ The same repository now contains an unreleased read-only LINE bot module:
 - activation runbook: `docs/LINE_OFFICIAL_SETUP.md`
 
 Google Drive sync completes before the app publishes a reduced Supabase task
-snapshot. LINE can answer simple deterministic Thai questions but cannot create,
-edit, or complete tasks. No AI model is required.
+snapshot. LINE can answer simple deterministic English or Thai questions through
+an English-first Flex/Quick Reply menu, but cannot create, edit, or complete
+tasks. No AI model is required.
 
 ## Six-dimension audit
 
