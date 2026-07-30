@@ -9,9 +9,12 @@ import {
   buildQuickReply,
   buildReply,
   buildReplyMessages,
+  buildSearchPromptMessage,
+  buildSearchPromptText,
   commandLanguage,
   extractLinkCode,
   parseIntent,
+  parseSearchPromptPostback,
   sha256Hex,
   truncateReply,
   verifyLineSignature,
@@ -60,6 +63,8 @@ assert.deepEqual(parseIntent("งานสำคัญ"), { kind: "high_priority
 assert.deepEqual(parseIntent("งานไม่มีวันกำหนด"), { kind: "no_date" });
 assert.deepEqual(parseIntent("no due date"), { kind: "no_date" });
 assert.deepEqual(parseIntent("ค้นหา Alpha"), { kind: "search", query: "Alpha" });
+assert.deepEqual(parseIntent("search"), { kind: "search_prompt" });
+assert.deepEqual(parseIntent("ค้นหา"), { kind: "search_prompt" });
 assert.deepEqual(parseIntent("สถานะ"), { kind: "status" });
 assert.deepEqual(parseIntent("ช่วยเหลือ"), { kind: "help" });
 assert.deepEqual(parseIntent("menu"), { kind: "menu" });
@@ -67,6 +72,11 @@ assert.deepEqual(parseIntent("เมนู"), { kind: "menu" });
 assert.deepEqual(parseIntent("คำถามที่ไม่รู้จัก"), { kind: "unknown" });
 assert.equal(commandLanguage("menu"), "en");
 assert.equal(commandLanguage("เมนู"), "th");
+assert.equal(parseSearchPromptPostback("action=search_prompt&lang=en"), "en");
+assert.equal(parseSearchPromptPostback("action=search_prompt&lang=th"), "th");
+assert.equal(parseSearchPromptPostback("action=search_prompt&lang=de"), "");
+assert.equal(parseSearchPromptPostback("action=search_prompt&lang=en&extra=true"), "");
+assert.equal(parseSearchPromptPostback("action=delete&lang=en"), "");
 
 assert.equal(extractLinkCode("เชื่อม MTP-ABCD-2345"), "MTP-ABCD-2345");
 assert.equal(extractLinkCode("link mtp abcd 2345"), "MTP-ABCD-2345");
@@ -86,7 +96,7 @@ const todayMessages = buildReplyMessages(parseIntent("งานวันนี�
 assert.equal(todayMessages.length, 1);
 assert.equal(todayMessages[0].type, "flex");
 assert.equal(todayMessages[0].contents.type, "bubble");
-assert.equal(todayMessages[0].quickReply.items.length, 8);
+assert.equal(todayMessages[0].quickReply.items.length, 9);
 const todayFlexText = JSON.stringify(todayMessages[0]);
 assert.match(todayFlexText, /ส่งรายงาน/);
 assert.match(todayFlexText, /ตรวจตัวเลข/);
@@ -122,6 +132,14 @@ assert.equal(buildReply(parseIntent("ช่วยเหลือ"), snapshot, { 
 assert.equal(
   buildReply(parseIntent("help"), snapshot, { now, language: "en" }),
   HELP_TEXT_EN,
+);
+assert.equal(
+  buildReply(parseIntent("search"), snapshot, { now, language: "en" }),
+  buildSearchPromptText("en"),
+);
+assert.equal(
+  buildReply(parseIntent("ค้นหา"), snapshot, { now, language: "th" }),
+  buildSearchPromptText("th"),
 );
 assert.match(buildReply(parseIntent("ไม่รู้"), snapshot, { now }), /ยังไม่เข้าใจ/);
 assert.ok(truncateReply("ก".repeat(6000)).length <= 4800);
@@ -199,23 +217,47 @@ assert.ok(
 
 for (const language of ["en", "th"]) {
   const quickReply = buildQuickReply(language);
-  assert.equal(quickReply.items.length, 8);
+  assert.equal(quickReply.items.length, 9);
   assert.ok(quickReply.items.length <= 13);
+  const searchItems = quickReply.items.filter((item) => item.action.type === "postback");
+  assert.equal(searchItems.length, 1);
+  assert.deepEqual(searchItems[0].action, {
+    type: "postback",
+    label: language === "th" ? "ค้นหา" : "Search",
+    data: `action=search_prompt&lang=${language}`,
+    inputOption: "openKeyboard",
+    fillInText: language === "th" ? "ค้นหา " : "search ",
+  });
   for (const item of quickReply.items) {
     assert.equal(item.type, "action");
-    assert.equal(item.action.type, "message");
     assert.ok(item.action.label.length <= 20);
-    assert.ok(item.action.text.length <= 300);
-    assert.notEqual(parseIntent(item.action.text).kind, "unknown");
+    if (item.action.type === "message") {
+      assert.ok(item.action.text.length <= 300);
+      assert.notEqual(parseIntent(item.action.text).kind, "unknown");
+    } else {
+      assert.equal(item.action.type, "postback");
+      assert.ok(item.action.data.length <= 300);
+      assert.ok(item.action.fillInText.length <= 300);
+      assert.ok(parseSearchPromptPostback(item.action.data));
+    }
   }
+
+  const prompt = buildSearchPromptMessage(language);
+  assert.equal(prompt.type, "text");
+  assert.equal(prompt.text, buildSearchPromptText(language));
+  assert.equal(prompt.quickReply.items.length, quickReply.items.length);
+  assert.match(prompt.text, language === "th" ? /ค้นหา พาสปอร์ต/ : /search passport/);
 
   const menu = buildMenuMessage(language);
   assert.equal(menu.type, "flex");
   assert.ok(menu.altText.length <= 400);
   assert.equal(menu.contents.type, "bubble");
   assert.equal(menu.quickReply.items.length, quickReply.items.length);
-  assert.equal(menu.contents.body.contents.length, 4);
-  assert.ok(menu.contents.body.contents.every((row) => row.contents.length === 2));
+  assert.equal(menu.contents.body.contents.length, 5);
+  assert.deepEqual(
+    menu.contents.body.contents.map((row) => row.contents.length),
+    [2, 2, 2, 2, 1],
+  );
   const menuActions = menu.contents.body.contents
     .flatMap((row) => row.contents)
     .map((button) => button.action);
