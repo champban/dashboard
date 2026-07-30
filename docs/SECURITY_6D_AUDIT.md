@@ -1,12 +1,11 @@
 # Security 6D Audit — LINE Official Read-only Bot
 
-Latest audit: `2026-07-30T11:49:49+07:00` (`Asia/Bangkok`)
+Latest audit: `2026-07-30T12:06:15+07:00` (`Asia/Bangkok`)
 
-Scope: `feature/line-search-button`; Supabase Edge Function-only increment
+Scope: merged PR #43 and Supabase `line-todo-webhook` version 3
 
-Decision: **PASS** for review, merge, and deployment of the exact verified
-candidate. No Critical or High findings. Production and owner-device evidence
-must be appended after deployment.
+Decision: **PASS** for production technical deployment. No Critical or High
+findings. Owner-device behavior remains the only acceptance item.
 
 ## Latest targeted findings — Search button
 
@@ -16,8 +15,8 @@ must be appended after deployment.
 | Secrets and data | PASS | No new secret, task field, log field, database access, migration, or browser bundle; postback contains only fixed action/language | None |
 | Input and content safety | PASS | Exact allow-list `action=search_prompt&lang=en\|th`; extra/unknown postback data is ignored; typed query retains existing normalization and 120-character cap | None |
 | Browser and network controls | PASS | Uses LINE-native postback, `openKeyboard`, and fixed `fillInText`; no new origin, endpoint, CORS rule, URI action, or CSP change | Owner mobile/PC acceptance |
-| Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source commit is `bf47521`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | Record deployed function version |
-| Operations and recovery | PASS | Current production Function v2 is ACTIVE and is the rollback point; no database/data change; recent logs include expected 200 and invalid-signature 401 outcomes | Post-deploy smoke test |
+| Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source anchor is `bf47521`, merged as `ad3067f`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | None |
+| Operations and recovery | PASS | Function v3 is ACTIVE; all three deployed files exactly match merged `main`; direct GET 405 and unsigned POST 401 are recorded in v3 logs; version 2 remains the rollback point | Owner functional acceptance |
 
 Checks performed:
 
@@ -31,6 +30,10 @@ Checks performed:
   `0 blockers`, CSP hashes `6/6`.
 - Runtime dependency audit — `0 vulnerabilities`.
 - `npm run scan-secrets` — PASS immediately before commit/push.
+- PR #43 merged to `main` as `ad3067f`.
+- Production Function version 3 source parity — PASS; bundle SHA-256
+  `d4ed04cad2935502009ca61275062bd3130752780179f0f099d76ed2a3ab51f6`.
+- Version 3 smoke/security checks — GET 405 and unsigned POST 401; PASS.
 
 Backup and rollback readiness:
 
@@ -84,7 +87,7 @@ owner data.
 - Full Sync Manager and Mobile Sync show link state, snapshot time, one-time
   code, copy action, refresh, busy state, and errors.
 - The default English Flex menu works in LINE PC and mobile; linked mobile
-  replies additionally carry eight Quick Reply actions. A static Thai/English
+  replies additionally carry nine Quick Reply actions. A static Thai/English
   switch does not require storing a language preference.
 - The UI states that LINE is read-only and names fields excluded from the
   snapshot.
