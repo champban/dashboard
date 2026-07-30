@@ -9,19 +9,36 @@
 # of inactivity; touching the database on a schedule is what prevents that. One
 # job does both — do not add a second cron for the keepalive.
 #
-# NO REPOSITORY SECRETS ARE REQUIRED, and none should be added. Every endpoint
-# checked is public: the project URL and publishable key already ship to every
-# browser in auth.js. A check that needs the service-role key or a LINE channel
-# token does not belong in CI.
+# NO REPOSITORY SECRETS ARE REQUIRED. Every endpoint checked is public: the
+# project URL and publishable key already ship to every browser in auth.js.
+#
+# That is also the limit of what this proves. It is an endpoint and
+# configuration check, not an end-to-end one: a DELETED secret makes the
+# function answer 500 and fails the run, but a secret that is PRESENT BUT
+# INVALID — an expired or rotated LINE channel access token — still answers 401
+# and this stays green while the bot is dead. See the SCOPE comment in
+# build/line-health-check.mjs. Closing that gap requires storing a LINE token in
+# repository secrets, which is an owner decision with a real security cost, not
+# something to add quietly.
 name: line-health
 
 on:
   schedule:
-    # 03:00 UTC every other day = 10:00 Asia/Bangkok. Well inside Supabase's
-    # 7-day pause window, so three consecutive missed runs are still survivable
-    # (GitHub delays or drops scheduled runs under load — this is not a
-    # guaranteed timer).
-    - cron: '0 3 */2 * *'
+    # 03:00 UTC daily = 10:00 Asia/Bangkok.
+    #
+    # Daily, not every-other-day, and the arithmetic is the reason. GitHub
+    # delays and silently drops scheduled runs under load, so the cadence has to
+    # survive misses, not just tick. `*/2` in day-of-month fires on the 1st,
+    # 3rd, 5th, 7th…: succeed on the 1st, miss the 3rd, 5th and 7th, and the
+    # next attempt is the 9th — eight days after the last database activity,
+    # past Supabase's 7-day pause window. The keepalive would have let the
+    # project pause.
+    #
+    # Daily leaves real margin: up to five consecutive missed runs still land
+    # the next success within six days. The job is a checkout plus one Node
+    # process and no install, so the extra runs cost seconds on a free public
+    # repository.
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 permissions:
