@@ -5,16 +5,30 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Version: `3.77.0-n104-ios-drive-file-list` (`APP_VERSION` in `src/App.jsx` is the single source; it flows into the UI, filenames and `BUILD-MANIFEST.json`)
+- Live production commit before this hotfix: `82c8886`
+- Hotfix candidate: `3.77.1-line-auth-storage-hotfix` on
+  `hotfix/supabase-auth-storage`; not merged or deployed
+- `APP_VERSION` in `src/App.jsx` is the Full version source; it flows into the
+  UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
+  artifacts.
 - Full application: `index.html` — **generated, do not edit directly**
-- Mobile application: `mobile/index.html` (separate hand-written vanilla-JS app, v3.75.0)
+- Mobile application: `mobile/index.html` (separate hand-written vanilla-JS
+  app, hotfix candidate v3.75.1)
 - Live: https://champban.github.io/dashboard/
 
-## Unreleased: LINE Official read-only bot
+## LINE Official read-only bot activation
 
-Branch: `feature/line-official-readonly-bot`
+Feature branch: `feature/line-official-readonly-bot` (merged)
 
-Status: release candidate only; no migration/function/app production deployment
+Status on 2026-07-29:
+
+- Logical Supabase backup accepted; migration
+  `20260728155436_line_official_readonly_bot.sql` applied.
+- LINE Function Secrets configured, `line-todo-webhook` deployed, and the LINE
+  console returned **Success** for webhook verification.
+- Production owner acceptance found a client auth-storage incident before any
+  link code or snapshot row was created. The hotfix is implemented and locally
+  verified but is not merged/deployed.
 
 - The feature stays in this repository because it is an integration module of
   the same Todo Planner product, not a separate product.
@@ -42,8 +56,36 @@ Release/runbook files:
 - `docs/PROJECT_PERFORMANCE_KPI.md`
 
 Production order is backup → migration → Function Secrets → Edge Function →
-LINE webhook verify → app deploy → Full/Mobile acceptance. Never deploy or merge
-this feature without a separate explicit approval.
+LINE webhook verify → app deploy → Full/Mobile acceptance. The first five are
+complete. Never merge/deploy the auth-storage hotfix without a separate
+explicit approval.
+
+### LINE activation incident: Supabase session tokens erased
+
+Observed symptom: the signed-in UI showed the Google account, but **Create LINE
+link code** returned `Please sign in to My Todo Planner again.`
+
+Evidence:
+
+- Supabase Auth logs showed successful Google OAuth and `/auth/v1/user` HTTP
+  200.
+- No `/rest/v1/mtp_line_*` request followed the button click.
+- `mtp_line_snapshots`, `mtp_line_link_codes`, and `mtp_line_accounts` each had
+  zero rows.
+- A jsdom reproduction proved the security bootstrap rewrote the Supabase
+  localStorage session with blank access/refresh tokens.
+
+Root cause: the document-wide storage guard redacted any JSON property named
+`access_token` or `refresh_token`, including the legitimate Supabase Auth
+session stored at `sb-qjaywadzvwvcspdsjxth-auth-token`.
+
+Fix: Full and Mobile bypass redaction for that one exact storage key only.
+Ordinary and lookalike keys remain protected. Regression coverage lives in
+`build/auth-storage-security.test.mjs`.
+
+Recovery after deployment: sign in once, save to cloud if a fresh snapshot is
+needed, create a new link code, send it to LINE, then run the command acceptance
+set. No database rollback or data restore is required.
 
 ## Source of truth (restored in 3.77.0)
 
@@ -612,6 +654,12 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 - The harness clock is frozen; if you change the fixture data, update the expected LEN/NODES in this file.
 - Splice edits: verify anchor uniqueness first, and never let an assert abort half-applied multi-replacements — apply independently and re-verify with grep.
 
+## Prevented Recurrence Register
+
+| ID | Incident / trigger | Root cause | Permanent prevention | Verification / release gate |
+|---|---|---|---|---|
+| LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |
+
 ## Open backlog
 
 | ID | Item | Notes |
@@ -623,7 +671,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | Add automated checks: audit.py, harness, CSP/manifest integrity on every PR. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
-| LINE-1 | LINE Official read-only bot production activation | RC implemented on feature branch. Pending Supabase backup/migration, Function Secrets, function deploy, LINE webhook verify, and Full/Mobile owner acceptance. |
+| LINE-1 | LINE Official read-only bot production activation | Backup, migration, Function Secrets, function deploy, and webhook verification complete. Client hotfix and Full/Mobile owner acceptance pending. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,

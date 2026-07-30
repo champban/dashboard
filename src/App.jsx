@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import React from "react";
 
 // ─── App Version ──────────────────────────────────────────────────────────────
-const APP_VERSION   = "3.77.0";
+const APP_VERSION   = "3.77.1";
 const APP_BUILD     = "2026-06-27";
 
 // ─── All configurable defaults — overridable from Config tab ─────────────────

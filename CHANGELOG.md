@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — 3.77.1 Supabase auth storage hotfix — 2026-07-29
+
+### Fixed
+
+- The security bootstrap no longer erases `access_token` and `refresh_token`
+  from the exact Supabase Auth session storage entry. That erasure left the
+  visible Google profile intact while making `auth.getClaims()` fail, so
+  creating a LINE link code incorrectly asked the owner to sign in again.
+- Full and Mobile now preserve only
+  `sb-qjaywadzvwvcspdsjxth-auth-token`. All other storage entries, including
+  lookalike keys, continue to redact token- and secret-shaped JSON fields.
+- Full and Mobile CSP hashes and build metadata were refreshed for the changed
+  shipped scripts.
+
+### Verified
+
+- `build/auth-storage-security.test.mjs` covers sessions already present at
+  bootstrap, later token refreshes, ordinary storage redaction, nested secret
+  fields, and exact-key bypass resistance in both builds.
+- `npm test`, `npm run verify`, the packaged CSP self-check, and
+  `npm run scan-secrets` pass.
+
+### Deployment
+
+- This hotfix is not deployed yet. After deployment, the owner must sign in
+  once to replace the session whose tokens the previous build already erased,
+  then create a new LINE link code.
+
 ## Unreleased — LINE Official read-only bot — 2026-07-28
 
 ### Added
@@ -18,8 +46,9 @@
   browser code uses only the existing publishable Supabase client.
 - Snapshots exclude notes, descriptions, attachments, config, tokens, API keys,
   and local profile/task IDs.
-- This release is not deployed: production backup, migration, secrets, webhook
-  verification, and owner acceptance remain explicit gates.
+- The logical backup, migration, Function Secrets, Edge Function deployment,
+  and LINE webhook verification are complete. Client owner acceptance is
+  blocked on the 3.77.1 auth-storage hotfix above.
 
 ## 3.81.0 — Save to Cloud, in the header, with a confirm — 2026-07-26
 
