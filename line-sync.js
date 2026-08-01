@@ -152,6 +152,54 @@ function snapshotSelectionOrder(a,b){
   return bCreated.localeCompare(aCreated)||b.position-a.position;
 }
 
+function addSnapshotEvents(snapshot,payload,sharing){
+  const eventSource=Array.isArray(payload.events)?payload.events:[];
+  const candidates=[
+    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
+    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
+    ...eventSource.flatMap((event,eventPosition)=>eventWindows(event).map((window,windowPosition)=>({
+      task:event,
+      window,
+      type:"event",
+      position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
+    }))),
+  ].sort(snapshotSelectionOrder);
+  const snapshotBase={
+    ...snapshot,
+    taskCountTotal:payload.personal.length+payload.work.length,
+    eventCountTotal:eventSource.length,
+    truncated:false,
+    tasks:[],
+    events:[],
+  };
+  const tasks=[];
+  const events=[];
+  let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
+  for(const candidate of candidates){
+    if(tasks.length+events.length>=MAX_TASKS)break;
+    const item=candidate.type==="event"
+      ?projectEvent(candidate.task,candidate.window)
+      :projectTask(candidate.task,candidate.type,sharing);
+    const itemBytes=new Blob([JSON.stringify(item)]).size+1;
+    if(bytes+itemBytes>MAX_SNAPSHOT_BYTES)break;
+    (candidate.type==="event"?events:tasks).push(item);
+    bytes+=itemBytes;
+  }
+  tasks.sort(taskOrder);
+  events.sort((a,b)=>(a.start||"9999-12-31").localeCompare(b.start||"9999-12-31")
+    ||a.title.localeCompare(b.title,"th"));
+  const result={
+    ...snapshotBase,
+    truncated:candidates.length>tasks.length+events.length,
+    tasks,
+    events,
+  };
+  if(new Blob([JSON.stringify(result)]).size>MAX_SNAPSHOT_BYTES){
+    throw new Error("LINE task snapshot exceeded its safe size limit.");
+  }
+  return result;
+}
+
 function buildSnapshot(payload,source){
   if (!payload || !Array.isArray(payload.personal) || !Array.isArray(payload.work)) {
     throw new Error("Planner data is not a valid profile payload.");
