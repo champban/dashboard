@@ -146,11 +146,6 @@ function taskOrder(a,b){
   return aDone-bDone||aDue.localeCompare(bDue)||a.title.localeCompare(b.title,"th");
 }
 
-function eventOrder(a,b){
-  return (a.start||"9999-12-31").localeCompare(b.start||"9999-12-31")
-    ||a.title.localeCompare(b.title,"th");
-}
-
 function snapshotSelectionOrder(a,b){
   const aCreated=isoTimestamp(a.task?.createdAt)||"";
   const bCreated=isoTimestamp(b.task?.createdAt)||"";
@@ -208,7 +203,8 @@ function buildSnapshot(payload,source){
     bytes+=itemBytes;
   }
   tasks.sort(taskOrder);
-  events.sort(eventOrder);
+  events.sort((a,b)=>(a.start||"9999-12-31").localeCompare(b.start||"9999-12-31")
+    ||a.title.localeCompare(b.title,"th"));
   const snapshot={
     ...snapshotBase,
     truncated:candidates.length>tasks.length+events.length,
