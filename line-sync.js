@@ -152,39 +152,22 @@ function snapshotSelectionOrder(a,b){
   return bCreated.localeCompare(aCreated)||b.position-a.position;
 }
 
-function buildSnapshot(payload,source){
-  if (!payload || !Array.isArray(payload.personal) || !Array.isArray(payload.work)) {
-    throw new Error("Planner data is not a valid profile payload.");
-  }
-  const sharing={
-    subtasks:payload?.config?.lineShareSubtasks===true,
-    attachmentLinks:payload?.config?.lineShareAttachmentLinks===true,
-  };
-  // Select recently-created source records before applying the byte/task cap.
-  // Sorting by due date first used to silently discard newer, far-future tasks
-  // from large snapshots, so LINE search could not find them. createdAt is used
-  // only for selection and is never included in the reduced snapshot.
+function addSnapshotEvents(snapshot,payload,sharing){
+  const eventSource=Array.isArray(payload.events)?payload.events:[];
   const candidates=[
     ...payload.personal.map((task,position)=>({task,type:"personal",position})),
     ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
-    ...(Array.isArray(payload.events)?payload.events:[]).flatMap((event,eventPosition)=>
-      eventWindows(event).map((window,windowPosition)=>({
-        task:event,
-        window,
-        type:"event",
-        position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
-      }))),
+    ...eventSource.flatMap((event,eventPosition)=>eventWindows(event).map((window,windowPosition)=>({
+      task:event,
+      window,
+      type:"event",
+      position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
+    }))),
   ].sort(snapshotSelectionOrder);
   const snapshotBase={
-    schemaVersion:SNAPSHOT_SCHEMA,
-    appVersion:cleanText(payload.appVersion,40),
-    source:source==="mobile"?"mobile":"full",
-    syncedAt:new Date().toISOString(),
-    dataUpdatedAt:isoTimestamp(payload.dataLastUpdated||payload.savedAt),
-    driveSavedAt:isoTimestamp(payload.savedAt),
-    sharing,
+    ...snapshot,
     taskCountTotal:payload.personal.length+payload.work.length,
-    eventCountTotal:Array.isArray(payload.events)?payload.events.length:0,
+    eventCountTotal:eventSource.length,
     truncated:false,
     tasks:[],
     events:[],
@@ -205,16 +188,66 @@ function buildSnapshot(payload,source){
   tasks.sort(taskOrder);
   events.sort((a,b)=>(a.start||"9999-12-31").localeCompare(b.start||"9999-12-31")
     ||a.title.localeCompare(b.title,"th"));
-  const snapshot={
+  const result={
     ...snapshotBase,
     truncated:candidates.length>tasks.length+events.length,
     tasks,
     events,
   };
+  if(new Blob([JSON.stringify(result)]).size>MAX_SNAPSHOT_BYTES){
+    throw new Error("LINE task snapshot exceeded its safe size limit.");
+  }
+  return result;
+}
+
+function buildSnapshot(payload,source){
+  if (!payload || !Array.isArray(payload.personal) || !Array.isArray(payload.work)) {
+    throw new Error("Planner data is not a valid profile payload.");
+  }
+  const sharing={
+    subtasks:payload?.config?.lineShareSubtasks===true,
+    attachmentLinks:payload?.config?.lineShareAttachmentLinks===true,
+  };
+  // Select recently-created source records before applying the byte/task cap.
+  // Sorting by due date first used to silently discard newer, far-future tasks
+  // from large snapshots, so LINE search could not find them. createdAt is used
+  // only for selection and is never included in the reduced snapshot.
+  const candidates=[
+    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
+    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
+  ].sort(snapshotSelectionOrder);
+  const snapshotBase={
+    schemaVersion:SNAPSHOT_SCHEMA,
+    appVersion:cleanText(payload.appVersion,40),
+    source:source==="mobile"?"mobile":"full",
+    syncedAt:new Date().toISOString(),
+    dataUpdatedAt:isoTimestamp(payload.dataLastUpdated||payload.savedAt),
+    driveSavedAt:isoTimestamp(payload.savedAt),
+    sharing,
+    taskCountTotal:candidates.length,
+    truncated:false,
+    tasks:[],
+  };
+  const tasks=[];
+  let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
+  for(const candidate of candidates){
+    if(tasks.length>=MAX_TASKS)break;
+    const task=projectTask(candidate.task,candidate.type,sharing);
+    const taskBytes=new Blob([JSON.stringify(task)]).size+(tasks.length?1:0);
+    if(bytes+taskBytes>MAX_SNAPSHOT_BYTES)break;
+    tasks.push(task);
+    bytes+=taskBytes;
+  }
+  tasks.sort(taskOrder);
+  const snapshot={
+    ...snapshotBase,
+    truncated:candidates.length>tasks.length,
+    tasks,
+  };
   if(new Blob([JSON.stringify(snapshot)]).size>MAX_SNAPSHOT_BYTES){
     throw new Error("LINE task snapshot exceeded its safe size limit.");
   }
-  return snapshot;
+  return addSnapshotEvents(snapshot,payload,sharing);
 }
 
 async function publish(payload,source){
