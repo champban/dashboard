@@ -163,19 +163,6 @@ Branch: `feature/line-task-details` (merged)
   for the selected tasks. `createdAt` is selection-only and is not published to
   LINE or Supabase.
 
-### LINE temporal task and event search (pending release)
-
-- Snapshot schema v3 adds privacy-minimised calendar events: type, sanitised
-  title, start date, end date, and category only. Event IDs, descriptions,
-  locations, notes, attachments, configuration, and credentials remain excluded.
-- Deterministic LINE search accepts a year, named or numbered month, or ISO week
-  with a year, optionally combined with a keyword and `task`/`งาน` or
-  `event`/`กิจกรรม`. Examples: `search buy December 2026`,
-  `ค้นหา งาน เดือน 12 ปี 2026`, and `search events week 49 2026`.
-- Multi-day events match every period they overlap. Existing today/week/status
-  commands remain task-only. Full and Mobile use the same `line-sync.js`
-  projection, and the snapshot is still published only after Drive succeeds.
-
 ### LINE Search-button production release
 
 Branch: `feature/line-search-button` (merged in PR #43)
@@ -840,3 +827,16 @@ search highlighting.
 - Supabase free tier pauses after 7 days inactivity (data retained, manual
   restore); if this becomes a problem, add a GitHub Actions cron keepalive
   (`.github/workflows/keepalive.yml`, every ~3 days).
+
+## Pending LINE temporal search release
+
+- Snapshot schema v3 adds privacy-minimised calendar events: type, sanitised
+  title, start date, end date, and category only. Event IDs, descriptions,
+  locations, notes, attachments, configuration, and credentials remain excluded.
+- Deterministic LINE search accepts a year, named or numbered month, or ISO week
+  with a year, optionally combined with a keyword and `task`/`งาน` or
+  `event`/`กิจกรรม`. Examples: `search buy December 2026`,
+  `ค้นหา งาน เดือน 12 ปี 2026`, and `search events week 49 2026`.
+- Multi-day events match every period they overlap. Existing today/week/status
+  commands remain task-only. Full and Mobile use the same `line-sync.js`
+  projection, and the snapshot is still published only after Drive succeeds.
