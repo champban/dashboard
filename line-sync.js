@@ -118,15 +118,23 @@ function projectTask(task,type,sharing){
   return projected;
 }
 
-function projectEvent(event){
-  const firstWindow=Array.isArray(event?.windows)?event.windows[0]:null;
-  const start=isoDate(firstWindow?.start||event?.start||event?.due||event?.end);
-  const end=isoDate(firstWindow?.end||event?.end||event?.due||start)||start;
+function eventWindows(event){
+  const source=Array.isArray(event?.windows)&&event.windows.length
+    ?event.windows
+    :[{start:event?.start||event?.due||event?.end,end:event?.end||event?.due||event?.start}];
+  return source.map(window=>{
+    const start=isoDate(window?.start||window?.end);
+    const end=isoDate(window?.end||window?.start)||start;
+    return start?{start,end}:null;
+  }).filter(Boolean);
+}
+
+function projectEvent(event,window){
   return {
     type:"event",
     title:cleanText(event?.title,240)||"(ไม่มีชื่อ)",
-    start,
-    end,
+    start:window.start,
+    end:window.end,
     category:cleanText(event?.type||event?.category||event?.cat,100),
   };
 }
@@ -164,9 +172,13 @@ function buildSnapshot(payload,source){
   const candidates=[
     ...payload.personal.map((task,position)=>({record:task,type:"personal",position})),
     ...payload.work.map((task,position)=>({record:task,type:"work",position:payload.personal.length+position})),
-    ...(Array.isArray(payload.events)?payload.events:[]).map((event,position)=>({
-      record:event,type:"event",position:payload.personal.length+payload.work.length+position,
-    })),
+    ...(Array.isArray(payload.events)?payload.events:[]).flatMap((event,eventPosition)=>
+      eventWindows(event).map((window,windowPosition)=>({
+        record:event,
+        window,
+        type:"event",
+        position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
+      }))),
   ].sort(snapshotSelectionOrder);
   const snapshotBase={
     schemaVersion:SNAPSHOT_SCHEMA,
@@ -188,7 +200,7 @@ function buildSnapshot(payload,source){
   for(const candidate of candidates){
     if(tasks.length+events.length>=MAX_TASKS)break;
     const item=candidate.type==="event"
-      ?projectEvent(candidate.record)
+      ?projectEvent(candidate.record,candidate.window)
       :projectTask(candidate.record,candidate.type,sharing);
     const itemBytes=new Blob([JSON.stringify(item)]).size+1;
     if(bytes+itemBytes>MAX_SNAPSHOT_BYTES)break;

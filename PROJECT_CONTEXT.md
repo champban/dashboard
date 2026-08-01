@@ -840,3 +840,6 @@ search highlighting.
 - Multi-day events match every period they overlap. Existing today/week/status
   commands remain task-only. Full and Mobile use the same `line-sync.js`
   projection, and the snapshot is still published only after Drive succeeds.
+- Events with multiple date windows publish one privacy-minimised occurrence per
+  window so searches do not miss later windows or falsely match gaps between
+  them; window descriptions remain excluded.

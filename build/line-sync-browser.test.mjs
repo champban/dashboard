@@ -63,22 +63,33 @@ const withEvents = bridge.buildSnapshot({
   events: [{
     id: "private-event-id",
     title: "Annual planning",
-    start: "2026-12-01",
-    end: "2026-12-03",
+    windows: [
+      { start: "2026-12-01", end: "2026-12-03", desc: "private window note" },
+      { start: "2027-02-10", end: "2027-02-10", desc: "another private note" },
+    ],
     type: "Planning",
     description: "must not leave browser",
     createdAt: "2026-08-01",
   }],
 }, "full");
-assert.deepEqual(JSON.parse(JSON.stringify(withEvents.events)), [{
-  type: "event",
-  title: "Annual planning",
-  start: "2026-12-01",
-  end: "2026-12-03",
-  category: "Planning",
-}]);
+assert.deepEqual(JSON.parse(JSON.stringify(withEvents.events)), [
+  {
+    type: "event",
+    title: "Annual planning",
+    start: "2026-12-01",
+    end: "2026-12-03",
+    category: "Planning",
+  },
+  {
+    type: "event",
+    title: "Annual planning",
+    start: "2027-02-10",
+    end: "2027-02-10",
+    category: "Planning",
+  },
+]);
 assert.equal(withEvents.eventCountTotal, 1);
-assert.doesNotMatch(JSON.stringify(withEvents), /private-event-id|description|createdAt/);
+assert.doesNotMatch(JSON.stringify(withEvents), /private-event-id|description|createdAt|private window note/);
 
 const serialized = JSON.stringify(snapshot);
 for (const forbidden of [
