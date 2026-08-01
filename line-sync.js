@@ -4,7 +4,7 @@
 // Public browser bridge: it contains no LINE or Supabase backend secret.
 // The signed-in Supabase session comes from auth.js and RLS keeps every write
 // scoped to auth.uid().
-const SNAPSHOT_SCHEMA = 2;
+const SNAPSHOT_SCHEMA = 3;
 const MAX_TASKS = 500;
 const MAX_SNAPSHOT_BYTES = 240 * 1024;
 const MAX_SUBTASKS_PER_TASK = 20;
@@ -118,11 +118,38 @@ function projectTask(task,type,sharing){
   return projected;
 }
 
+function eventWindows(event){
+  const source=Array.isArray(event?.windows)&&event.windows.length
+    ?event.windows
+    :[{start:event?.start||event?.due||event?.end,end:event?.end||event?.due||event?.start}];
+  return source.map(window=>{
+    const start=isoDate(window?.start||window?.end);
+    const end=isoDate(window?.end||window?.start)||start;
+    return start?{start,end}:null;
+  }).filter(Boolean);
+}
+
+function projectEvent(event,window){
+  return {
+    type:"event",
+    title:cleanText(event?.title,240)||"(ไม่มีชื่อ)",
+    start:window.start,
+    end:window.end,
+    category:cleanText(event?.type||event?.category||event?.cat,100),
+  };
+}
+
 function taskOrder(a,b){
   const aDone=String(a.status).toLowerCase()==="done"?1:0;
   const bDone=String(b.status).toLowerCase()==="done"?1:0;
   const aDue=a.due||"9999-12-31", bDue=b.due||"9999-12-31";
   return aDone-bDone||aDue.localeCompare(bDue)||a.title.localeCompare(b.title,"th");
+}
+
+function snapshotSelectionOrder(a,b){
+  const aCreated=isoTimestamp(a.task?.createdAt)||"";
+  const bCreated=isoTimestamp(b.task?.createdAt)||"";
+  return bCreated.localeCompare(aCreated)||b.position-a.position;
 }
 
 function buildSnapshot(payload,source){
@@ -133,10 +160,14 @@ function buildSnapshot(payload,source){
     subtasks:payload?.config?.lineShareSubtasks===true,
     attachmentLinks:payload?.config?.lineShareAttachmentLinks===true,
   };
-  const all=[
-    ...payload.personal.map(task=>projectTask(task,"personal",sharing)),
-    ...payload.work.map(task=>projectTask(task,"work",sharing)),
-  ].sort(taskOrder);
+  // Select recently-created source records before applying the byte/task cap.
+  // Sorting by due date first used to silently discard newer, far-future tasks
+  // from large snapshots, so LINE search could not find them. createdAt is used
+  // only for selection and is never included in the reduced snapshot.
+  const candidates=[
+    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
+    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
+  ].sort(snapshotSelectionOrder);
   const snapshotBase={
     schemaVersion:SNAPSHOT_SCHEMA,
     appVersion:cleanText(payload.appVersion,40),
@@ -145,28 +176,30 @@ function buildSnapshot(payload,source){
     dataUpdatedAt:isoTimestamp(payload.dataLastUpdated||payload.savedAt),
     driveSavedAt:isoTimestamp(payload.savedAt),
     sharing,
-    taskCountTotal:all.length,
+    taskCountTotal:candidates.length,
     truncated:false,
     tasks:[],
   };
   const tasks=[];
   let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
-  for(const task of all){
+  for(const candidate of candidates){
     if(tasks.length>=MAX_TASKS)break;
+    const task=projectTask(candidate.task,candidate.type,sharing);
     const taskBytes=new Blob([JSON.stringify(task)]).size+(tasks.length?1:0);
     if(bytes+taskBytes>MAX_SNAPSHOT_BYTES)break;
     tasks.push(task);
     bytes+=taskBytes;
   }
+  tasks.sort(taskOrder);
   const snapshot={
     ...snapshotBase,
-    truncated:all.length>tasks.length,
+    truncated:candidates.length>tasks.length,
     tasks,
   };
   if(new Blob([JSON.stringify(snapshot)]).size>MAX_SNAPSHOT_BYTES){
     throw new Error("LINE task snapshot exceeded its safe size limit.");
   }
-  return snapshot;
+  return addSnapshotEvents(snapshot,payload,sharing);
 }
 
 async function publish(payload,source){
@@ -252,6 +285,54 @@ async function getStatus(){
     snapshotUpdatedAt:snapshotResult.data?.updated_at||null,
     dataUpdatedAt:snapshotResult.data?.data_updated_at||null,
   };
+}
+
+function addSnapshotEvents(snapshot,payload,sharing){
+  const eventSource=Array.isArray(payload.events)?payload.events:[];
+  const candidates=[
+    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
+    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
+    ...eventSource.flatMap((event,eventPosition)=>eventWindows(event).map((window,windowPosition)=>({
+      task:event,
+      window,
+      type:"event",
+      position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
+    }))),
+  ].sort(snapshotSelectionOrder);
+  const snapshotBase={
+    ...snapshot,
+    taskCountTotal:payload.personal.length+payload.work.length,
+    eventCountTotal:eventSource.length,
+    truncated:false,
+    tasks:[],
+    events:[],
+  };
+  const tasks=[];
+  const events=[];
+  let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
+  for(const candidate of candidates){
+    if(tasks.length+events.length>=MAX_TASKS)break;
+    const item=candidate.type==="event"
+      ?projectEvent(candidate.task,candidate.window)
+      :projectTask(candidate.task,candidate.type,sharing);
+    const itemBytes=new Blob([JSON.stringify(item)]).size+1;
+    if(bytes+itemBytes>MAX_SNAPSHOT_BYTES)break;
+    (candidate.type==="event"?events:tasks).push(item);
+    bytes+=itemBytes;
+  }
+  tasks.sort(taskOrder);
+  events.sort((a,b)=>(a.start||"9999-12-31").localeCompare(b.start||"9999-12-31")
+    ||a.title.localeCompare(b.title,"th"));
+  const result={
+    ...snapshotBase,
+    truncated:candidates.length>tasks.length+events.length,
+    tasks,
+    events,
+  };
+  if(new Blob([JSON.stringify(result)]).size>MAX_SNAPSHOT_BYTES){
+    throw new Error("LINE task snapshot exceeded its safe size limit.");
+  }
+  return result;
 }
 
 window.__MTP_LINE__=Object.freeze({
