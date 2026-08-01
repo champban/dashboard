@@ -152,8 +152,8 @@ function eventOrder(a,b){
 }
 
 function snapshotSelectionOrder(a,b){
-  const aCreated=isoTimestamp(a.record?.createdAt)||"";
-  const bCreated=isoTimestamp(b.record?.createdAt)||"";
+  const aCreated=isoTimestamp(a.task?.createdAt)||"";
+  const bCreated=isoTimestamp(b.task?.createdAt)||"";
   return bCreated.localeCompare(aCreated)||b.position-a.position;
 }
 
@@ -170,11 +170,11 @@ function buildSnapshot(payload,source){
   // from large snapshots, so LINE search could not find them. createdAt is used
   // only for selection and is never included in the reduced snapshot.
   const candidates=[
-    ...payload.personal.map((task,position)=>({record:task,type:"personal",position})),
-    ...payload.work.map((task,position)=>({record:task,type:"work",position:payload.personal.length+position})),
+    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
+    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
     ...(Array.isArray(payload.events)?payload.events:[]).flatMap((event,eventPosition)=>
       eventWindows(event).map((window,windowPosition)=>({
-        record:event,
+        task:event,
         window,
         type:"event",
         position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
@@ -200,8 +200,8 @@ function buildSnapshot(payload,source){
   for(const candidate of candidates){
     if(tasks.length+events.length>=MAX_TASKS)break;
     const item=candidate.type==="event"
-      ?projectEvent(candidate.record,candidate.window)
-      :projectTask(candidate.record,candidate.type,sharing);
+      ?projectEvent(candidate.task,candidate.window)
+      :projectTask(candidate.task,candidate.type,sharing);
     const itemBytes=new Blob([JSON.stringify(item)]).size+1;
     if(bytes+itemBytes>MAX_SNAPSHOT_BYTES)break;
     (candidate.type==="event"?events:tasks).push(item);
