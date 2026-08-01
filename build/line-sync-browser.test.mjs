@@ -140,6 +140,32 @@ assert.equal(capped.tasks.length, 500);
 assert.equal(capped.taskCountTotal, 510);
 assert.equal(capped.truncated, true);
 
+const newestFarFuture = bridge.buildSnapshot({
+  ...payload,
+  dataLastUpdated: "2026-08-01T08:37:00.000Z",
+  personal: [
+    ...Array.from({ length: 500 }, (_, index) => ({
+      title: `Older task ${index}`,
+      status: "pending",
+      due: "2026-08-01",
+      createdAt: "2026-07-01",
+    })),
+    {
+      title: "Buy AIA",
+      status: "pending",
+      due: "2026-12-01",
+      createdAt: "2026-08-01",
+    },
+  ],
+  work: [],
+}, "full");
+assert.equal(newestFarFuture.tasks.length, 500);
+assert.ok(
+  newestFarFuture.tasks.some((task) => task.title === "Buy AIA" && task.due === "2026-12-01"),
+  "a newly-added far-future task must survive snapshot truncation so LINE search can find it",
+);
+assert.doesNotMatch(JSON.stringify(newestFarFuture), /createdAt/);
+
 const largeShared = {
   ...payload,
   config: { lineShareSubtasks: true, lineShareAttachmentLinks: true },

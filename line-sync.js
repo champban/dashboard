@@ -125,6 +125,12 @@ function taskOrder(a,b){
   return aDone-bDone||aDue.localeCompare(bDue)||a.title.localeCompare(b.title,"th");
 }
 
+function snapshotSelectionOrder(a,b){
+  const aCreated=isoTimestamp(a.task?.createdAt)||"";
+  const bCreated=isoTimestamp(b.task?.createdAt)||"";
+  return bCreated.localeCompare(aCreated)||b.position-a.position;
+}
+
 function buildSnapshot(payload,source){
   if (!payload || !Array.isArray(payload.personal) || !Array.isArray(payload.work)) {
     throw new Error("Planner data is not a valid profile payload.");
@@ -133,10 +139,14 @@ function buildSnapshot(payload,source){
     subtasks:payload?.config?.lineShareSubtasks===true,
     attachmentLinks:payload?.config?.lineShareAttachmentLinks===true,
   };
-  const all=[
-    ...payload.personal.map(task=>projectTask(task,"personal",sharing)),
-    ...payload.work.map(task=>projectTask(task,"work",sharing)),
-  ].sort(taskOrder);
+  // Select recently-created source records before applying the byte/task cap.
+  // Sorting by due date first used to silently discard newer, far-future tasks
+  // from large snapshots, so LINE search could not find them. createdAt is used
+  // only for selection and is never included in the reduced snapshot.
+  const candidates=[
+    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
+    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
+  ].sort(snapshotSelectionOrder);
   const snapshotBase={
     schemaVersion:SNAPSHOT_SCHEMA,
     appVersion:cleanText(payload.appVersion,40),
@@ -145,22 +155,24 @@ function buildSnapshot(payload,source){
     dataUpdatedAt:isoTimestamp(payload.dataLastUpdated||payload.savedAt),
     driveSavedAt:isoTimestamp(payload.savedAt),
     sharing,
-    taskCountTotal:all.length,
+    taskCountTotal:candidates.length,
     truncated:false,
     tasks:[],
   };
   const tasks=[];
   let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
-  for(const task of all){
+  for(const candidate of candidates){
     if(tasks.length>=MAX_TASKS)break;
+    const task=projectTask(candidate.task,candidate.type,sharing);
     const taskBytes=new Blob([JSON.stringify(task)]).size+(tasks.length?1:0);
     if(bytes+taskBytes>MAX_SNAPSHOT_BYTES)break;
     tasks.push(task);
     bytes+=taskBytes;
   }
+  tasks.sort(taskOrder);
   const snapshot={
     ...snapshotBase,
-    truncated:all.length>tasks.length,
+    truncated:candidates.length>tasks.length,
     tasks,
   };
   if(new Blob([JSON.stringify(snapshot)]).size>MAX_SNAPSHOT_BYTES){

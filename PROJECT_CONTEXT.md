@@ -152,6 +152,17 @@ Branch: `feature/line-task-details` (merged)
   Keep the additive v1/v2 database constraint because it remains compatible
   with both old and new clients.
 
+### LINE search snapshot truncation fix (pending release)
+
+- Large snapshots previously sorted every task by due date before enforcing the
+  500-task/240 KiB cap. A newly-added task with a later due date (reported with
+  `Buy AIA`, due 1 Dec 2026) could therefore be absent from the snapshot and
+  impossible for `search buy` to find even after a successful cloud save.
+- Snapshot selection now prioritises source `createdAt` (with source position as
+  a deterministic fallback), then restores the established due-date ordering
+  for the selected tasks. `createdAt` is selection-only and is not published to
+  LINE or Supabase.
+
 ### LINE Search-button production release
 
 Branch: `feature/line-search-button` (merged in PR #43)
