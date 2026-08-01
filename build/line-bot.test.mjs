@@ -15,6 +15,7 @@ import {
   extractLinkCode,
   parseIntent,
   parseSearchPromptPostback,
+  parseTemporalSearch,
   sha256Hex,
   truncateReply,
   verifyLineSignature,
@@ -77,6 +78,15 @@ assert.equal(parseSearchPromptPostback("action=search_prompt&lang=th"), "th");
 assert.equal(parseSearchPromptPostback("action=search_prompt&lang=de"), "");
 assert.equal(parseSearchPromptPostback("action=search_prompt&lang=en&extra=true"), "");
 assert.equal(parseSearchPromptPostback("action=delete&lang=en"), "");
+assert.deepEqual(parseTemporalSearch("Buy December 2026"), {
+  query: "buy", start: "2026-12-01", end: "2026-12-31", scope: "all",
+});
+assert.deepEqual(parseTemporalSearch("กิจกรรม สัปดาห์ 49 ปี 2026"), {
+  query: "", start: "2026-11-30", end: "2026-12-06", scope: "event",
+});
+assert.deepEqual(parseTemporalSearch("งาน เดือน 12 ปี 2026"), {
+  query: "", start: "2026-12-01", end: "2026-12-31", scope: "task",
+});
 
 assert.equal(extractLinkCode("เชื่อม MTP-ABCD-2345"), "MTP-ABCD-2345");
 assert.equal(extractLinkCode("link mtp abcd 2345"), "MTP-ABCD-2345");
@@ -124,6 +134,33 @@ assert.match(noDateReply, /จัดโต๊ะ/);
 const searchReply = buildReply(parseIntent("ค้นหา Alpha"), snapshot, { now });
 assert.match(searchReply, /ส่งรายงาน/);
 assert.match(searchReply, /งานที่จบแล้ว/, "search intentionally includes completed tasks");
+
+const temporalSnapshot = {
+  dataUpdatedAt: "2026-08-01T08:37:00.000Z",
+  tasks: [
+    { type: "personal", title: "Buy AIA", status: "pending", due: "2026-12-01" },
+    { type: "work", title: "Buy supplies", status: "todo", due: "2027-01-02" },
+  ],
+  events: [
+    { type: "event", title: "Annual planning", start: "2026-11-30", end: "2026-12-03" },
+    { type: "event", title: "January kickoff", start: "2027-01-04", end: "2027-01-04" },
+  ],
+};
+const monthReply=buildReply(parseIntent("search buy December 2026"),temporalSnapshot,{now,language:"en"});
+assert.match(monthReply,/Buy AIA/);
+assert.doesNotMatch(monthReply,/Buy supplies/);
+const weekReplyWithEvent=buildReply(parseIntent("ค้นหา กิจกรรม สัปดาห์ 49 ปี 2026"),temporalSnapshot,{now});
+assert.match(weekReplyWithEvent,/Annual planning/);
+assert.doesNotMatch(weekReplyWithEvent,/Buy AIA/);
+const yearReply=buildReply(parseIntent("search events 2027"),temporalSnapshot,{now,language:"en"});
+assert.match(yearReply,/January kickoff/);
+assert.doesNotMatch(yearReply,/Annual planning/);
+const eventMessages=buildReplyMessages(parseIntent("search events 2026"),temporalSnapshot,{now,language:"en"});
+const eventFlex=JSON.stringify(eventMessages[0].contents);
+assert.match(eventFlex,/Annual planning/);
+assert.match(eventFlex,/Event/);
+assert.match(eventFlex,/30 Nov/);
+assert.doesNotMatch(eventFlex,/No due date|Pending/);
 
 const statusReply = buildReply(parseIntent("สถานะ"), snapshot, { now });
 assert.match(statusReply, /ค้าง 5 · เสร็จแล้ว 1/);

@@ -48,7 +48,7 @@ const payload = {
 };
 
 const snapshot = bridge.buildSnapshot(payload, "full");
-assert.equal(snapshot.schemaVersion, 2);
+assert.equal(snapshot.schemaVersion, 3);
 assert.equal(snapshot.source, "full");
 assert.equal(snapshot.tasks.length, 2);
 assert.equal(snapshot.tasks[0].title, "จ่ายบิล");
@@ -57,6 +57,39 @@ assert.deepEqual(JSON.parse(JSON.stringify(snapshot.sharing)), {
   subtasks: false,
   attachmentLinks: false,
 });
+
+const withEvents = bridge.buildSnapshot({
+  ...payload,
+  events: [{
+    id: "private-event-id",
+    title: "Annual planning",
+    windows: [
+      { start: "2026-12-01", end: "2026-12-03", desc: "private window note" },
+      { start: "2027-02-10", end: "2027-02-10", desc: "another private note" },
+    ],
+    type: "Planning",
+    description: "must not leave browser",
+    createdAt: "2026-08-01",
+  }],
+}, "full");
+assert.deepEqual(JSON.parse(JSON.stringify(withEvents.events)), [
+  {
+    type: "event",
+    title: "Annual planning",
+    start: "2026-12-01",
+    end: "2026-12-03",
+    category: "Planning",
+  },
+  {
+    type: "event",
+    title: "Annual planning",
+    start: "2027-02-10",
+    end: "2027-02-10",
+    category: "Planning",
+  },
+]);
+assert.equal(withEvents.eventCountTotal, 1);
+assert.doesNotMatch(JSON.stringify(withEvents), /private-event-id|description|createdAt|private window note/);
 
 const serialized = JSON.stringify(snapshot);
 for (const forbidden of [
