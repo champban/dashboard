@@ -6,9 +6,12 @@ import {
   buildReply,
   buildReplyMessages,
   buildSearchPromptMessage,
+  buildMutationConfirmation,
   commandLanguage,
   extractLinkCode,
   parseIntent,
+  parseMutationCommand,
+  parseMutationPostback,
   parseSearchPromptPostback,
   sha256Hex,
   truncateReply,
@@ -122,6 +125,15 @@ async function handleTextEvent(
   }
 
   const language = commandLanguage(text);
+  const mutation = parseMutationCommand(text);
+  if (mutation) {
+    const { data: draft, error: mutationError } = await supabase
+      .from("mtp_line_mutations").insert({ owner_id: account.owner_id, operation: mutation })
+      .select("id").single();
+    if (mutationError || !draft?.id) throw new Error("Could not create LINE mutation draft");
+    await replyLine(replyToken, [buildMutationConfirmation(mutation, draft.id, language)], accessToken);
+    return;
+  }
   const intent = parseIntent(text);
   if (intent.kind === "menu" || intent.kind === "search_prompt") {
     await supabase
@@ -172,9 +184,28 @@ async function handleTextEvent(
 
 async function handlePostbackEvent(
   event: Record<string, any>,
+  supabase: ReturnType<typeof createClient>,
   accessToken: string,
 ) {
   const replyToken = String(event?.replyToken || "");
+  const lineUserId = String(event?.source?.userId || "");
+  const mutation = parseMutationPostback(event?.postback?.data);
+  if (replyToken && lineUserId && mutation) {
+    const { data: account } = await supabase.from("mtp_line_accounts")
+      .select("owner_id").eq("line_user_id",lineUserId).maybeSingle();
+    if(!account?.owner_id)return;
+    const status=mutation.decision==="confirm"?"confirmed":"cancelled";
+    const now=new Date().toISOString();
+    const {data,error}=await supabase.from("mtp_line_mutations")
+      .update({status,updated_at:now,...(status==="confirmed"?{confirmed_at:now}:{})})
+      .eq("id",mutation.id).eq("owner_id",account.owner_id).eq("status","draft")
+      .gt("expires_at",now).select("id").maybeSingle();
+    if(error)throw new Error("Could not confirm LINE mutation");
+    await replyText(replyToken,data?(status==="confirmed"
+      ?"Confirmed. Open Planner and Save to Cloud to apply this change.":"Cancelled.")
+      :"This confirmation expired or was already used.",accessToken);
+    return;
+  }
   const language = parseSearchPromptPostback(event?.postback?.data);
   if (!replyToken || !language) return;
   await replyLine(
@@ -236,7 +267,7 @@ Deno.serve(async (request) => {
         event?.type === "postback"
         && event?.source?.type === "user"
       ) {
-        await handlePostbackEvent(event, accessToken);
+        await handlePostbackEvent(event, supabase, accessToken);
       }
     }
     return jsonResponse({ ok: true });

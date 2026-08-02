@@ -6,6 +6,7 @@ import {
   addDaysISO,
   buildLinkReplyMessages,
   buildMenuMessage,
+  buildMutationConfirmation,
   buildQuickReply,
   buildReply,
   buildReplyMessages,
@@ -14,6 +15,8 @@ import {
   commandLanguage,
   extractLinkCode,
   parseIntent,
+  parseMutationCommand,
+  parseMutationPostback,
   parseSearchPromptPostback,
   parseTemporalSearch,
   sha256Hex,
@@ -78,11 +81,27 @@ assert.equal(parseSearchPromptPostback("action=search_prompt&lang=th"), "th");
 assert.equal(parseSearchPromptPostback("action=search_prompt&lang=de"), "");
 assert.equal(parseSearchPromptPostback("action=search_prompt&lang=en&extra=true"), "");
 assert.equal(parseSearchPromptPostback("action=delete&lang=en"), "");
+assert.deepEqual(parseMutationCommand("add Buy insurance, 01-12-2026"), {
+  action:"add",type:"personal",title:"Buy insurance",date:"2026-12-01",category:"General",priority:"Medium",
+});
+assert.deepEqual(parseMutationCommand("add work Prepare report, 05-12-2026"), {
+  action:"add",type:"work",title:"Prepare report",date:"2026-12-05",category:"General",priority:"Medium",
+});
+assert.deepEqual(parseMutationCommand("delete event Annual meeting"), {
+  action:"delete",type:"event",matchTitle:"Annual meeting",
+});
+assert.equal(parseMutationCommand("add Bad date, 31-02-2026"),null);
+const mutationId="123e4567-e89b-12d3-a456-426614174000";
+assert.deepEqual(parseMutationPostback(`mutation=confirm&id=${mutationId}`),{decision:"confirm",id:mutationId});
+assert.match(JSON.stringify(buildMutationConfirmation(parseMutationCommand("add Buy insurance, 01-12-2026"),mutationId,"en")),/Confirm/);
 assert.deepEqual(parseTemporalSearch("Buy December 2026"), {
   query: "buy", start: "2026-12-01", end: "2026-12-31", scope: "all",
 });
 assert.deepEqual(parseTemporalSearch("กิจกรรม สัปดาห์ 49 ปี 2026"), {
-  query: "", start: "2026-11-30", end: "2026-12-06", scope: "event",
+  query: "", start: "2026-11-30", end: "2027-02-07", scope: "event",
+});
+assert.deepEqual(parseTemporalSearch("week36 2026"), {
+  query: "", start: "2026-08-31", end: "2026-11-08", scope: "all",
 });
 assert.deepEqual(parseTemporalSearch("งาน เดือน 12 ปี 2026"), {
   query: "", start: "2026-12-01", end: "2026-12-31", scope: "task",

@@ -13,6 +13,7 @@ const webhook = read("supabase/functions/line-todo-webhook/index.ts");
 const migration = read("supabase/migrations/20260728155436_line_official_readonly_bot.sql");
 const snapshotV2Migration = read("supabase/migrations/20260730031026_line_task_details_snapshot_v2.sql");
 const snapshotV3Migration = read("supabase/migrations/20260801090000_line_snapshot_v3_events.sql");
+const mutationMigration = read("supabase/migrations/20260802090000_line_confirmed_mutations.sql");
 const config = read("supabase/config.toml");
 
 assert.match(packager, /<script defer src="line-sync\.js"><\/script>/);
@@ -50,6 +51,9 @@ assert.match(snapshotV3Migration, /check \(schema_version in \(1, 2, 3\)\)/);
 assert.match(snapshotV3Migration, /not valid/);
 assert.match(snapshotV3Migration, /validate constraint mtp_line_snapshots_schema_version_check/);
 assert.doesNotMatch(snapshotV3Migration, /\b(?:delete|truncate)\s+from\b/i);
+assert.match(mutationMigration,/enable row level security/);
+assert.match(mutationMigration,/status in \('draft','confirmed','cancelled','applied','rejected'\)/);
+assert.doesNotMatch(mutationMigration,/\b(?:delete|truncate)\s+from\b/i);
 assert.match(config, /\[functions\.line-todo-webhook\][\s\S]*verify_jwt = false/);
 
 const rawBodyAt = webhook.indexOf("const rawBody = await request.text()");

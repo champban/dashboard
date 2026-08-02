@@ -152,54 +152,6 @@ function snapshotSelectionOrder(a,b){
   return bCreated.localeCompare(aCreated)||b.position-a.position;
 }
 
-function addSnapshotEvents(snapshot,payload,sharing){
-  const eventSource=Array.isArray(payload.events)?payload.events:[];
-  const candidates=[
-    ...payload.personal.map((task,position)=>({task,type:"personal",position})),
-    ...payload.work.map((task,position)=>({task,type:"work",position:payload.personal.length+position})),
-    ...eventSource.flatMap((event,eventPosition)=>eventWindows(event).map((window,windowPosition)=>({
-      task:event,
-      window,
-      type:"event",
-      position:payload.personal.length+payload.work.length+eventPosition+(windowPosition/10),
-    }))),
-  ].sort(snapshotSelectionOrder);
-  const snapshotBase={
-    ...snapshot,
-    taskCountTotal:payload.personal.length+payload.work.length,
-    eventCountTotal:eventSource.length,
-    truncated:false,
-    tasks:[],
-    events:[],
-  };
-  const tasks=[];
-  const events=[];
-  let bytes=new Blob([JSON.stringify(snapshotBase)]).size;
-  for(const candidate of candidates){
-    if(tasks.length+events.length>=MAX_TASKS)break;
-    const item=candidate.type==="event"
-      ?projectEvent(candidate.task,candidate.window)
-      :projectTask(candidate.task,candidate.type,sharing);
-    const itemBytes=new Blob([JSON.stringify(item)]).size+1;
-    if(bytes+itemBytes>MAX_SNAPSHOT_BYTES)break;
-    (candidate.type==="event"?events:tasks).push(item);
-    bytes+=itemBytes;
-  }
-  tasks.sort(taskOrder);
-  events.sort((a,b)=>(a.start||"9999-12-31").localeCompare(b.start||"9999-12-31")
-    ||a.title.localeCompare(b.title,"th"));
-  const result={
-    ...snapshotBase,
-    truncated:candidates.length>tasks.length+events.length,
-    tasks,
-    events,
-  };
-  if(new Blob([JSON.stringify(result)]).size>MAX_SNAPSHOT_BYTES){
-    throw new Error("LINE task snapshot exceeded its safe size limit.");
-  }
-  return result;
-}
-
 function buildSnapshot(payload,source){
   if (!payload || !Array.isArray(payload.personal) || !Array.isArray(payload.work)) {
     throw new Error("Planner data is not a valid profile payload.");
@@ -335,6 +287,52 @@ async function getStatus(){
   };
 }
 
+function applyMutation(profile,operation){
+  const next=JSON.parse(JSON.stringify(profile));
+  const key=operation.type==="work"?"work":operation.type==="event"?"events":"personal";
+  const list=Array.isArray(next[key])?next[key]:[];
+  const sameTitle=item=>String(item?.title||"").trim().toLocaleLowerCase("th-TH")
+    ===String(operation.matchTitle||"").trim().toLocaleLowerCase("th-TH");
+  if(operation.action==="add"){
+    const id=window.crypto.randomUUID();
+    list.push(operation.type==="event"
+      ?{id,title:operation.title,start:operation.date,end:operation.date,type:"General",createdAt:new Date().toISOString()}
+      :{id,title:operation.title,due:operation.date,status:operation.type==="work"?"todo":"pending",
+        cat:"General",...(operation.type==="work"?{project:"General"}:{}),priority:"Medium",createdAt:new Date().toISOString()});
+  }else{
+    const matches=list.map((item,index)=>sameTitle(item)?index:-1).filter(index=>index>=0);
+    if(matches.length!==1)return {error:matches.length?"duplicate_title":"not_found"};
+    const index=matches[0];
+    if(operation.action==="delete")list.splice(index,1);
+    else list[index]={...list[index],title:operation.title,
+      ...(operation.type==="event"?{start:operation.date,end:operation.date}:{due:operation.date})};
+  }
+  next[key]=list;
+  return {payload:next};
+}
+
+async function prepareMutations(payload){
+  const client=apiClient();const id=await ownerId();const now=new Date().toISOString();
+  const {data,error}=await client.from("mtp_line_mutations").select("id,operation")
+    .eq("owner_id",id).eq("status","confirmed").gt("expires_at",now).order("created_at");
+  if(error)throw new Error(error.message||"Could not read confirmed LINE changes.");
+  let next=payload;const mutationIds=[];
+  for(const row of data||[]){
+    const result=applyMutation(next,row.operation);
+    if(result.error){await client.from("mtp_line_mutations").update({status:"rejected",error_code:result.error,updated_at:now}).eq("id",row.id);continue;}
+    next=result.payload;mutationIds.push(row.id);
+  }
+  return {payload:next,mutationIds};
+}
+
+async function completeMutations(ids){
+  if(!Array.isArray(ids)||!ids.length)return;
+  const client=apiClient();const owner=await ownerId();const now=new Date().toISOString();
+  const {error}=await client.from("mtp_line_mutations").update({status:"applied",applied_at:now,updated_at:now})
+    .eq("owner_id",owner).eq("status","confirmed").in("id",ids);
+  if(error)throw new Error(error.message||"Could not finish LINE changes.");
+}
+
 function addSnapshotEvents(snapshot,payload,sharing){
   const eventSource=Array.isArray(payload.events)?payload.events:[];
   const candidates=[
@@ -385,9 +383,12 @@ function addSnapshotEvents(snapshot,payload,sharing){
 
 window.__MTP_LINE__=Object.freeze({
   buildSnapshot,
+  applyMutation,
   createLinkCode,
   getStatus,
   publish,
+  prepareMutations,
+  completeMutations,
   sha256Hex,
 });
 })();

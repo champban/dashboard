@@ -226,4 +226,19 @@ assert.ok(budgeted.tasks.length > 0 && budgeted.tasks.length < 500);
 assert.throws(() => bridge.buildSnapshot({}, "full"), /valid profile payload/);
 assert.equal((await bridge.sha256Hex("MTP-ABCD-2345")).length, 64);
 
+const added = bridge.applyMutation(payload, {
+  action:"add",type:"personal",title:"Buy insurance",date:"2026-12-01",
+});
+assert.equal(added.payload.personal.at(-1).title,"Buy insurance");
+assert.equal(added.payload.personal.at(-1).cat,"General");
+assert.equal(added.payload.personal.at(-1).priority,"Medium");
+const edited = bridge.applyMutation(added.payload, {
+  action:"edit",type:"personal",matchTitle:"Buy insurance",title:"Buy life insurance",date:"2026-12-05",
+});
+assert.equal(edited.payload.personal.at(-1).due,"2026-12-05");
+const removed = bridge.applyMutation(edited.payload, {
+  action:"delete",type:"personal",matchTitle:"Buy life insurance",
+});
+assert.equal(removed.payload.personal.some(task=>task.title==="Buy life insurance"),false);
+
 console.log("LINE browser snapshot: PASS");

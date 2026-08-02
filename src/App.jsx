@@ -12691,6 +12691,10 @@ export default function App() {
       return false;
     }
   };
+  const prepareLineMutations = async payload => {
+    const bridge=window.__MTP_LINE__;
+    return bridge?.prepareMutations?bridge.prepareMutations(payload):{payload,mutationIds:[]};
+  };
 
   const refreshLineStatus = async () => {
     const bridge=window.__MTP_LINE__;
@@ -12730,7 +12734,9 @@ export default function App() {
     try {
       // Keep the payload object: its dataLastUpdated is exactly what went into the
       // file, and that is what lastPushedStamp has to record.
-      const { stamp, payload } = pushPayload();
+      const { stamp, payload:screenPayload } = pushPayload();
+      const prepared = await prepareLineMutations(screenPayload);
+      const payload = { ...prepared.payload, dataLastUpdated: stamp };
       const pushedFp = dataFingerprint(payload);
       const content = JSON.stringify(payload, null, 2);
       let meta;
@@ -12745,6 +12751,8 @@ export default function App() {
         lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
       void publishLineSnapshot(payload);
+      await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
+      if(prepared.mutationIds.length)await applyPayloadLive(payload);
       setGsyncStatus("synced"); setGsyncError("");
       if(!silent) note("saved","Saved to cloud");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
@@ -12980,7 +12988,9 @@ export default function App() {
       }
       // Upload regardless of whether anything changed locally. Pressing save and
       // getting a fresh upload is the whole contract of the button.
-      const { stamp, payload } = pushPayload();
+      const { stamp, payload:screenPayload } = pushPayload();
+      const prepared = await prepareLineMutations(screenPayload);
+      const payload = { ...prepared.payload, dataLastUpdated: stamp };
       const pushedFp = dataFingerprint(payload);
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
       setDataLastUpdated(stamp);
@@ -12988,6 +12998,8 @@ export default function App() {
         lastCloudModified: updated.modifiedTime || "",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
       void publishLineSnapshot(payload);
+      await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
+      if(prepared.mutationIds.length)await applyPayloadLive(payload);
       setGsyncStatus("synced"); note("saved","Saved to cloud");
     } catch (e) {
       setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed");

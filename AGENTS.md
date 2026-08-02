@@ -22,6 +22,9 @@ policy, also read `champban/Engineering1` → branch `Doc` →
 - Google Drive reconciliation succeeds before a LINE snapshot is published.
 - A LINE snapshot is secondary and read-only. Its failure must not fail or roll
   back a successful Drive save.
+- Confirmed LINE mutations use a separate, single-use queue. Full/Mobile apply
+  them only as part of a successful Google Drive save; never mutate snapshots
+  directly or mark a queued change applied before Drive succeeds.
 - Snapshot v2/v3 always limits core task fields to task type, title, status,
   due date, category, and priority. It may additionally include sanitised Subtask
   text/done state and HTTPS attachment-link metadata only when the owner enables

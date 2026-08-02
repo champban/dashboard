@@ -15,6 +15,7 @@ export const HELP_TEXT_TH = [
   "• ค้นหา <คำ>",
   "• ค้นหา ธันวาคม 2026 / สัปดาห์ 49 ปี 2026",
   "• ค้นหา กิจกรรม 2026",
+  "• add <ชื่อ>, DD-MM-YYYY",
   "• สถานะ",
   "• เมนู",
   "• ช่วยเหลือ",
@@ -31,6 +32,7 @@ export const HELP_TEXT_EN = [
   "• search <text>",
   "• search December 2026 / week 49 2026",
   "• search events 2026",
+  "• add <title>, DD-MM-YYYY",
   "• status",
   "• menu",
   "• help",
@@ -119,6 +121,56 @@ export function parseIntent(value) {
   const search = text.match(/^(?:ค้นหา|หา|search)\s+(.+)$/iu);
   if (search) return { kind: "search", query: cleanText(search[1], 120) };
   return { kind: "unknown" };
+}
+
+const mutationType = (value) => {
+  const type=String(value||"").toLocaleLowerCase("en-US");
+  return type==="work"||type==="business"?"work":type==="event"?"event":"personal";
+};
+
+const mutationDate = (value) => {
+  const match=String(value||"").match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if(!match)return "";
+  const iso=`${match[3]}-${match[2]}-${match[1]}`;
+  const date=new Date(`${iso}T00:00:00Z`);
+  return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===iso?iso:"";
+};
+
+export function parseMutationCommand(value){
+  const text=normalizeCommand(value);
+  const add=text.match(/^add(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  if(add){
+    const date=mutationDate(add[3]);
+    if(!date)return null;
+    return {action:"add",type:mutationType(add[1]),title:cleanText(add[2],240),date,
+      category:"General",priority:"Medium"};
+  }
+  const edit=text.match(/^edit(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  if(edit){
+    const date=mutationDate(edit[4]);
+    if(!date)return null;
+    return {action:"edit",type:mutationType(edit[1]),matchTitle:cleanText(edit[2],240),
+      title:cleanText(edit[3],240),date};
+  }
+  const remove=text.match(/^delete(?:\s+(personal|work|business|event))?\s+(.+)$/iu);
+  return remove?{action:"delete",type:mutationType(remove[1]),matchTitle:cleanText(remove[2],240)}:null;
+}
+
+export function parseMutationPostback(value){
+  const match=String(value||"").match(/^mutation=(confirm|cancel)&id=([0-9a-f-]{36})$/);
+  return match?{decision:match[1],id:match[2]}:null;
+}
+
+export function buildMutationConfirmation(operation,id,language="en"){
+  const lang=normalizeLanguage(language);
+  const label=operation.action==="add"?"Add":operation.action==="edit"?"Edit":"Delete";
+  const summary=[`${label} ${operation.type}`,operation.matchTitle?`Match: ${operation.matchTitle}`:"",
+    operation.title?`Title: ${operation.title}`:"",operation.date?`Date: ${operation.date}`:"",
+    operation.category?`Category: ${operation.category}`:"",operation.priority?`Priority: ${operation.priority}`:""].filter(Boolean).join("\n");
+  return {type:"text",text:`${summary}\n\n${lang==="th"?"ยืนยันคำสั่งนี้หรือไม่?":"Confirm this change?"}`,
+    quickReply:{items:["confirm","cancel"].map(decision=>({type:"action",action:{type:"postback",
+      label:decision==="confirm"?(lang==="th"?"ยืนยัน":"Confirm"):(lang==="th"?"ยกเลิก":"Cancel"),
+      data:`mutation=${decision}&id=${id}`}}))}};
 }
 
 export function bangkokToday(now = new Date()) {
@@ -235,7 +287,8 @@ function isoWeekRange(year,week){
   const jan4=new Date(Date.UTC(year,0,4));
   const monday=new Date(jan4);
   monday.setUTCDate(jan4.getUTCDate()-((jan4.getUTCDay()+6)%7)+(week-1)*7);
-  const end=new Date(monday);end.setUTCDate(end.getUTCDate()+6);
+  // A week search is the requested ISO week plus the following nine weeks.
+  const end=new Date(monday);end.setUTCDate(end.getUTCDate()+69);
   return {start:monday.toISOString().slice(0,10),end:end.toISOString().slice(0,10)};
 }
 

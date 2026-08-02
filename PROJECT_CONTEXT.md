@@ -828,7 +828,13 @@ search highlighting.
   restore); if this becomes a problem, add a GitHub Actions cron keepalive
   (`.github/workflows/keepalive.yml`, every ~3 days).
 
-## Pending LINE temporal search release
+## LINE temporal search release (production)
+
+- Released and owner-verified on 2026-08-02: the Edge Function deployment and
+  health check passed, the live browser publishes `SNAPSHOT_SCHEMA = 3`, and a
+  Drive save successfully published the v3 snapshot. The owner also confirmed
+  that the December 2026 task and event records are present in the live
+  snapshot after republishing it.
 
 - Snapshot schema v3 adds privacy-minimised calendar events: type, sanitised
   title, start date, end date, and category only. Event IDs, descriptions,
@@ -843,3 +849,14 @@ search highlighting.
 - Events with multiple date windows publish one privacy-minimised occurrence per
   window so searches do not miss later windows or falsely match gaps between
   them; window descriptions remain excluded.
+
+## Pending confirmed LINE mutations
+
+- `add <title>, DD-MM-YYYY` defaults to Personal / General / Medium; `add work`
+  and `add event` select the other record types. Edit/Delete use exact titles and
+  reject missing or duplicate matches.
+- Every mutation requires a Confirm/Cancel postback. Confirmed operations remain
+  separate from the read-only snapshot and are applied by Full/Mobile only when
+  the next Google Drive save succeeds.
+- `search week36 2026` includes Tasks and Events from ISO week 36 through week
+  45 inclusive (the requested week plus nine following weeks).
