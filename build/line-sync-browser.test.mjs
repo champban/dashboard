@@ -48,7 +48,7 @@ const payload = {
 };
 
 const snapshot = bridge.buildSnapshot(payload, "full");
-assert.equal(snapshot.schemaVersion, 2);
+assert.equal(snapshot.schemaVersion, 3);
 assert.equal(snapshot.source, "full");
 assert.equal(snapshot.tasks.length, 2);
 assert.equal(snapshot.tasks[0].title, "จ่ายบิล");
@@ -57,6 +57,39 @@ assert.deepEqual(JSON.parse(JSON.stringify(snapshot.sharing)), {
   subtasks: false,
   attachmentLinks: false,
 });
+
+const withEvents = bridge.buildSnapshot({
+  ...payload,
+  events: [{
+    id: "private-event-id",
+    title: "Annual planning",
+    windows: [
+      { start: "2026-12-01", end: "2026-12-03", desc: "private window note" },
+      { start: "2027-02-10", end: "2027-02-10", desc: "another private note" },
+    ],
+    type: "Planning",
+    description: "must not leave browser",
+    createdAt: "2026-08-01",
+  }],
+}, "full");
+assert.deepEqual(JSON.parse(JSON.stringify(withEvents.events)), [
+  {
+    type: "event",
+    title: "Annual planning",
+    start: "2026-12-01",
+    end: "2026-12-03",
+    category: "Planning",
+  },
+  {
+    type: "event",
+    title: "Annual planning",
+    start: "2027-02-10",
+    end: "2027-02-10",
+    category: "Planning",
+  },
+]);
+assert.equal(withEvents.eventCountTotal, 1);
+assert.doesNotMatch(JSON.stringify(withEvents), /private-event-id|description|createdAt|private window note/);
 
 const serialized = JSON.stringify(snapshot);
 for (const forbidden of [
@@ -140,6 +173,32 @@ assert.equal(capped.tasks.length, 500);
 assert.equal(capped.taskCountTotal, 510);
 assert.equal(capped.truncated, true);
 
+const newestFarFuture = bridge.buildSnapshot({
+  ...payload,
+  dataLastUpdated: "2026-08-01T08:37:00.000Z",
+  personal: [
+    ...Array.from({ length: 500 }, (_, index) => ({
+      title: `Older task ${index}`,
+      status: "pending",
+      due: "2026-08-01",
+      createdAt: "2026-07-01",
+    })),
+    {
+      title: "Buy AIA",
+      status: "pending",
+      due: "2026-12-01",
+      createdAt: "2026-08-01",
+    },
+  ],
+  work: [],
+}, "full");
+assert.equal(newestFarFuture.tasks.length, 500);
+assert.ok(
+  newestFarFuture.tasks.some((task) => task.title === "Buy AIA" && task.due === "2026-12-01"),
+  "a newly-added far-future task must survive snapshot truncation so LINE search can find it",
+);
+assert.doesNotMatch(JSON.stringify(newestFarFuture), /createdAt/);
+
 const largeShared = {
   ...payload,
   config: { lineShareSubtasks: true, lineShareAttachmentLinks: true },
@@ -166,5 +225,20 @@ assert.ok(budgeted.tasks.length > 0 && budgeted.tasks.length < 500);
 
 assert.throws(() => bridge.buildSnapshot({}, "full"), /valid profile payload/);
 assert.equal((await bridge.sha256Hex("MTP-ABCD-2345")).length, 64);
+
+const added = bridge.applyMutation(payload, {
+  action:"add",type:"personal",title:"Buy insurance",date:"2026-12-01",
+});
+assert.equal(added.payload.personal.at(-1).title,"Buy insurance");
+assert.equal(added.payload.personal.at(-1).cat,"General");
+assert.equal(added.payload.personal.at(-1).priority,"Medium");
+const edited = bridge.applyMutation(added.payload, {
+  action:"edit",type:"personal",matchTitle:"Buy insurance",title:"Buy life insurance",date:"2026-12-05",
+});
+assert.equal(edited.payload.personal.at(-1).due,"2026-12-05");
+const removed = bridge.applyMutation(edited.payload, {
+  action:"delete",type:"personal",matchTitle:"Buy life insurance",
+});
+assert.equal(removed.payload.personal.some(task=>task.title==="Buy life insurance"),false);
 
 console.log("LINE browser snapshot: PASS");

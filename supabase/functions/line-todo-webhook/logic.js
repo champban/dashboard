@@ -13,6 +13,9 @@ export const HELP_TEXT_TH = [
   "• งานสำคัญ",
   "• งานไม่มีวันกำหนด",
   "• ค้นหา <คำ>",
+  "• ค้นหา ธันวาคม 2026 / สัปดาห์ 49 ปี 2026",
+  "• ค้นหา กิจกรรม 2026",
+  "• add <ชื่อ>, DD-MM-YYYY",
   "• สถานะ",
   "• เมนู",
   "• ช่วยเหลือ",
@@ -27,6 +30,9 @@ export const HELP_TEXT_EN = [
   "• high priority",
   "• no due date",
   "• search <text>",
+  "• search December 2026 / week 49 2026",
+  "• search events 2026",
+  "• add <title>, DD-MM-YYYY",
   "• status",
   "• menu",
   "• help",
@@ -117,6 +123,56 @@ export function parseIntent(value) {
   return { kind: "unknown" };
 }
 
+const mutationType = (value) => {
+  const type=String(value||"").toLocaleLowerCase("en-US");
+  return type==="work"||type==="business"?"work":type==="event"?"event":"personal";
+};
+
+const mutationDate = (value) => {
+  const match=String(value||"").match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if(!match)return "";
+  const iso=`${match[3]}-${match[2]}-${match[1]}`;
+  const date=new Date(`${iso}T00:00:00Z`);
+  return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===iso?iso:"";
+};
+
+export function parseMutationCommand(value){
+  const text=normalizeCommand(value);
+  const add=text.match(/^add(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  if(add){
+    const date=mutationDate(add[3]);
+    if(!date)return null;
+    return {action:"add",type:mutationType(add[1]),title:cleanText(add[2],240),date,
+      category:"General",priority:"Medium"};
+  }
+  const edit=text.match(/^edit(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  if(edit){
+    const date=mutationDate(edit[4]);
+    if(!date)return null;
+    return {action:"edit",type:mutationType(edit[1]),matchTitle:cleanText(edit[2],240),
+      title:cleanText(edit[3],240),date};
+  }
+  const remove=text.match(/^delete(?:\s+(personal|work|business|event))?\s+(.+)$/iu);
+  return remove?{action:"delete",type:mutationType(remove[1]),matchTitle:cleanText(remove[2],240)}:null;
+}
+
+export function parseMutationPostback(value){
+  const match=String(value||"").match(/^mutation=(confirm|cancel)&id=([0-9a-f-]{36})$/);
+  return match?{decision:match[1],id:match[2]}:null;
+}
+
+export function buildMutationConfirmation(operation,id,language="en"){
+  const lang=normalizeLanguage(language);
+  const label=operation.action==="add"?"Add":operation.action==="edit"?"Edit":"Delete";
+  const summary=[`${label} ${operation.type}`,operation.matchTitle?`Match: ${operation.matchTitle}`:"",
+    operation.title?`Title: ${operation.title}`:"",operation.date?`Date: ${operation.date}`:"",
+    operation.category?`Category: ${operation.category}`:"",operation.priority?`Priority: ${operation.priority}`:""].filter(Boolean).join("\n");
+  return {type:"text",text:`${summary}\n\n${lang==="th"?"ยืนยันคำสั่งนี้หรือไม่?":"Confirm this change?"}`,
+    quickReply:{items:["confirm","cancel"].map(decision=>({type:"action",action:{type:"postback",
+      label:decision==="confirm"?(lang==="th"?"ยืนยัน":"Confirm"):(lang==="th"?"ยกเลิก":"Cancel"),
+      data:`mutation=${decision}&id=${id}`}}))}};
+}
+
 export function bangkokToday(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: BANGKOK_TIME_ZONE,
@@ -165,8 +221,8 @@ const priorityRank = (value) => {
 
 export function sortTasks(tasks) {
   return [...tasks].sort((a, b) => {
-    const aDue = isoDate(a?.due) || "9999-12-31";
-    const bDue = isoDate(b?.due) || "9999-12-31";
+    const aDue = isoDate(a?.type === "event" ? a?.start : a?.due) || "9999-12-31";
+    const bDue = isoDate(b?.type === "event" ? b?.start : b?.due) || "9999-12-31";
     return aDue.localeCompare(bDue)
       || priorityRank(a?.priority) - priorityRank(b?.priority)
       || cleanText(a?.title).localeCompare(cleanText(b?.title), "th");
@@ -202,16 +258,76 @@ function formatDate(value, language) {
 function formatTask(task, index, language) {
   const lang = normalizeLanguage(language);
   const title = cleanText(task?.title) || (lang === "th" ? "(ไม่มีชื่อ)" : "(Untitled)");
-  const type = task?.type === "work"
-    ? (lang === "th" ? "งาน" : "Work")
-    : (lang === "th" ? "ส่วนตัว" : "Personal");
+  const type = task?.type === "event"
+    ? (lang === "th" ? "กิจกรรม" : "Event")
+    : task?.type === "work"
+      ? (lang === "th" ? "งาน" : "Work")
+      : (lang === "th" ? "ส่วนตัว" : "Personal");
   const group = cleanText(task?.project || task?.category, 80);
-  const due = formatDate(task?.due, lang);
-  const status = isDone(task)
+  const due = task?.type === "event"
+    ? `${formatDate(task?.start, lang)}${task?.end && task.end !== task.start ? `–${formatDate(task.end, lang)}` : ""}`
+    : formatDate(task?.due, lang);
+  const status = task?.type === "event" ? "" : isDone(task)
     ? (lang === "th" ? "เสร็จแล้ว" : "Done")
     : (lang === "th" ? "ค้าง" : "Pending");
   const meta = [type, group, due, status].filter(Boolean).join(" · ");
   return `${index + 1}. ${title}\n   ${meta}`;
+}
+
+const MONTHS = {
+  january:1,jan:1,มกราคม:1,มค:1, february:2,feb:2,กุมภาพันธ์:2,กพ:2,
+  march:3,mar:3,มีนาคม:3,มีค:3, april:4,apr:4,เมษายน:4,เมย:4,
+  may:5,พฤษภาคม:5,พค:5, june:6,jun:6,มิถุนายน:6,มิย:6,
+  july:7,jul:7,กรกฎาคม:7,กค:7, august:8,aug:8,สิงหาคม:8,สค:8,
+  september:9,sep:9,sept:9,กันยายน:9,กย:9, october:10,oct:10,ตุลาคม:10,ตค:10,
+  november:11,nov:11,พฤศจิกายน:11,พย:11, december:12,dec:12,ธันวาคม:12,ธค:12,
+};
+
+function isoWeekRange(year,week){
+  const jan4=new Date(Date.UTC(year,0,4));
+  const monday=new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate()-((jan4.getUTCDay()+6)%7)+(week-1)*7);
+  // A week search is the requested ISO week plus the following nine weeks.
+  const end=new Date(monday);end.setUTCDate(end.getUTCDate()+69);
+  return {start:monday.toISOString().slice(0,10),end:end.toISOString().slice(0,10)};
+}
+
+export function parseTemporalSearch(value){
+  let text=cleanText(value,120).toLocaleLowerCase("th-TH");
+  let start="",end="";
+  const week=text.match(/(?:week|wk|สัปดาห์|อาทิตย์)\s*(\d{1,2})(?:\s*(?:of|ปี)?\s*(\d{4}))?/iu);
+  if(week){
+    const number=Number(week[1]),year=Number(week[2]);
+    if(number>=1&&number<=53&&year>=2000&&year<=2100)({start,end}=isoWeekRange(year,number));
+    text=text.replace(week[0]," ");
+  }else{
+    const yearMatch=text.match(/\b(20\d{2}|2100)\b/u);
+    const year=Number(yearMatch?.[1]);
+    const monthEntry=Object.entries(MONTHS).find(([name])=>new RegExp(`(?:^|\\s)${name}(?:\\s|$)`,`u`).test(text));
+    const numericMonth=text.match(/(?:month|เดือน)\s*(1[0-2]|0?[1-9])(?:\s*(?:of|ปี)?\s*20\d{2})?/u);
+    if(year>=2000&&year<=2100){
+      if(monthEntry||numericMonth){
+        const month=monthEntry?monthEntry[1]:Number(numericMonth[1]);
+        start=`${year}-${String(month).padStart(2,"0")}-01`;
+        end=new Date(Date.UTC(year,month,0)).toISOString().slice(0,10);
+        text=monthEntry
+          ?text.replace(new RegExp(monthEntry[0],"u")," ")
+          :text.replace(numericMonth[0]," ");
+      }else{start=`${year}-01-01`;end=`${year}-12-31`;}
+      text=text.replace(yearMatch[0]," ");
+    }
+  }
+  let scope="all";
+  if(/(?:^|\s)(?:events?|กิจกรรม)(?:\s|$)/u.test(text)){scope="event";text=text.replace(/(?:^|\s)(?:events?|กิจกรรม)(?:\s|$)/gu," ");}
+  else if(/(?:^|\s)(?:tasks?|งาน)(?:\s|$)/u.test(text)){scope="task";text=text.replace(/(?:^|\s)(?:tasks?|งาน)(?:\s|$)/gu," ");}
+  return {query:cleanText(text,120).toLocaleLowerCase("th-TH"),start,end,scope};
+}
+
+function overlapsRange(item,start,end){
+  if(!start||!end)return true;
+  const itemStart=isoDate(item?.type==="event"?item?.start:item?.due);
+  const itemEnd=isoDate(item?.type==="event"?(item?.end||item?.start):item?.due);
+  return !!itemStart&&itemStart<=end&&itemEnd>=start;
 }
 
 function dataTime(snapshot, language) {
@@ -307,17 +423,22 @@ function selectTaskList(intent, tasks, active, today, language) {
     };
   }
   if (intent.kind === "search") {
-    const query = String(intent.query || "").toLocaleLowerCase("th-TH");
+    const temporal=parseTemporalSearch(intent.query);
+    const query=temporal.query;
     return {
       title: lang === "th"
         ? `🔎 ผลค้นหา “${cleanText(intent.query, 80)}”`
         : `🔎 Search results for “${cleanText(intent.query, 80)}”`,
-      tasks: tasks.filter((task) => [
+      tasks: tasks.filter((task) => (temporal.scope==="all"
+        ||(temporal.scope==="event"&&task.type==="event")
+        ||(temporal.scope==="task"&&task.type!=="event"))
+        &&overlapsRange(task,temporal.start,temporal.end)
+        &&(!query||[
         task?.title,
         task?.project,
         task?.category,
         task?.type,
-      ].some((value) => String(value ?? "").toLocaleLowerCase("th-TH").includes(query))),
+      ].some((value) => String(value ?? "").toLocaleLowerCase("th-TH").includes(query)))),
     };
   }
   return null;
@@ -366,12 +487,14 @@ function attachmentButton(item, language) {
 function taskBubble(task, index, shownCount, totalCount, language, extraTaskCount = 0) {
   const lang = normalizeLanguage(language);
   const title = cleanText(task?.title) || (lang === "th" ? "(ไม่มีชื่อ)" : "(Untitled)");
-  const type = task?.type === "work"
-    ? (lang === "th" ? "งาน" : "Work")
-    : (lang === "th" ? "ส่วนตัว" : "Personal");
+  const type = task?.type === "event"
+    ? (lang === "th" ? "กิจกรรม" : "Event")
+    : task?.type === "work"
+      ? (lang === "th" ? "งาน" : "Work")
+      : (lang === "th" ? "ส่วนตัว" : "Personal");
   const group = cleanText(task?.project || task?.category, 80);
   const priority = cleanText(task?.priority, 24);
-  const status = isDone(task)
+  const status = task?.type === "event" ? "" : isDone(task)
     ? (lang === "th" ? "เสร็จแล้ว" : "Done")
     : (lang === "th" ? "ค้าง" : "Pending");
   const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : [];
@@ -405,7 +528,9 @@ function taskBubble(task, index, shownCount, totalCount, language, extraTaskCoun
     },
     {
       type: "text",
-      text: [formatDate(task?.due, lang), priority, status].filter(Boolean).join(" · "),
+      text: [task?.type === "event"
+        ? `${formatDate(task?.start, lang)}${task?.end && task.end !== task.start ? `–${formatDate(task.end, lang)}` : ""}`
+        : formatDate(task?.due, lang), priority, status].filter(Boolean).join(" · "),
       size: "sm",
       color: isHighPriority(task) ? "#DC2626" : "#334155",
       margin: "sm",
@@ -518,7 +643,10 @@ export function buildReplyMessages(
   { now = new Date(), language = "th" } = {},
 ) {
   const lang = normalizeLanguage(language);
-  const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+  const plannerTasks=Array.isArray(snapshot?.tasks)?snapshot.tasks:[];
+  const tasks=intent?.kind==="search"
+    ?[...plannerTasks,...(Array.isArray(snapshot?.events)?snapshot.events:[])]
+    :plannerTasks;
   const today = bangkokToday(now);
   const active = tasks.filter((task) => !isDone(task));
   const result = selectTaskList(intent, tasks, active, today, lang);
@@ -689,7 +817,10 @@ export function buildReply(
   { now = new Date(), language = "th" } = {},
 ) {
   const lang = normalizeLanguage(language);
-  const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+  const plannerTasks=Array.isArray(snapshot?.tasks)?snapshot.tasks:[];
+  const tasks=intent?.kind==="search"
+    ?[...plannerTasks,...(Array.isArray(snapshot?.events)?snapshot.events:[])]
+    :plannerTasks;
   const today = bangkokToday(now);
   const active = tasks.filter((task) => !isDone(task));
   const helpText = lang === "th" ? HELP_TEXT_TH : HELP_TEXT_EN;

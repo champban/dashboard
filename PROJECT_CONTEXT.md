@@ -152,6 +152,17 @@ Branch: `feature/line-task-details` (merged)
   Keep the additive v1/v2 database constraint because it remains compatible
   with both old and new clients.
 
+### LINE search snapshot truncation fix (pending release)
+
+- Large snapshots previously sorted every task by due date before enforcing the
+  500-task/240 KiB cap. A newly-added task with a later due date (reported with
+  `Buy AIA`, due 1 Dec 2026) could therefore be absent from the snapshot and
+  impossible for `search buy` to find even after a successful cloud save.
+- Snapshot selection now prioritises source `createdAt` (with source position as
+  a deterministic fallback), then restores the established due-date ordering
+  for the selected tasks. `createdAt` is selection-only and is not published to
+  LINE or Supabase.
+
 ### LINE Search-button production release
 
 Branch: `feature/line-search-button` (merged in PR #43)
@@ -816,3 +827,30 @@ search highlighting.
 - Supabase free tier pauses after 7 days inactivity (data retained, manual
   restore); if this becomes a problem, add a GitHub Actions cron keepalive
   (`.github/workflows/keepalive.yml`, every ~3 days).
+
+## Pending LINE temporal search release
+
+- Snapshot schema v3 adds privacy-minimised calendar events: type, sanitised
+  title, start date, end date, and category only. Event IDs, descriptions,
+  locations, notes, attachments, configuration, and credentials remain excluded.
+- Deterministic LINE search accepts a year, named or numbered month, or ISO week
+  with a year, optionally combined with a keyword and `task`/`งาน` or
+  `event`/`กิจกรรม`. Examples: `search buy December 2026`,
+  `ค้นหา งาน เดือน 12 ปี 2026`, and `search events week 49 2026`.
+- Multi-day events match every period they overlap. Existing today/week/status
+  commands remain task-only. Full and Mobile use the same `line-sync.js`
+  projection, and the snapshot is still published only after Drive succeeds.
+- Events with multiple date windows publish one privacy-minimised occurrence per
+  window so searches do not miss later windows or falsely match gaps between
+  them; window descriptions remain excluded.
+
+## Pending confirmed LINE mutations
+
+- `add <title>, DD-MM-YYYY` defaults to Personal / General / Medium; `add work`
+  and `add event` select the other record types. Edit/Delete use exact titles and
+  reject missing or duplicate matches.
+- Every mutation requires a Confirm/Cancel postback. Confirmed operations remain
+  separate from the read-only snapshot and are applied by Full/Mobile only when
+  the next Google Drive save succeeds.
+- `search week36 2026` includes Tasks and Events from ISO week 36 through week
+  45 inclusive (the requested week plus nine following weeks).
