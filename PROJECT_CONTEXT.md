@@ -828,7 +828,13 @@ search highlighting.
   restore); if this becomes a problem, add a GitHub Actions cron keepalive
   (`.github/workflows/keepalive.yml`, every ~3 days).
 
-## Pending LINE temporal search release
+## LINE temporal search release (production)
+
+- Released and owner-verified on 2026-08-02: the Edge Function deployment and
+  health check passed, the live browser publishes `SNAPSHOT_SCHEMA = 3`, and a
+  Drive save successfully published the v3 snapshot. The owner also confirmed
+  that the December 2026 task and event records are present in the live
+  snapshot after republishing it.
 
 - Snapshot schema v3 adds privacy-minimised calendar events: type, sanitised
   title, start date, end date, and category only. Event IDs, descriptions,
