@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — confirmed LINE changes and 10-week search — 2026-08-02
+
+- Added Confirm/Cancel guarded Add/Edit/Delete commands queued separately from
+  the read-only LINE snapshot. `add <title>, DD-MM-YYYY` defaults to Personal,
+  General, and Medium; Work and Event use explicit prefixes.
+- Full and Mobile apply confirmed commands only during a successful Google
+  Drive save, then mark each queued command applied.
+- Mobile keeps queued commands out of its live/local state until the Drive
+  upload succeeds; a conflict, pull, or failed upload leaves the queue pending.
+- Changed ISO week search to include the requested week plus nine following
+  weeks; results include both Tasks and Events unless explicitly scoped.
+
 ## Unreleased — 3.77.2 LINE task details — 2026-07-30
 
 ### Added
