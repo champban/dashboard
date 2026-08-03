@@ -858,5 +858,9 @@ search highlighting.
 - Every mutation requires a Confirm/Cancel postback. Confirmed operations remain
   separate from the read-only snapshot and are applied by Full/Mobile only when
   the next Google Drive save succeeds.
+- Mobile prepares queued operations only after resolving cloud-ahead state and
+  commits their payload to browser storage only after Drive accepts the upload.
+  This prevents an unuploaded LINE change from appearing locally or forcing a
+  false conflict dialog.
 - `search week36 2026` includes Tasks and Events from ISO week 36 through week
   45 inclusive (the requested week plus nine following weeks).

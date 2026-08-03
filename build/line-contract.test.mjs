@@ -29,6 +29,12 @@ assert.match(full, /await GDrive\.updateFile[\s\S]{0,900}void publishLineSnapsho
 assert.match(full, /await applyPayloadLive\(adopted\)[\s\S]{0,500}void publishLineSnapshot\(adopted\)/);
 assert.match(mobile, /await driveUpdate[\s\S]{0,500}void publishLineSnapshot\(payload\)/);
 assert.match(mobile, /await driveDownload[\s\S]{0,700}void publishLineSnapshot\(data\)/);
+const mobilePrepareAt = mobile.indexOf("prepareMutations(state.data)");
+const mobileMutationUploadAt = mobile.indexOf("const r=await driveUpdate", mobilePrepareAt);
+const mobileMutationCommitAt = mobile.indexOf("state.data=payload", mobilePrepareAt);
+assert.ok(mobilePrepareAt >= 0 && mobileMutationUploadAt > mobilePrepareAt
+  && mobileMutationCommitAt > mobileMutationUploadAt,
+"Mobile must not expose a queued LINE mutation in local state before Drive accepts it");
 
 assert.doesNotMatch(browserBridge, /LINE_CHANNEL_(?:SECRET|ACCESS_TOKEN)/);
 assert.doesNotMatch(browserBridge, /service_role|sb_secret_/);

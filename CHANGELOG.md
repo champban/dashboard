@@ -7,6 +7,10 @@
   General, and Medium; Work and Event use explicit prefixes.
 - Full and Mobile apply confirmed commands only during a successful Google
   Drive save, then mark each queued command applied.
+- Mobile keeps queued commands out of its live/local state until the Drive
+  upload succeeds; a conflict, pull, or failed upload leaves the queue pending.
+- Mobile resolves cloud-ahead state before preparing queued operations, so a
+  pending LINE change does not appear locally or trigger a false conflict dialog.
 - Changed ISO week search to include the requested week plus nine following
   weeks; results include both Tasks and Events unless explicitly scoped.
 
