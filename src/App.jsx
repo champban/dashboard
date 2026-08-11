@@ -11707,10 +11707,10 @@ function SyncPanel({
                 {gsyncNote && (
                   <div style={{marginTop:7,fontSize:11,fontWeight:700,lineHeight:1.45,
                     borderRadius:8,padding:"6px 9px",
-                    background: gsyncNote.kind==="error" ? "#7f1d1d22" : gsyncNote.kind==="later" ? "#78350f22" : "#14532d22",
-                    border: `1px solid ${gsyncNote.kind==="error" ? "#7f1d1d66" : gsyncNote.kind==="later" ? "#78350f66" : "#14532d66"}`,
-                    color: gsyncNote.kind==="error" ? "#fca5a5" : gsyncNote.kind==="later" ? "#fcd34d" : "#86efac"}}>
-                    {gsyncNote.kind==="error" ? "⚠️ " : gsyncNote.kind==="later" ? "⏸ " : gsyncNote.kind==="pulled" ? "⬇️ " : gsyncNote.kind==="nochange" ? "✓ " : "✅ "}
+                    background: gsyncNote.kind==="error" ? "#7f1d1d22" : (gsyncNote.kind==="later"||gsyncNote.kind==="partial") ? "#78350f22" : "#14532d22",
+                    border: `1px solid ${gsyncNote.kind==="error" ? "#7f1d1d66" : (gsyncNote.kind==="later"||gsyncNote.kind==="partial") ? "#78350f66" : "#14532d66"}`,
+                    color: gsyncNote.kind==="error" ? "#fca5a5" : (gsyncNote.kind==="later"||gsyncNote.kind==="partial") ? "#fcd34d" : "#86efac"}}>
+                    {gsyncNote.kind==="error" ? "⚠️ " : gsyncNote.kind==="partial" ? "⚠️ " : gsyncNote.kind==="later" ? "⏸ " : gsyncNote.kind==="pulled" ? "⬇️ " : gsyncNote.kind==="nochange" ? "✓ " : "✅ "}
                     {gsyncNote.text}
                     <span style={{opacity:0.75,fontWeight:600}}> · {relTime(gsyncNote.at)}</span>
                   </div>
@@ -12127,6 +12127,17 @@ export default function App() {
   // no prompt at all; the user now chooses. {cloudModified, cloudText}
   const [gsyncCloudAhead, setGsyncCloudAhead] = useState(null);
   const note = (kind, text) => setGsyncNote({ kind, text, at: Date.now() });
+  // A confirmed LINE mutation that expires (10 min) or no longer matches a task
+  // used to be dropped with nothing said anywhere — the owner saw "Confirmed" in
+  // LINE, then permanent silence. This is the one line both save paths share.
+  const noteLineSaveResult = rejected => {
+    if (!rejected?.length) { note("saved","Saved to cloud"); return; }
+    const reason = rejected.length===1 ? rejected[0].error : null;
+    const why = reason==="expired" ? " (expired before saving)"
+      : reason==="not_found" ? " (task not found)"
+      : reason==="duplicate_title" ? " (title matched more than one task)" : "";
+    note("partial", `Saved to cloud — ${rejected.length} LINE change${rejected.length===1?"":"s"} could not be applied${why}`);
+  };
   // The result of the last real content comparison — see dataFingerprint. Separate
   // from gsyncStatus, which reports what the last OPERATION did; this reports what the
   // two copies currently are. {state, at, msg} where state is one of
@@ -12754,7 +12765,10 @@ export default function App() {
       await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
       if(prepared.mutationIds.length)await applyPayloadLive(payload);
       setGsyncStatus("synced"); setGsyncError("");
-      if(!silent) note("saved","Saved to cloud");
+      // A rejected/expired LINE mutation is worth breaking silence for — it is
+      // the one thing in this path the owner cannot discover any other way.
+      if(prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
+      else if(!silent) note("saved","Saved to cloud");
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Sync failed"); note("error", e.message||"Save failed"); }
     finally { gsyncBusy.current = false; }
   };
@@ -13000,7 +13014,7 @@ export default function App() {
       void publishLineSnapshot(payload);
       await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
       if(prepared.mutationIds.length)await applyPayloadLive(payload);
-      setGsyncStatus("synced"); note("saved","Saved to cloud");
+      setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
     } catch (e) {
       setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed");
     } finally { gsyncBusy.current = false; }

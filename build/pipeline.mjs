@@ -22,11 +22,18 @@ execFileSync(process.execPath,
   ['build/package.mjs', path.join(ASSETS, bundle.f), 'index.html', version],
   { stdio: 'inherit' });
 
-// Keep the manifest honest about what was just written.
+// Keep the manifest honest about what was just written. mobile/index.html is a
+// separate hand-written app (not part of this build), but its manifest entry
+// is refreshed here too so the two can never drift apart the way full.* alone
+// used to let them.
 const bytes = fs.readFileSync('index.html');
 const manifestPath = 'BUILD-MANIFEST.json';
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 manifest.full.sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
 manifest.full.bytes = bytes.length;
+const mobileBytes = fs.readFileSync('mobile/index.html');
+manifest.mobile.sha256 = crypto.createHash('sha256').update(mobileBytes).digest('hex');
+manifest.mobile.bytes = mobileBytes.length;
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-console.log(`BUILD-MANIFEST.json  sha256 ${manifest.full.sha256}  ${manifest.full.bytes} B`);
+console.log(`BUILD-MANIFEST.json  full sha256 ${manifest.full.sha256}  ${manifest.full.bytes} B`);
+console.log(`BUILD-MANIFEST.json  mobile sha256 ${manifest.mobile.sha256}  ${manifest.mobile.bytes} B`);

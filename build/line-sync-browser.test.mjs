@@ -241,4 +241,54 @@ const removed = bridge.applyMutation(edited.payload, {
 });
 assert.equal(removed.payload.personal.some(task=>task.title==="Buy life insurance"),false);
 
+// applyMutation error paths: no match, and more than one match.
+assert.equal(bridge.applyMutation(payload,{action:"delete",type:"personal",matchTitle:"Nope"}).error,"not_found");
+const duplicateBase={...payload,personal:[...payload.personal,{...payload.personal[0]}]};
+assert.equal(bridge.applyMutation(duplicateBase,{action:"delete",type:"personal",matchTitle:payload.personal[0].title}).error,"duplicate_title");
+
+// prepareMutations: expired and not-found rows are rejected (never applied), and
+// reported back — this is the fix for LINE mutations failing silently.
+function mockMutationsClient(rows){
+  const updates=[];
+  return {
+    client:{
+      auth:{getClaims:async()=>({data:{claims:{sub:"owner-1"}},error:null})},
+      from(table){
+        assert.equal(table,"mtp_line_mutations");
+        return {
+          select(){return this},
+          eq(){return this},
+          order(){return Promise.resolve({data:rows,error:null})},
+          update(patch){return {eq:(col,val)=>{updates.push({id:val,...patch});return Promise.resolve({error:null})}}},
+        };
+      },
+    },
+    updates,
+  };
+}
+const nowIso="2026-07-28T02:00:00.000Z";
+const mutationRows=[
+  {id:"m-applied",operation:{action:"add",type:"personal",title:"New task",date:"2026-08-01"},expires_at:"2026-07-28T03:00:00.000Z"},
+  {id:"m-expired",operation:{action:"add",type:"personal",title:"Too late",date:"2026-08-01"},expires_at:"2026-07-28T01:00:00.000Z"},
+  {id:"m-not-found",operation:{action:"delete",type:"personal",matchTitle:"Does not exist"},expires_at:"2026-07-28T03:00:00.000Z"},
+];
+const mock=mockMutationsClient(mutationRows);
+context.window.__MTP_AUTH__={client:mock.client};
+// prepareMutations reads `new Date()` with no arguments for "now" — freeze exactly
+// that call while leaving new Date(arg) (used elsewhere in the file) untouched.
+const RealDate=Date;
+context.Date=class extends RealDate{
+  constructor(...args){super(...(args.length?args:[nowIso]))}
+};
+const prepared=await bridge.prepareMutations(payload);
+context.Date=RealDate;
+assert.deepEqual(JSON.parse(JSON.stringify(prepared.mutationIds)),["m-applied"]);
+assert.equal(prepared.payload.personal.some(t=>t.title==="New task"),true);
+assert.equal(prepared.payload.personal.some(t=>t.title==="Too late"),false);
+assert.deepEqual(JSON.parse(JSON.stringify(prepared.rejected.map(r=>r.id))).sort(),["m-expired","m-not-found"]);
+assert.equal(mock.updates.find(u=>u.id==="m-expired").error_code,"expired");
+assert.equal(mock.updates.find(u=>u.id==="m-expired").status,"rejected");
+assert.equal(mock.updates.find(u=>u.id==="m-not-found").error_code,"not_found");
+assert.equal(mock.updates.find(u=>u.id==="m-applied"),undefined,"an applied mutation must not be marked rejected");
+
 console.log("LINE browser snapshot: PASS");

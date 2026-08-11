@@ -3,10 +3,12 @@ import { createHmac, webcrypto } from "node:crypto";
 import {
   HELP_TEXT,
   HELP_TEXT_EN,
+  PLANNER_URL,
   addDaysISO,
   buildLinkReplyMessages,
   buildMenuMessage,
   buildMutationConfirmation,
+  buildMutationResultMessage,
   buildQuickReply,
   buildReply,
   buildReplyMessages,
@@ -91,6 +93,53 @@ assert.deepEqual(parseMutationCommand("delete event Annual meeting"), {
   action:"delete",type:"event",matchTitle:"Annual meeting",
 });
 assert.equal(parseMutationCommand("add Bad date, 31-02-2026"),null);
+
+// Relative date phrases, pinned against the fixed `now` above (2026-07-28 Bangkok).
+assert.deepEqual(parseMutationCommand("add Party, today",now), {
+  action:"add",type:"personal",title:"Party",date:"2026-07-28",category:"General",priority:"Medium",
+});
+assert.equal(parseMutationCommand("add Party, beginning of next month",now).date,"2026-08-01");
+assert.equal(parseMutationCommand("add Party, middle of next month",now).date,"2026-08-15");
+assert.equal(parseMutationCommand("add Party, end of next month",now).date,"2026-08-31");
+assert.equal(parseMutationCommand("add Party, beginning of this year",now).date,"2026-01-01");
+assert.equal(parseMutationCommand("add Party, middle of this year",now).date,"2026-07-01");
+assert.equal(parseMutationCommand("add Party, end of this year",now).date,"2026-12-31");
+assert.equal(parseMutationCommand("add Party, beginning of next year",now).date,"2027-01-01");
+assert.equal(parseMutationCommand("add Party, middle of next year",now).date,"2027-07-01");
+assert.equal(parseMutationCommand("add Party, end of next year",now).date,"2027-12-31");
+// Case-insensitive and whitespace-tolerant, same as the rest of the parser.
+assert.equal(parseMutationCommand("add Party, BEGINNING   OF   NEXT MONTH",now).date,"2026-08-01");
+// Month rollover into the next year.
+assert.equal(
+  parseMutationCommand("add Party, beginning of next month", new Date("2026-12-15T02:00:00.000Z")).date,
+  "2027-01-01",
+);
+// Leap-year month length ("end of next month" landing on February).
+assert.equal(
+  parseMutationCommand("add Party, end of next month", new Date("2028-01-15T02:00:00.000Z")).date,
+  "2028-02-29",
+);
+// "mid of next N months" is intentionally unsupported — no single agreed meaning yet.
+assert.equal(parseMutationCommand("add Party, mid of next 3 months",now),null);
+
+// Edit: full form (title change) and the shorter date-only form.
+assert.deepEqual(parseMutationCommand("edit Buy insurance, Buy insurance policy, 15-12-2026"), {
+  action:"edit",type:"personal",matchTitle:"Buy insurance",title:"Buy insurance policy",date:"2026-12-15",
+});
+assert.deepEqual(parseMutationCommand("edit work Buy insurance, 15-12-2026"), {
+  action:"edit",type:"work",matchTitle:"Buy insurance",title:"Buy insurance",date:"2026-12-15",
+});
+assert.equal(parseMutationCommand("edit Bad date, 31-02-2026"),null);
+
+// Confirmed-mutation reply: link only appears once matched and confirmed.
+assert.equal(PLANNER_URL,"https://champban.github.io/dashboard/");
+const confirmedReply=buildMutationResultMessage("confirmed",true);
+assert.match(confirmedReply.text,/Confirmed/);
+assert.equal(confirmedReply.quickReply.items[0].action.uri,PLANNER_URL);
+assert.equal(buildMutationResultMessage("cancelled",true).quickReply,undefined);
+assert.match(buildMutationResultMessage("cancelled",true).text,/Cancelled/);
+assert.match(buildMutationResultMessage("confirmed",false).text,/expired|already used/);
+
 const mutationId="123e4567-e89b-12d3-a456-426614174000";
 assert.deepEqual(parseMutationPostback(`mutation=confirm&id=${mutationId}`),{decision:"confirm",id:mutationId});
 assert.match(JSON.stringify(buildMutationConfirmation(parseMutationCommand("add Buy insurance, 01-12-2026"),mutationId,"en")),/Confirm/);

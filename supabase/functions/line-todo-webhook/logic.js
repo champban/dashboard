@@ -16,6 +16,7 @@ export const HELP_TEXT_TH = [
   "• ค้นหา ธันวาคม 2026 / สัปดาห์ 49 ปี 2026",
   "• ค้นหา กิจกรรม 2026",
   "• add <ชื่อ>, DD-MM-YYYY",
+  "  (หรือ today / beginning, middle, end of this หรือ next month/year)",
   "• สถานะ",
   "• เมนู",
   "• ช่วยเหลือ",
@@ -33,6 +34,7 @@ export const HELP_TEXT_EN = [
   "• search December 2026 / week 49 2026",
   "• search events 2026",
   "• add <title>, DD-MM-YYYY",
+  "  (or today / beginning, middle, end of this or next month/year)",
   "• status",
   "• menu",
   "• help",
@@ -136,11 +138,44 @@ const mutationDate = (value) => {
   return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===iso?iso:"";
 };
 
-export function parseMutationCommand(value){
+const daysInMonth=(year,month)=>new Date(Date.UTC(year,month,0)).getUTCDate();
+const isoFromParts=(year,month,day)=>
+  `${String(year).padStart(4,"0")}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+
+// Deterministic relative-date phrases for `add`, computed from bangkokToday().
+// Only unambiguous phrases are matched. "mid of next N months" is intentionally
+// NOT supported — it has no single agreed meaning yet (see PROJECT_CONTEXT.md
+// open backlog); guessing would silently create a task on the wrong date.
+const relativeMutationDate=(phrase,now=new Date())=>{
+  const folded=String(phrase||"").toLocaleLowerCase("en-US").replace(/\s+/g," ").trim();
+  const todayIso=bangkokToday(now);
+  if(folded==="today")return todayIso;
+  const match=folded.match(/^(beginning|middle|end) of (this|next) (month|year)$/);
+  if(!match)return "";
+  const [,part,when,unit]=match;
+  const [y,m]=todayIso.split("-").map(Number);
+  if(unit==="month"){
+    const monthIndex=(m-1)+(when==="next"?1:0);
+    const year=y+Math.floor(monthIndex/12);
+    const month=(monthIndex%12)+1;
+    const day=part==="beginning"?1:part==="middle"?15:daysInMonth(year,month);
+    return isoFromParts(year,month,day);
+  }
+  const year=y+(when==="next"?1:0);
+  const month=part==="beginning"?1:part==="middle"?7:12;
+  const day=part==="beginning"?1:part==="middle"?1:31;
+  return isoFromParts(year,month,day);
+};
+
+const resolveMutationDate=(value,now)=>mutationDate(value)||relativeMutationDate(value,now);
+const MUTATION_DATE_TOKEN=String.raw`(?:\d{2}-\d{2}-\d{4}|today|(?:beginning|middle|end)\s+of\s+(?:this|next)\s+(?:month|year))`;
+
+export function parseMutationCommand(value,now=new Date()){
   const text=normalizeCommand(value);
-  const add=text.match(/^add(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  const add=text.match(new RegExp(
+    `^add(?:\\s+(personal|work|business|event))?\\s+(.+?)\\s*,\\s*(${MUTATION_DATE_TOKEN})$`,"iu"));
   if(add){
-    const date=mutationDate(add[3]);
+    const date=resolveMutationDate(add[3],now);
     if(!date)return null;
     return {action:"add",type:mutationType(add[1]),title:cleanText(add[2],240),date,
       category:"General",priority:"Medium"};
@@ -151,6 +186,14 @@ export function parseMutationCommand(value){
     if(!date)return null;
     return {action:"edit",type:mutationType(edit[1]),matchTitle:cleanText(edit[2],240),
       title:cleanText(edit[3],240),date};
+  }
+  // Shorter form: only the date changes, so the title is not repeated.
+  const editDateOnly=text.match(/^edit(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  if(editDateOnly){
+    const date=mutationDate(editDateOnly[3]);
+    if(!date)return null;
+    const title=cleanText(editDateOnly[2],240);
+    return {action:"edit",type:mutationType(editDateOnly[1]),matchTitle:title,title,date};
   }
   const remove=text.match(/^delete(?:\s+(personal|work|business|event))?\s+(.+)$/iu);
   return remove?{action:"delete",type:mutationType(remove[1]),matchTitle:cleanText(remove[2],240)}:null;
@@ -171,6 +214,17 @@ export function buildMutationConfirmation(operation,id,language="en"){
     quickReply:{items:["confirm","cancel"].map(decision=>({type:"action",action:{type:"postback",
       label:decision==="confirm"?(lang==="th"?"ยืนยัน":"Confirm"):(lang==="th"?"ยกเลิก":"Cancel"),
       data:`mutation=${decision}&id=${id}`}}))}};
+}
+
+// Public app URL, not a secret. Attached as a Quick Reply link on a confirmed
+// mutation so the owner doesn't have to navigate there from memory.
+export const PLANNER_URL = "https://champban.github.io/dashboard/";
+
+export function buildMutationResultMessage(status,matched){
+  if(!matched)return {type:"text",text:"This confirmation expired or was already used."};
+  if(status!=="confirmed")return {type:"text",text:"Cancelled."};
+  return {type:"text",text:"Confirmed. Open Planner and Save to Cloud to apply this change.",
+    quickReply:{items:[{type:"action",action:{type:"uri",label:"Open Planner",uri:PLANNER_URL}}]}};
 }
 
 export function bangkokToday(now = new Date()) {
