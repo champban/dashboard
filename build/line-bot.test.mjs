@@ -5,21 +5,29 @@ import {
   HELP_TEXT_EN,
   PLANNER_URL,
   addDaysISO,
+  buildAddDatePrompt,
+  buildEditDatePrompt,
   buildLinkReplyMessages,
   buildMenuMessage,
   buildMutationConfirmation,
+  buildMutationPromptMessage,
   buildMutationResultMessage,
   buildQuickReply,
   buildReply,
   buildReplyMessages,
   buildSearchPromptMessage,
   buildSearchPromptText,
+  buildStatusPrompt,
   commandLanguage,
   extractLinkCode,
+  parseAddNeedsDate,
+  parseEditNeedsDate,
   parseIntent,
   parseMutationCommand,
   parseMutationPostback,
+  parseMutationPromptPostback,
   parseSearchPromptPostback,
+  parseStatusNeedsValue,
   parseTemporalSearch,
   sha256Hex,
   truncateReply,
@@ -128,6 +136,131 @@ assert.equal(parseMutationCommand("add Party, mid of next 6 months",now).date,"2
 // Still no guessing for genuinely different phrasing.
 assert.equal(parseMutationCommand("add Party, mid of the next 3 months",now),null);
 
+// add <title> with no date attempt at all: offer a date picker instead of a
+// generic unknown-command reply.
+assert.deepEqual(parseAddNeedsDate("add Buy milk"), {type:"personal",title:"Buy milk"});
+assert.deepEqual(parseAddNeedsDate("add work Buy milk"), {type:"work",title:"Buy milk"});
+assert.deepEqual(parseAddNeedsDate("add Buy milk,"), {type:"personal",title:"Buy milk"});
+assert.equal(parseAddNeedsDate("add"), null);
+assert.equal(parseAddNeedsDate("add Buy milk, today"), null, "a valid full command must not be reinterpreted");
+assert.equal(parseAddNeedsDate("add Buy milk, tmrw"), null, "a botched date attempt must not be guessed at");
+assert.equal(parseAddNeedsDate("delete Buy milk"), null);
+
+for (const language of ["en", "th"]) {
+  const prompt = buildAddDatePrompt({type:"personal",title:"Buy milk"}, language);
+  assert.equal(prompt.type, "text");
+  assert.equal(prompt.quickReply.items.length, 13);
+  assert.ok(prompt.quickReply.items.length <= 13);
+  for (const item of prompt.quickReply.items) {
+    assert.equal(item.type, "action");
+    assert.equal(item.action.type, "message");
+    assert.ok(item.action.label.length <= 20);
+    assert.ok(item.action.text.length <= 300);
+    // Every shortcut must round-trip through the real command parser into a
+    // fully-formed, ready-to-confirm add operation for the same title.
+    const reparsed = parseMutationCommand(item.action.text);
+    assert.equal(reparsed?.action, "add");
+    assert.equal(reparsed?.title, "Buy milk");
+    assert.ok(reparsed?.date);
+  }
+  // Labels must be unique — LINE would silently dedupe/confuse otherwise.
+  assert.equal(new Set(prompt.quickReply.items.map(i => i.action.label)).size, 13);
+}
+// A non-default type is preserved into every reconstructed command.
+const workPrompt = buildAddDatePrompt({type:"work",title:"Ship report"}, "en");
+for (const item of workPrompt.quickReply.items) {
+  assert.equal(parseMutationCommand(item.action.text)?.type, "work");
+}
+
+// edit <title> with no date attempt: same date-picker mechanism as add, but
+// the reconstructed command keeps the title unchanged (short edit form).
+assert.deepEqual(parseEditNeedsDate("edit Buy insurance"), {type:"personal",title:"Buy insurance"});
+assert.equal(parseEditNeedsDate("edit Buy insurance, 15-12-2026"), null, "a valid full command must not be reinterpreted");
+for (const language of ["en", "th"]) {
+  const prompt = buildEditDatePrompt({type:"personal",title:"Buy insurance"}, language);
+  assert.equal(prompt.quickReply.items.length, 13);
+  for (const item of prompt.quickReply.items) {
+    const reparsed = parseMutationCommand(item.action.text);
+    assert.equal(reparsed?.action, "edit");
+    assert.equal(reparsed?.matchTitle, "Buy insurance");
+    assert.equal(reparsed?.title, "Buy insurance", "short edit form must leave the title unchanged");
+    assert.ok(reparsed?.date);
+  }
+}
+
+// Edit now also accepts relative date phrases, same as add (both forms).
+assert.equal(parseMutationCommand("edit Buy insurance, today",now).date, "2026-07-28");
+assert.equal(
+  parseMutationCommand("edit Buy insurance, Buy insurance policy, beginning of next month",now).date,
+  "2026-08-01",
+);
+
+// status <title>, <value>: owner-requested feature. Personal tasks are a
+// simple Pending/Done toggle; work tasks have the app's full four-state
+// workflow. Events have no status and are never offered it.
+assert.deepEqual(parseMutationCommand("status Buy insurance, done"), {
+  action:"status",type:"personal",matchTitle:"Buy insurance",status:"done",
+});
+assert.deepEqual(parseMutationCommand("status work Ship report, in progress"), {
+  action:"status",type:"work",matchTitle:"Ship report",status:"inprogress",
+});
+assert.deepEqual(parseMutationCommand("status work Ship report, review"), {
+  action:"status",type:"work",matchTitle:"Ship report",status:"review",
+});
+// A work-only value must not silently apply to the personal default type.
+assert.equal(parseMutationCommand("status Buy insurance, review"), null);
+assert.equal(parseMutationCommand("status Buy insurance, not-a-status"), null);
+
+assert.deepEqual(parseStatusNeedsValue("status Buy insurance"), {type:"personal",title:"Buy insurance"});
+assert.deepEqual(parseStatusNeedsValue("status work Ship report"), {type:"work",title:"Ship report"});
+assert.equal(parseStatusNeedsValue("status Buy insurance, done"), null, "a valid full command must not be reinterpreted");
+// "event" is not a recognised type prefix here (status has no event support),
+// so it is treated as leading title text — safe (resolves to not_found later)
+// and never reachable via the UI anyway, since event cards never get a Status
+// button (see the card-button test below).
+assert.deepEqual(parseStatusNeedsValue("status event Trip"), {type:"personal",title:"event Trip"});
+
+for (const language of ["en", "th"]) {
+  const personalPrompt = buildStatusPrompt({type:"personal",title:"Buy insurance"}, language);
+  assert.equal(personalPrompt.quickReply.items.length, 2);
+  const workPromptStatus = buildStatusPrompt({type:"work",title:"Ship report"}, language);
+  assert.equal(workPromptStatus.quickReply.items.length, 4);
+  for (const prompt of [personalPrompt, workPromptStatus]) {
+    for (const item of prompt.quickReply.items) {
+      assert.equal(item.action.type, "message");
+      assert.ok(item.action.label.length <= 20);
+      const reparsed = parseMutationCommand(item.action.text);
+      assert.equal(reparsed?.action, "status");
+      assert.ok(reparsed?.status);
+    }
+    // Labels must be unique within one prompt.
+    assert.equal(new Set(prompt.quickReply.items.map(i => i.action.label)).size, prompt.quickReply.items.length);
+  }
+}
+
+// Confirmation display: status operations get their own label and field,
+// not the add/edit/delete summary shape.
+const statusConfirm = buildMutationConfirmation(
+  {action:"status",type:"work",matchTitle:"Ship report",status:"inprogress"},
+  "123e4567-e89b-12d3-a456-426614174000", "en",
+);
+assert.match(statusConfirm.text, /Update status/);
+assert.match(statusConfirm.text, /New status: In Progress/);
+
+// Menu prefill postbacks (Add/Edit/Set Status buttons): parse + instructional reply.
+for (const kind of ["add","edit","status"]) {
+  for (const language of ["en","th"]) {
+    const parsed = parseMutationPromptPostback(`action=mutation_prompt&kind=${kind}&lang=${language}`);
+    assert.deepEqual(parsed, {kind,language});
+    const message = buildMutationPromptMessage(kind, language);
+    assert.equal(message.type, "text");
+    assert.ok(message.text.length > 0);
+    assert.equal(message.quickReply.items.length, 13);
+  }
+}
+assert.equal(parseMutationPromptPostback("action=search_prompt&lang=en"), null);
+assert.equal(parseMutationPromptPostback("action=mutation_prompt&kind=bogus&lang=en"), null);
+
 // Edit: full form (title change) and the shorter date-only form.
 assert.deepEqual(parseMutationCommand("edit Buy insurance, Buy insurance policy, 15-12-2026"), {
   action:"edit",type:"personal",matchTitle:"Buy insurance",title:"Buy insurance policy",date:"2026-12-15",
@@ -180,7 +313,7 @@ const todayMessages = buildReplyMessages(parseIntent("งานวันนี�
 assert.equal(todayMessages.length, 1);
 assert.equal(todayMessages[0].type, "flex");
 assert.equal(todayMessages[0].contents.type, "bubble");
-assert.equal(todayMessages[0].quickReply.items.length, 10);
+assert.equal(todayMessages[0].quickReply.items.length, 13);
 const todayFlexText = JSON.stringify(todayMessages[0]);
 assert.match(todayFlexText, /ส่งรายงาน/);
 assert.match(todayFlexText, /ตรวจตัวเลข/);
@@ -188,10 +321,38 @@ assert.match(todayFlexText, /ส่งให้ทีม/);
 assert.match(todayFlexText, /https:\/\/example\.com\/diagram\.png/);
 assert.match(todayFlexText, /https:\/\/youtu\.be\/demo/);
 assert.doesNotMatch(todayFlexText, /http:\/\/example\.com\/unsafe/);
-const attachmentActions = todayMessages[0].contents.footer.contents.map((button) => button.action);
-assert.ok(attachmentActions.every((action) => action.type === "uri"));
+const footerActions = todayMessages[0].contents.footer.contents.map((button) => button.action);
+const attachmentActions = footerActions.filter((action) => action.type === "uri");
 assert.ok(attachmentActions.every((action) => action.uri.startsWith("https://")));
 assert.ok(attachmentActions.every((action) => action.altUri.desktop === action.uri));
+// Edit/Delete/Status card buttons: a work task (this fixture's "ส่งรายงาน") gets
+// all three; each reconstructs into a valid, re-parseable bare command.
+const cardActions = footerActions.filter((action) => action.type === "message");
+assert.equal(cardActions.length, 3);
+const cardLabels = cardActions.map((action) => action.label).sort();
+assert.deepEqual(cardLabels, ["ลบ", "สถานะ", "แก้ไข"], "Thai labels for this Thai-language reply");
+for (const action of cardActions) {
+  assert.equal(action.text.startsWith("edit work ") || action.text.startsWith("delete work ")
+    || action.text.startsWith("status work "), true);
+  assert.match(action.text, /ส่งรายงาน$/, "the exact title must be embedded verbatim");
+}
+assert.equal(parseEditNeedsDate(cardActions.find(a => a.text.startsWith("edit ")).text)?.title, "ส่งรายงาน");
+assert.equal(parseStatusNeedsValue(cardActions.find(a => a.text.startsWith("status ")).text)?.type, "work");
+assert.deepEqual(
+  parseMutationCommand(cardActions.find(a => a.text.startsWith("delete ")).text),
+  {action:"delete",type:"work",matchTitle:"ส่งรายงาน"},
+);
+
+// Event cards get Edit/Delete but never a Status button — events have no status.
+const eventCardSnapshot = {
+  dataUpdatedAt: "2026-07-28T01:30:00.000Z",
+  tasks: [],
+  events: [{ type: "event", title: "Trip", start: "2026-07-28", end: "2026-07-28", category: "Personal" }],
+};
+const eventCardMessages = buildReplyMessages(parseIntent("ค้นหา Trip"), eventCardSnapshot, { now, language: "en" });
+const eventCardFooterActions = (eventCardMessages[0].contents.footer?.contents || []).map((b) => b.action);
+assert.equal(eventCardFooterActions.filter((a) => a.type === "message").length, 2, "event cards get Edit+Delete only");
+assert.ok(eventCardFooterActions.every((a) => !a.text?.startsWith("status ")));
 
 const weekReply = buildReply(parseIntent("งานสัปดาห์นี้"), snapshot, { now });
 assert.match(weekReply, /ส่งรายงาน/);
@@ -328,9 +489,10 @@ assert.ok(
 
 for (const language of ["en", "th"]) {
   const quickReply = buildQuickReply(language);
-  assert.equal(quickReply.items.length, 10);
+  assert.equal(quickReply.items.length, 13);
   assert.ok(quickReply.items.length <= 13);
-  const searchItems = quickReply.items.filter((item) => item.action.type === "postback");
+  const searchItems = quickReply.items.filter((item) =>
+    item.action.type === "postback" && parseSearchPromptPostback(item.action.data));
   assert.equal(searchItems.length, 1);
   assert.deepEqual(searchItems[0].action, {
     type: "postback",
@@ -342,6 +504,19 @@ for (const language of ["en", "th"]) {
   const plannerItems = quickReply.items.filter((item) => item.action.type === "uri");
   assert.equal(plannerItems.length, 1);
   assert.equal(plannerItems[0].action.uri, PLANNER_URL);
+  // add/edit/status prefill shortcuts — three, one per kind, all English commands
+  // regardless of menu language.
+  const prefillItems = quickReply.items.filter((item) =>
+    item.action.type === "postback" && parseMutationPromptPostback(item.action.data));
+  assert.equal(prefillItems.length, 3);
+  const prefillKinds = prefillItems.map((item) => parseMutationPromptPostback(item.action.data).kind).sort();
+  assert.deepEqual(prefillKinds, ["add", "edit", "status"]);
+  for (const item of prefillItems) {
+    const parsed = parseMutationPromptPostback(item.action.data);
+    assert.equal(parsed.language, language);
+    assert.equal(item.action.fillInText, `${parsed.kind} `);
+    assert.match(buildMutationPromptMessage(parsed.kind, parsed.language).text, /./);
+  }
   for (const item of quickReply.items) {
     assert.equal(item.type, "action");
     assert.ok(item.action.label.length <= 20);
@@ -354,9 +529,11 @@ for (const language of ["en", "th"]) {
       assert.equal(item.action.type, "postback");
       assert.ok(item.action.data.length <= 300);
       assert.ok(item.action.fillInText.length <= 300);
-      assert.ok(parseSearchPromptPostback(item.action.data));
+      assert.ok(parseSearchPromptPostback(item.action.data) || parseMutationPromptPostback(item.action.data));
     }
   }
+  // Labels must be unique — LINE would silently dedupe/confuse otherwise.
+  assert.equal(new Set(quickReply.items.map(i => i.action.label)).size, 13);
 
   const prompt = buildSearchPromptMessage(language);
   assert.equal(prompt.type, "text");
@@ -369,10 +546,10 @@ for (const language of ["en", "th"]) {
   assert.ok(menu.altText.length <= 400);
   assert.equal(menu.contents.type, "bubble");
   assert.equal(menu.quickReply.items.length, quickReply.items.length);
-  assert.equal(menu.contents.body.contents.length, 5);
+  assert.equal(menu.contents.body.contents.length, 7);
   assert.deepEqual(
     menu.contents.body.contents.map((row) => row.contents.length),
-    [2, 2, 2, 2, 2],
+    [2, 2, 2, 2, 2, 2, 1],
   );
   const menuActions = menu.contents.body.contents
     .flatMap((row) => row.contents)

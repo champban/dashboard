@@ -1,19 +1,27 @@
 import { createClient } from "@supabase/supabase-js";
 import {
+  buildAddDatePrompt,
+  buildEditDatePrompt,
   buildLinkReplyMessages,
   buildMenuMessage,
+  buildMutationPromptMessage,
   buildQuickReply,
   buildReply,
   buildReplyMessages,
   buildSearchPromptMessage,
+  buildStatusPrompt,
   buildMutationConfirmation,
   buildMutationResultMessage,
   commandLanguage,
   extractLinkCode,
+  parseAddNeedsDate,
+  parseEditNeedsDate,
   parseIntent,
   parseMutationCommand,
   parseMutationPostback,
+  parseMutationPromptPostback,
   parseSearchPromptPostback,
+  parseStatusNeedsValue,
   sha256Hex,
   truncateReply,
   verifyLineSignature,
@@ -135,6 +143,21 @@ async function handleTextEvent(
     await replyLine(replyToken, [buildMutationConfirmation(mutation, draft.id, language)], accessToken);
     return;
   }
+  const needsDate = parseAddNeedsDate(text);
+  if (needsDate) {
+    await replyLine(replyToken, [buildAddDatePrompt(needsDate, language)], accessToken);
+    return;
+  }
+  const editNeedsDate = parseEditNeedsDate(text);
+  if (editNeedsDate) {
+    await replyLine(replyToken, [buildEditDatePrompt(editNeedsDate, language)], accessToken);
+    return;
+  }
+  const needsStatus = parseStatusNeedsValue(text);
+  if (needsStatus) {
+    await replyLine(replyToken, [buildStatusPrompt(needsStatus, language)], accessToken);
+    return;
+  }
   const intent = parseIntent(text);
   if (intent.kind === "menu" || intent.kind === "search_prompt") {
     await supabase
@@ -205,8 +228,18 @@ async function handlePostbackEvent(
     await replyLine(replyToken, [buildMutationResultMessage(status, !!data)], accessToken);
     return;
   }
+  if (!replyToken) return;
+  const mutationPrompt = parseMutationPromptPostback(event?.postback?.data);
+  if (mutationPrompt) {
+    await replyLine(
+      replyToken,
+      [buildMutationPromptMessage(mutationPrompt.kind, mutationPrompt.language)],
+      accessToken,
+    );
+    return;
+  }
   const language = parseSearchPromptPostback(event?.postback?.data);
-  if (!replyToken || !language) return;
+  if (!language) return;
   await replyLine(
     replyToken,
     [buildSearchPromptMessage(language)],
