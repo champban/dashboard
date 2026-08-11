@@ -1,3 +1,8 @@
+---
+name: webapp-security-6d-audit
+description: Audit a browser-based web application across six security dimensions before deployment. Use for release/security gates and residual-risk review; do not use as a substitute for unrelated functional testing.
+---
+
 # Web App Security 6D Audit
 
 ## Purpose
