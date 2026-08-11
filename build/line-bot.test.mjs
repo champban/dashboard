@@ -151,6 +151,7 @@ for (const language of ["en", "th"]) {
   assert.equal(prompt.type, "text");
   assert.equal(prompt.quickReply.items.length, 13);
   assert.ok(prompt.quickReply.items.length <= 13);
+  assert.match(prompt.text, /add Buy milk, DD-MM-YYYY/);
   for (const item of prompt.quickReply.items) {
     assert.equal(item.type, "action");
     assert.equal(item.action.type, "message");
@@ -179,6 +180,10 @@ assert.equal(parseEditNeedsDate("edit Buy insurance, 15-12-2026"), null, "a vali
 for (const language of ["en", "th"]) {
   const prompt = buildEditDatePrompt({type:"personal",title:"Buy insurance"}, language);
   assert.equal(prompt.quickReply.items.length, 13);
+  // There is no server-side memory of the pending title between messages —
+  // the prompt text must show the exact full command, not imply a bare
+  // typed date alone would work (that silently went nowhere in production).
+  assert.match(prompt.text, /edit Buy insurance, DD-MM-YYYY/);
   for (const item of prompt.quickReply.items) {
     const reparsed = parseMutationCommand(item.action.text);
     assert.equal(reparsed?.action, "edit");
@@ -225,6 +230,8 @@ for (const language of ["en", "th"]) {
   assert.equal(personalPrompt.quickReply.items.length, 2);
   const workPromptStatus = buildStatusPrompt({type:"work",title:"Ship report"}, language);
   assert.equal(workPromptStatus.quickReply.items.length, 4);
+  assert.match(personalPrompt.text, /status Buy insurance, pending/);
+  assert.match(workPromptStatus.text, /status work Ship report, todo/);
   for (const prompt of [personalPrompt, workPromptStatus]) {
     for (const item of prompt.quickReply.items) {
       assert.equal(item.action.type, "message");

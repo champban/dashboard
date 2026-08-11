@@ -348,10 +348,14 @@ function buildDateShortcutPrompt(action,needsDate,language){
   const lang=normalizeLanguage(language);
   const prefix=needsDate.type!=="personal"?`${needsDate.type} `:"";
   const command=phrase=>`${action} ${prefix}${needsDate.title}, ${phrase}`;
+  // There is no server-side memory of "which task were we asking about" —
+  // a bare typed date alone would go nowhere, since only the buttons carry
+  // the full reconstructed command. The prompt must say so explicitly, with
+  // the exact text to type, rather than implying a bare date works.
   return {type:"text",
     text:lang==="th"
-      ?"เมื่อไหร่? เลือกจากเมนู หรือพิมพ์วันที่เป็น DD-MM-YYYY"
-      :"When? Pick one below, or type a date as DD-MM-YYYY.",
+      ?`เมื่อไหร่? เลือกจากเมนู หรือพิมพ์ทั้งประโยค: ${command("DD-MM-YYYY")}`
+      :`When? Pick one below, or type the full command: ${command("DD-MM-YYYY")}`,
     quickReply:{items:ADD_DATE_SHORTCUTS[lang].map(([label,phrase])=>({
       type:"action",action:{type:"message",label,text:command(phrase)}}))}};
 }
@@ -372,8 +376,13 @@ export function buildStatusPrompt(needsStatus,language="en"){
   const prefix=needsStatus.type!=="personal"?`${needsStatus.type} `:"";
   const command=value=>`status ${prefix}${needsStatus.title}, ${value}`;
   const values=needsStatus.type==="work"?["todo","inprogress","review","done"]:["pending","done"];
+  // Same reasoning as buildDateShortcutPrompt: no server-side memory of the
+  // pending title, so the full command is shown explicitly for anyone who
+  // would rather type it than tap a button.
   return {type:"text",
-    text:lang==="th"?"เลือกสถานะใหม่ด้านล่าง":"Pick the new status below.",
+    text:lang==="th"
+      ?`เลือกสถานะใหม่ด้านล่าง หรือพิมพ์ทั้งประโยค: ${command(values[0])}`
+      :`Pick the new status below, or type the full command: ${command(values[0])}`,
     quickReply:{items:values.map(value=>({type:"action",action:{type:"message",
       label:statusLabel(needsStatus.type,value,lang),text:command(value)}}))}};
 }
