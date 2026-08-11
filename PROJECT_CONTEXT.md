@@ -5,19 +5,20 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production branch `main` is `7f3a232` (merge of PR #65); it includes the
+- Production branch `main` is `7e18ae5` (merge of PR #66); it includes the
   confirmed LINE Add/Edit/Delete mutation feature (PR #51/#52), the LINE
   mutation UX follow-ups — relative dates, shorter `edit`, Open Planner link,
   silent-rejection warning (PR #56/#57) — the desktop Save to Cloud header
   button (PR #59), "mid of next N months" (PR #61), the add/edit/status date
   and status pickers with clickable task-card buttons (PR #62), the Flex
   footer-separator schema fix (PR #63), the picker-prompt exact-command
-  wording fix (PR #64), and the 8-branch sync-mutation-skip fix (PR #65), on
-  top of the LINE/auth hotfix, bilingual command menu, task-detail cards,
-  Search button, and temporal search.
-- Supabase `line-todo-webhook` version 14 is ACTIVE, redeployed from this
-  exact `main` on `2026-08-11`; bundle SHA-256
-  `2354911eafc939b7d0f16de739858a924498765f28c6bfa07ca521047df09130`.
+  wording fix (PR #64), the 8-branch sync-mutation-skip fix (PR #65), and the
+  `search <text> <status>` filter (PR #66), on top of the LINE/auth hotfix,
+  bilingual command menu, task-detail cards, Search button, and temporal
+  search.
+- Supabase `line-todo-webhook` version 15 is ACTIVE, redeployed from this
+  exact `main` on `2026-08-11` (via `supabase functions deploy`); bundle
+  SHA-256 `f9f040e13c4907830439cd662d7a580697e206e52e94f4a8efce8edcc4f03710`.
 - Search-button release merged in PR #43 and deployed at
   `2026-07-30T12:05:31+07:00`. Owner acceptance passed on LINE mobile and
   LINE for PC on `2026-07-30`.
