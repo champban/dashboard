@@ -18,6 +18,7 @@ export const HELP_TEXT_TH = [
   "• ค้นหา <คำ>",
   "• ค้นหา ธันวาคม 2026 / สัปดาห์ 49 ปี 2026",
   "• ค้นหา กิจกรรม 2026",
+  "• ค้นหา <คำ> ค้าง/เสร็จแล้ว (หรือ ต้องทำ/กำลังทำ/ตรวจสอบ สำหรับงาน) — ไม่ใส่สถานะก็ค้นทุกสถานะ",
   "• add <ชื่อ>, DD-MM-YYYY",
   "  (หรือ today / beginning, middle, end of this หรือ next month/year / mid of next N months)",
   "  (พิมพ์ add <ชื่อ> เฉย ๆ โดยไม่ใส่วันที่ก็ได้ — จะมีเมนูให้เลือกวันที่)",
@@ -42,6 +43,7 @@ export const HELP_TEXT_EN = [
   "• search <text>",
   "• search December 2026 / week 49 2026",
   "• search events 2026",
+  "• search <text> pending/done (or todo/in progress/review for work) — leave it out to search every status",
   "• add <title>, DD-MM-YYYY",
   "  (or today / beginning, middle, end of this or next month/year / mid of next N months)",
   "  (or just add <title> with no date — you'll get a menu to pick one)",
@@ -172,6 +174,24 @@ const normalizeStatusValue=(type,raw)=>{
 const statusLabel=(type,value,lang)=>{
   const table=type==="work"?STATUS_LABELS.work:STATUS_LABELS.personal;
   return table[value]?.[lang]||value;
+};
+
+// Trailing status word recognised by `search` (e.g. "search ภาษี pending").
+// "pending"/"ค้าง" and "done"/"เสร็จแล้ว" are universal (any task type);
+// the three work-only words only ever match a work task, since no other
+// type's status field can hold them. Longest phrase first so "to do" and
+// "in progress" are not shadowed by a shorter word.
+const SEARCH_STATUS_WORDS=[
+  ["in progress","inprogress"],["inprogress","inprogress"],["to do","todo"],
+  ["pending","pending"],["done","done"],["todo","todo"],["review","review"],
+  ["ค้าง","pending"],["เสร็จแล้ว","done"],["ต้องทำ","todo"],
+  ["กำลังทำ","inprogress"],["ตรวจสอบ","review"],
+];
+const matchesSearchStatus=(task,status)=>{
+  if(task?.type==="event")return false;
+  if(status==="pending")return !isDone(task);
+  if(status==="done")return isDone(task);
+  return String(task?.status||"").toLocaleLowerCase("en-US")===status;
 };
 
 const mutationDate = (value) => {
@@ -565,7 +585,13 @@ export function parseTemporalSearch(value){
   let scope="all";
   if(/(?:^|\s)(?:events?|กิจกรรม)(?:\s|$)/u.test(text)){scope="event";text=text.replace(/(?:^|\s)(?:events?|กิจกรรม)(?:\s|$)/gu," ");}
   else if(/(?:^|\s)(?:tasks?|งาน)(?:\s|$)/u.test(text)){scope="task";text=text.replace(/(?:^|\s)(?:tasks?|งาน)(?:\s|$)/gu," ");}
-  return {query:cleanText(text,120).toLocaleLowerCase("th-TH"),start,end,scope};
+  let status="";
+  const statusEntry=SEARCH_STATUS_WORDS.find(([word])=>new RegExp(`(?:^|\\s)${word}(?:\\s|$)`,"u").test(text));
+  if(statusEntry){
+    status=statusEntry[1];
+    text=text.replace(new RegExp(`(?:^|\\s)${statusEntry[0]}(?:\\s|$)`,"u")," ");
+  }
+  return {query:cleanText(text,120).toLocaleLowerCase("th-TH"),start,end,scope,status};
 }
 
 function overlapsRange(item,start,end){
@@ -678,6 +704,7 @@ function selectTaskList(intent, tasks, active, today, language) {
         ||(temporal.scope==="event"&&task.type==="event")
         ||(temporal.scope==="task"&&task.type!=="event"))
         &&overlapsRange(task,temporal.start,temporal.end)
+        &&(!temporal.status||matchesSearchStatus(task,temporal.status))
         &&(!query||[
         task?.title,
         task?.project,
