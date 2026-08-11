@@ -174,7 +174,7 @@ const todayMessages = buildReplyMessages(parseIntent("งานวันนี�
 assert.equal(todayMessages.length, 1);
 assert.equal(todayMessages[0].type, "flex");
 assert.equal(todayMessages[0].contents.type, "bubble");
-assert.equal(todayMessages[0].quickReply.items.length, 9);
+assert.equal(todayMessages[0].quickReply.items.length, 10);
 const todayFlexText = JSON.stringify(todayMessages[0]);
 assert.match(todayFlexText, /ส่งรายงาน/);
 assert.match(todayFlexText, /ตรวจตัวเลข/);
@@ -322,7 +322,7 @@ assert.ok(
 
 for (const language of ["en", "th"]) {
   const quickReply = buildQuickReply(language);
-  assert.equal(quickReply.items.length, 9);
+  assert.equal(quickReply.items.length, 10);
   assert.ok(quickReply.items.length <= 13);
   const searchItems = quickReply.items.filter((item) => item.action.type === "postback");
   assert.equal(searchItems.length, 1);
@@ -333,12 +333,17 @@ for (const language of ["en", "th"]) {
     inputOption: "openKeyboard",
     fillInText: language === "th" ? "ค้นหา " : "search ",
   });
+  const plannerItems = quickReply.items.filter((item) => item.action.type === "uri");
+  assert.equal(plannerItems.length, 1);
+  assert.equal(plannerItems[0].action.uri, PLANNER_URL);
   for (const item of quickReply.items) {
     assert.equal(item.type, "action");
     assert.ok(item.action.label.length <= 20);
     if (item.action.type === "message") {
       assert.ok(item.action.text.length <= 300);
       assert.notEqual(parseIntent(item.action.text).kind, "unknown");
+    } else if (item.action.type === "uri") {
+      assert.ok(item.action.uri.startsWith("https://"));
     } else {
       assert.equal(item.action.type, "postback");
       assert.ok(item.action.data.length <= 300);
@@ -361,7 +366,7 @@ for (const language of ["en", "th"]) {
   assert.equal(menu.contents.body.contents.length, 5);
   assert.deepEqual(
     menu.contents.body.contents.map((row) => row.contents.length),
-    [2, 2, 2, 2, 1],
+    [2, 2, 2, 2, 2],
   );
   const menuActions = menu.contents.body.contents
     .flatMap((row) => row.contents)
