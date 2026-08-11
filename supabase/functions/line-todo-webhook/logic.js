@@ -3,6 +3,9 @@ export const MAX_REPLY_CHARS = 4800;
 export const MAX_REPLY_TASKS = 12;
 export const MAX_FLEX_SUBTASKS = 5;
 export const MAX_FLEX_CAROUSEL_BYTES = 50 * 1024;
+// Public app URL, not a secret. Used for the persistent "Open Planner" menu
+// shortcut and attached as a Quick Reply link on a confirmed mutation.
+export const PLANNER_URL = "https://champban.github.io/dashboard/";
 
 export const HELP_TEXT_TH = [
   "คำสั่งที่ใช้ได้",
@@ -51,6 +54,7 @@ const MENU_ACTIONS = {
     { label: "High priority", text: "high priority" },
     { label: "No due date", text: "no due date" },
     { label: "Search", kind: "search_prompt", language: "en" },
+    { label: "Open Planner", kind: "uri", uri: PLANNER_URL },
     { label: "Status", text: "status" },
     { label: "Help", text: "help" },
     { label: "ภาษาไทย", text: "เมนู" },
@@ -62,6 +66,7 @@ const MENU_ACTIONS = {
     { label: "สำคัญสูง", text: "งานสำคัญ" },
     { label: "ไม่มีวันกำหนด", text: "งานไม่มีวันกำหนด" },
     { label: "ค้นหา", kind: "search_prompt", language: "th" },
+    { label: "เปิด Planner", kind: "uri", uri: PLANNER_URL },
     { label: "สถานะ", text: "สถานะ" },
     { label: "ช่วยเหลือ", text: "ช่วยเหลือ" },
     { label: "English", text: "menu" },
@@ -215,10 +220,6 @@ export function buildMutationConfirmation(operation,id,language="en"){
       label:decision==="confirm"?(lang==="th"?"ยืนยัน":"Confirm"):(lang==="th"?"ยกเลิก":"Cancel"),
       data:`mutation=${decision}&id=${id}`}}))}};
 }
-
-// Public app URL, not a secret. Attached as a Quick Reply link on a confirmed
-// mutation so the owner doesn't have to navigate there from memory.
-export const PLANNER_URL = "https://champban.github.io/dashboard/";
 
 export function buildMutationResultMessage(status,matched){
   if(!matched)return {type:"text",text:"This confirmation expired or was already used."};
@@ -758,6 +759,9 @@ function lineAction(item) {
       inputOption: "openKeyboard",
       fillInText: lang === "th" ? "ค้นหา " : "search ",
     };
+  }
+  if (item.kind === "uri") {
+    return { type: "uri", label: item.label, uri: item.uri };
   }
   return {
     type: "message",
