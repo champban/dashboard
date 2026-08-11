@@ -290,16 +290,48 @@ const mutationId="123e4567-e89b-12d3-a456-426614174000";
 assert.deepEqual(parseMutationPostback(`mutation=confirm&id=${mutationId}`),{decision:"confirm",id:mutationId});
 assert.match(JSON.stringify(buildMutationConfirmation(parseMutationCommand("add Buy insurance, 01-12-2026"),mutationId,"en")),/Confirm/);
 assert.deepEqual(parseTemporalSearch("Buy December 2026"), {
-  query: "buy", start: "2026-12-01", end: "2026-12-31", scope: "all",
+  query: "buy", start: "2026-12-01", end: "2026-12-31", scope: "all", status: "",
 });
 assert.deepEqual(parseTemporalSearch("กิจกรรม สัปดาห์ 49 ปี 2026"), {
-  query: "", start: "2026-11-30", end: "2027-02-07", scope: "event",
+  query: "", start: "2026-11-30", end: "2027-02-07", scope: "event", status: "",
 });
 assert.deepEqual(parseTemporalSearch("week36 2026"), {
-  query: "", start: "2026-08-31", end: "2026-11-08", scope: "all",
+  query: "", start: "2026-08-31", end: "2026-11-08", scope: "all", status: "",
 });
 assert.deepEqual(parseTemporalSearch("งาน เดือน 12 ปี 2026"), {
-  query: "", start: "2026-12-01", end: "2026-12-31", scope: "task",
+  query: "", start: "2026-12-01", end: "2026-12-31", scope: "task", status: "",
+});
+
+// Search status filter: "search <text> <status>" — optional trailing status
+// word, any status if omitted. Matches the owner's own phrasing exactly.
+assert.deepEqual(parseTemporalSearch("ภาษี pending"), {
+  query: "ภาษี", start: "", end: "", scope: "all", status: "pending",
+});
+assert.deepEqual(parseTemporalSearch("Fortuner done"), {
+  query: "fortuner", start: "", end: "", scope: "all", status: "done",
+});
+assert.deepEqual(parseTemporalSearch("Fortuner in progress"), {
+  query: "fortuner", start: "", end: "", scope: "all", status: "inprogress",
+});
+assert.deepEqual(parseTemporalSearch("Fortuner to do"), {
+  query: "fortuner", start: "", end: "", scope: "all", status: "todo",
+});
+assert.deepEqual(parseTemporalSearch("Fortuner review"), {
+  query: "fortuner", start: "", end: "", scope: "all", status: "review",
+});
+assert.deepEqual(parseTemporalSearch("ค่าไฟ ค้าง"), {
+  query: "ค่าไฟ", start: "", end: "", scope: "all", status: "pending",
+});
+assert.deepEqual(parseTemporalSearch("ค่าไฟ เสร็จแล้ว"), {
+  query: "ค่าไฟ", start: "", end: "", scope: "all", status: "done",
+});
+// No trailing status word at all: search every status, as before.
+assert.deepEqual(parseTemporalSearch("Buy insurance"), {
+  query: "buy insurance", start: "", end: "", scope: "all", status: "",
+});
+// Combines with the existing temporal/scope tokens.
+assert.deepEqual(parseTemporalSearch("tax done December 2026"), {
+  query: "tax", start: "2026-12-01", end: "2026-12-31", scope: "all", status: "done",
 });
 
 assert.equal(extractLinkCode("เชื่อม MTP-ABCD-2345"), "MTP-ABCD-2345");
@@ -383,6 +415,64 @@ assert.match(noDateReply, /จัดโต๊ะ/);
 const searchReply = buildReply(parseIntent("ค้นหา Alpha"), snapshot, { now });
 assert.match(searchReply, /ส่งรายงาน/);
 assert.match(searchReply, /งานที่จบแล้ว/, "search intentionally includes completed tasks");
+
+// "search <text> <status>" — owner-requested trailing status filter, e.g.
+// "search ภาษี pending" / "search Fortuner done". No status word: every
+// status still shows, unchanged from before this feature.
+const searchAlphaPending = buildReply(parseIntent("ค้นหา Alpha ค้าง"), snapshot, { now });
+assert.match(searchAlphaPending, /ส่งรายงาน/);
+assert.match(searchAlphaPending, /ประชุมปลายสัปดาห์/);
+assert.doesNotMatch(searchAlphaPending, /งานที่จบแล้ว/, "done task excluded by a pending filter");
+
+const statusSearchSnapshot = {
+  dataUpdatedAt: "2026-08-01T08:00:00.000Z",
+  tasks: [
+    { type: "personal", title: "Pay tax now", status: "pending", due: "2026-08-01", category: "Home" },
+    { type: "personal", title: "Pay tax later", status: "done", due: "2026-07-01", category: "Home" },
+    { type: "work", title: "Tax filing prep", status: "todo", due: "2026-08-05", project: "Alpha" },
+    { type: "work", title: "Tax filing draft", status: "inprogress", due: "2026-08-06", project: "Alpha" },
+    { type: "work", title: "Tax filing audit", status: "review", due: "2026-08-07", project: "Alpha" },
+    { type: "work", title: "Tax filing archive", status: "done", due: "2026-08-08", project: "Alpha" },
+  ],
+  events: [
+    { type: "event", title: "Tax filing deadline", start: "2026-08-09", end: "2026-08-09" },
+  ],
+};
+const taxPending = buildReply(parseIntent("search tax pending"), statusSearchSnapshot, { now, language: "en" });
+assert.match(taxPending, /Pay tax now/);
+assert.match(taxPending, /Tax filing prep/);
+assert.match(taxPending, /Tax filing draft/);
+assert.match(taxPending, /Tax filing audit/);
+assert.doesNotMatch(taxPending, /Pay tax later/);
+assert.doesNotMatch(taxPending, /Tax filing archive/);
+assert.doesNotMatch(taxPending, /Tax filing deadline/, "events have no status concept and never match a status filter");
+
+const taxDone = buildReply(parseIntent("search tax done"), statusSearchSnapshot, { now, language: "en" });
+assert.match(taxDone, /Pay tax later/);
+assert.match(taxDone, /Tax filing archive/);
+assert.doesNotMatch(taxDone, /Pay tax now/);
+assert.doesNotMatch(taxDone, /Tax filing prep/);
+assert.doesNotMatch(taxDone, /Tax filing deadline/);
+
+const taxTodo = buildReply(parseIntent("search tax todo"), statusSearchSnapshot, { now, language: "en" });
+assert.match(taxTodo, /Tax filing prep/);
+assert.doesNotMatch(taxTodo, /Tax filing draft/);
+assert.doesNotMatch(taxTodo, /Pay tax now/, "personal 'pending' status never matches the work-only 'todo' filter");
+
+const taxInProgress = buildReply(parseIntent("search tax in progress"), statusSearchSnapshot, { now, language: "en" });
+assert.match(taxInProgress, /Tax filing draft/);
+assert.doesNotMatch(taxInProgress, /Tax filing prep/);
+
+const taxReview = buildReply(parseIntent("search tax review"), statusSearchSnapshot, { now, language: "en" });
+assert.match(taxReview, /Tax filing audit/);
+assert.doesNotMatch(taxReview, /Tax filing draft/);
+assert.doesNotMatch(taxReview, /Tax filing archive/);
+
+const taxAnyStatus = buildReply(parseIntent("search tax"), statusSearchSnapshot, { now, language: "en" });
+assert.match(taxAnyStatus, /Pay tax now/);
+assert.match(taxAnyStatus, /Pay tax later/);
+assert.match(taxAnyStatus, /Tax filing archive/);
+assert.match(taxAnyStatus, /Tax filing deadline/, "no status word: search still covers events, same as before this feature");
 
 const temporalSnapshot = {
   dataUpdatedAt: "2026-08-01T08:37:00.000Z",

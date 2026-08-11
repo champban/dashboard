@@ -1000,6 +1000,27 @@ question yet" reply. Fixed: all three prompts now show the exact full command
 to type (e.g. `edit send Kerry today, DD-MM-YYYY`), reusing the same
 command-builder already used for the buttons.
 
+**Search status filter (`search <text> <status>`), owner request:** e.g.
+`search ภาษี pending` / `search Fortuner done`. An optional trailing status
+word narrows results to that status; omitted, search covers every status
+exactly as before. Vocabulary matches the `status` mutation's own: universal
+`pending`/`done` (`ค้าง`/`เสร็จแล้ว`) map to `!isDone`/`isDone` so they work
+across personal *and* work tasks regardless of the work-specific state name;
+the three work-only words `todo`/`in progress`(`inprogress`)/`review`
+(`ต้องทำ`/`กำลังทำ`/`ตรวจสอบ`) match a work task's exact status field, so they
+never match a personal task. **Events are always excluded once a status
+filter is present** — events have no status concept at all, same rule as the
+`status` mutation's own picker and card button. Parsed by extending
+`parseTemporalSearch` (it already stripped a trailing scope word for
+`events`/`tasks`; the status word is stripped the same way, longest phrase
+first so `to do`/`in progress` are never shadowed by a shorter single word)
+— composes with the existing temporal search unchanged
+(`search tax done December 2026` works). Same accepted trade-off as the
+pre-existing scope-word stripping: a bare status word is always treated as a
+filter, never as a literal search term (e.g. `search done` searches every
+"done" task, not a task titled "done") — consistent with how `search tasks`
+already behaved before this change.
+
 **Two production incidents found and fixed the same day, live with the
 owner:**
 
