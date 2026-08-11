@@ -321,6 +321,13 @@ assert.match(todayFlexText, /ส่งให้ทีม/);
 assert.match(todayFlexText, /https:\/\/example\.com\/diagram\.png/);
 assert.match(todayFlexText, /https:\/\/youtu\.be\/demo/);
 assert.doesNotMatch(todayFlexText, /http:\/\/example\.com\/unsafe/);
+// LINE's Flex schema does not recognise `separator` as a field on the footer
+// box itself — it only exists as bubble-level `styles.footer.separator`. A
+// box-level `separator` field is REJECTED outright by LINE's reply API with
+// a 400 ("unknown field"), which is silent on this end since replyLine's
+// failure is caught upstream — the exact production incident this guards.
+assert.equal(todayMessages[0].contents.footer.separator, undefined);
+assert.equal(todayMessages[0].contents.styles?.footer?.separator, true);
 const footerActions = todayMessages[0].contents.footer.contents.map((button) => button.action);
 const attachmentActions = footerActions.filter((action) => action.type === "uri");
 assert.ok(attachmentActions.every((action) => action.uri.startsWith("https://")));
