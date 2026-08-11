@@ -887,15 +887,21 @@ function taskBubble(task, index, shownCount, totalCount, language, extraTaskCoun
     ...(() => {
       const actionButtons = taskActionButtons(task, lang);
       const contents = [...actionButtons, ...attachments.map((item) => attachmentButton(item, lang))];
+      // `separator` is not a valid field on a box itself — LINE's Flex schema
+      // only recognises it under the bubble-level `styles.footer` object.
+      // Pre-existing bug (the box-level field), only ever surfaced now
+      // because this account's footer was never populated before (attachment
+      // sharing is off); every task's Edit/Delete/Status footer renders
+      // unconditionally, so it always hit LINE's strict schema validation.
       return contents.length > 0 ? {
         footer: {
           type: "box",
           layout: "vertical",
           spacing: "xs",
           paddingAll: "sm",
-          separator: true,
           contents,
         },
+        styles: { footer: { separator: true } },
       } : {};
     })(),
   };
