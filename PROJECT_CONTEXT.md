@@ -825,6 +825,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | ~~LINE \`edit\`: shorter syntax~~ | **Closed 2026-08-11.** `edit <title>, DD-MM-YYYY` now works when only the date changes, alongside the existing `edit <old title>, <new title>, DD-MM-YYYY` form. Merged in PR #56, deployed. |
 | — | ~~\`BUILD-MANIFEST.json\` mobile hash is stale~~ | **Closed 2026-08-11.** `build/pipeline.mjs` now recalculates `mobile.sha256`/`mobile.bytes` on every package run, alongside the existing `full.*` fields, so the two can no longer drift apart. Merged in PR #56. |
 | — | Desktop Save to Cloud button — owner acceptance | Added in PR #59 (2026-08-11): a header-level Save to Cloud button for desktop (≥1024px), mirroring the existing mobile/tablet one — the action was previously three clicks deep in the Profile+Sync dropdown on desktop. `npm run verify` passed and it was checked in a headless browser, but the owner has not yet eyeballed it on a real signed-in session with Drive linked. |
+| — | `importUseCloud` can still skip a pending LINE mutation | Same class of bug fixed 2026-08-11 across 8 sync entry points (see the confirmed-mutations release record above), but deliberately not fixed there too: `importUseCloud` is part of the rare "open a conflicting local file from disk, keep the cloud copy" flow, not the core Drive sync loop. Low priority — needs both a disk-file import *and* a pending LINE mutation at the same time. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
@@ -984,3 +985,45 @@ Edit/Delete/Status buttons directly on task cards.
   existing fixture-based byte-size test; no code change was needed for it,
   but it means a very long task list may now show fewer cards per carousel
   than before, since each card is a little larger.
+
+**Two production incidents found and fixed the same day, live with the
+owner:**
+
+1. **LINE Flex footer `separator` schema error.** `separator: true` was
+   placed directly on the footer *box* — LINE's schema doesn't recognise
+   that field there at all; it only exists as bubble-level
+   `styles.footer.separator`. This bug predates tonight (the attachment-links
+   footer had it too) but never surfaced because this account's attachment
+   sharing has always been off, so that footer was never actually populated
+   and sent — the new unconditional Edit/Delete/Status footer hit LINE's
+   strict validation for the first time. LINE's reply API returned
+   `400 unknown field`, silently swallowed by the top-level catch (by
+   design — it never logs request content), so it surfaced only as task-list
+   replies going silent with no error visible anywhere. Root-caused live via
+   Supabase's Invocations/Logs dashboard and temporary, narrowly-scoped
+   diagnostic logging (owner-approved, fully reverted in the fix commit).
+   Fixed: moved to `styles.footer.separator`. Regression test added.
+2. **Confirmed LINE mutations silently skipped by 8 of the app's sync
+   entry points.** Only `gsyncPush` and one branch of `gsyncSaveNow`
+   correctly called `prepareLineMutations()` before finalising a payload —
+   pre-existing since the mutation feature shipped, not something this
+   session introduced. Every other path that adopts a Drive/cloud copy or
+   pushes local without going through that exact call skipped pending
+   mutations entirely, leaving them stuck forever as
+   `status='confirmed'`, `applied_at=null`, with **no error or warning
+   anywhere** — found live when the owner's confirmed `delete` never took
+   effect after Save to Cloud. Fixed in `gsyncNow` (its cloud-adopt,
+   local-push, *and* "nothing changed" branches — the last one matters most
+   for an owner who only ever mutates via LINE, since `localChanged` is
+   never true on that device), `gsyncSaveNow`'s cloud-adopt branch,
+   `gsyncCheckNow` (all three of its own equivalent branches: matched,
+   cloud-moved, local-moved), `gsyncAcceptCloud`, `gsyncAcceptLocal`, and
+   `gsyncPull`. Each adopt-style fix conditionally re-uploads the
+   mutation-merged payload instead of just adopting the raw cloud copy
+   silently. New regression test reproduces the exact incident (cloud moved,
+   nothing else locally unsaved, a LINE mutation pending) via a mocked
+   `window.__MTP_LINE__.prepareMutations`, previously untested by any
+   existing sync test. **Known remaining gap, deliberately not fixed
+   tonight:** `importUseCloud` (the rare "open a conflicting local file from
+   disk" flow) has the same class of gap; scoped out as a much rarer path
+   than the core Drive sync loop, to keep this fix bounded.
