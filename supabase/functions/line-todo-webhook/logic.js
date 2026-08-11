@@ -19,7 +19,7 @@ export const HELP_TEXT_TH = [
   "• ค้นหา ธันวาคม 2026 / สัปดาห์ 49 ปี 2026",
   "• ค้นหา กิจกรรม 2026",
   "• add <ชื่อ>, DD-MM-YYYY",
-  "  (หรือ today / beginning, middle, end of this หรือ next month/year)",
+  "  (หรือ today / beginning, middle, end of this หรือ next month/year / mid of next N months)",
   "• สถานะ",
   "• เมนู",
   "• ช่วยเหลือ",
@@ -37,7 +37,7 @@ export const HELP_TEXT_EN = [
   "• search December 2026 / week 49 2026",
   "• search events 2026",
   "• add <title>, DD-MM-YYYY",
-  "  (or today / beginning, middle, end of this or next month/year)",
+  "  (or today / beginning, middle, end of this or next month/year / mid of next N months)",
   "• status",
   "• menu",
   "• help",
@@ -148,17 +148,24 @@ const isoFromParts=(year,month,day)=>
   `${String(year).padStart(4,"0")}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
 
 // Deterministic relative-date phrases for `add`, computed from bangkokToday().
-// Only unambiguous phrases are matched. "mid of next N months" is intentionally
-// NOT supported — it has no single agreed meaning yet (see PROJECT_CONTEXT.md
-// open backlog); guessing would silently create a task on the wrong date.
+// Only unambiguous phrases are matched.
 const relativeMutationDate=(phrase,now=new Date())=>{
   const folded=String(phrase||"").toLocaleLowerCase("en-US").replace(/\s+/g," ").trim();
   const todayIso=bangkokToday(now);
   if(folded==="today")return todayIso;
+  const [y,m]=todayIso.split("-").map(Number);
+  // "mid of next N months": day 15 of the month N months from now. Owner-defined
+  // 2026-08-11 — the one phrase left ambiguous when this feature first shipped.
+  const midOfNext=folded.match(/^mid of next (\d+) months?$/);
+  if(midOfNext){
+    const monthIndex=(m-1)+Number(midOfNext[1]);
+    const year=y+Math.floor(monthIndex/12);
+    const month=(monthIndex%12)+1;
+    return isoFromParts(year,month,15);
+  }
   const match=folded.match(/^(beginning|middle|end) of (this|next) (month|year)$/);
   if(!match)return "";
   const [,part,when,unit]=match;
-  const [y,m]=todayIso.split("-").map(Number);
   if(unit==="month"){
     const monthIndex=(m-1)+(when==="next"?1:0);
     const year=y+Math.floor(monthIndex/12);
@@ -173,7 +180,7 @@ const relativeMutationDate=(phrase,now=new Date())=>{
 };
 
 const resolveMutationDate=(value,now)=>mutationDate(value)||relativeMutationDate(value,now);
-const MUTATION_DATE_TOKEN=String.raw`(?:\d{2}-\d{2}-\d{4}|today|(?:beginning|middle|end)\s+of\s+(?:this|next)\s+(?:month|year))`;
+const MUTATION_DATE_TOKEN=String.raw`(?:\d{2}-\d{2}-\d{4}|today|mid\s+of\s+next\s+\d+\s+months?|(?:beginning|middle|end)\s+of\s+(?:this|next)\s+(?:month|year))`;
 
 export function parseMutationCommand(value,now=new Date()){
   const text=normalizeCommand(value);
