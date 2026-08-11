@@ -42,7 +42,7 @@ const stored = (store) => String(store.get(`${PROFILE}::lifeplanner-personal-v1`
 
 // A Drive file that actually behaves like one: an upload replaces its bytes and moves
 // its modifiedTime, so a save followed by a check reads back what was written.
-function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp }) {
+function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -143,12 +143,23 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   FrozenDate.parse = RealDate.parse; FrozenDate.UTC = RealDate.UTC;
   Object.defineProperty(window, 'Date', { value: FrozenDate, configurable: true, writable: true });
 
+  // Only set when a test passes lineMutation — every other test leaves
+  // window.__MTP_LINE__ undefined, so prepareLineMutations() takes its own
+  // no-op fallback ({payload, mutationIds:[]}) and behaves exactly as before.
+  const lineCalls = { completeMutations: [] };
+  if (lineMutation) {
+    window.__MTP_LINE__ = {
+      prepareMutations: async (payload) => lineMutation(payload),
+      completeMutations: async (ids) => { lineCalls.completeMutations.push(ids); },
+    };
+  }
+
   const errors = [];
   window.onerror = (m, s, l, c, err) => { errors.push(String(err && err.stack ? err.stack : m)); return true; };
   const real = console.error;
   console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 200)); };
   window.eval(bundle);
-  return { window, store, cloud, uploads, metaCalls, errors, restore: () => { console.error = real; } };
+  return { window, store, cloud, uploads, metaCalls, errors, lineCalls, restore: () => { console.error = real; } };
 }
 
 // Opens the Sync Manager and signs in, pressing nothing else.
@@ -252,6 +263,38 @@ let savedBytes = null;
     'the download was never applied');
   check('no dialog appeared', !/Both copies changed|Save needs a decision/i.test(body(window)));
   check('and nothing was pushed back up', uploads.length === 0, `${uploads.length} upload(s)`);
+}
+
+// ── cloud moved AND a confirmed LINE mutation is waiting: the production
+// incident this fix closes. Before it, this branch adopted the cloud copy
+// and returned — never calling prepareLineMutations at all — so a confirmed
+// delete/add/edit/status change from LINE sat forever as status="confirmed",
+// applied_at=null, with nothing on screen ever telling the owner it silently
+// never happened. Six call sites had this same gap (gsyncNow's cloud-adopt
+// and "nothing changed" branches, gsyncSaveNow's cloud-adopt branch,
+// gsyncAcceptCloud, gsyncAcceptLocal) — this is the one a user actually hit.
+{
+  console.log('\n--- cloud moved AND a LINE mutation is pending: applied, not silently skipped ---');
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: payload.personal.filter((t) => t.title !== 'OnTheOtherDevice') },
+    mutationIds: ['line-mutation-1'], rejected: [],
+  });
+  const { window, store, uploads, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation });
+  await settle();
+  restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i);
+  check('the LINE mutation was applied — the deleted task is gone from storage',
+    !/OnTheOtherDevice/.test(stored(store)), 'the mutation never took effect');
+  check('the merged result was uploaded back to Drive, not just adopted silently',
+    uploads.length > 0, `${uploads.length} upload(s)`);
+  check('the uploaded bytes reflect the mutation', !uploads.some((u) => /OnTheOtherDevice/.test(u)));
+  check('completeMutations was called with the applied id',
+    lineCalls.completeMutations.some((ids) => ids.includes('line-mutation-1')),
+    JSON.stringify(lineCalls.completeMutations));
 }
 
 // ── both moved: the existing conflict dialog, unchanged ────────────────────────
