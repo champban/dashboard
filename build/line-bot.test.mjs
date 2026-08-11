@@ -119,8 +119,14 @@ assert.equal(
   parseMutationCommand("add Party, end of next month", new Date("2028-01-15T02:00:00.000Z")).date,
   "2028-02-29",
 );
-// "mid of next N months" is intentionally unsupported — no single agreed meaning yet.
-assert.equal(parseMutationCommand("add Party, mid of next 3 months",now),null);
+// "mid of next N months": day 15 of the month N months from now (owner-defined 2026-08-11).
+assert.equal(parseMutationCommand("add Party, mid of next 3 months",now).date,"2026-10-15");
+assert.equal(parseMutationCommand("add Party, mid of next 1 month",now).date,"2026-08-15");
+assert.equal(parseMutationCommand("add Party, MID OF NEXT 3 MONTHS",now).date,"2026-10-15");
+// Year rollover.
+assert.equal(parseMutationCommand("add Party, mid of next 6 months",now).date,"2027-01-15");
+// Still no guessing for genuinely different phrasing.
+assert.equal(parseMutationCommand("add Party, mid of the next 3 months",now),null);
 
 // Edit: full form (title change) and the shorter date-only form.
 assert.deepEqual(parseMutationCommand("edit Buy insurance, Buy insurance policy, 15-12-2026"), {
