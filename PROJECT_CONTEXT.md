@@ -5,13 +5,15 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production branch `main` is `a6f5d2f` (merge of PR #52, which resolved PR
-  #51's conflicts); it includes the confirmed LINE Add/Edit/Delete mutation
-  feature on top of the LINE/auth hotfix, bilingual command menu, task-detail
-  cards, Search button, and temporal search.
-- Supabase `line-todo-webhook` version 5 is ACTIVE, redeployed from this exact
-  `main` on `2026-08-11`; bundle SHA-256 is
-  `ac2d0a7ed2f7c9c6b742a9fc13da825d0d6cef2d407f1061c2f445cc476c66ce`.
+- Production branch `main` is `bb4aa88` (merge of PR #59); it includes the
+  confirmed LINE Add/Edit/Delete mutation feature (PR #51/#52), the LINE
+  mutation UX follow-ups — relative dates, shorter `edit`, Open Planner link,
+  silent-rejection warning (PR #56/#57) — and the desktop Save to Cloud header
+  button (PR #59), on top of the LINE/auth hotfix, bilingual command menu,
+  task-detail cards, Search button, and temporal search.
+- Supabase `line-todo-webhook` version 7 is ACTIVE, redeployed from this exact
+  `main` on `2026-08-11`; bundle SHA-256
+  `c42e7db6f7e691e6900226c459d23a41921167af6a17db62b17f91e717d92d6a`.
 - Search-button release merged in PR #43 and deployed at
   `2026-07-30T12:05:31+07:00`. Owner acceptance passed on LINE mobile and
   LINE for PC on `2026-07-30`.
@@ -817,11 +819,13 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | LINE-3 | ~~Rich Menu backup and owner acceptance~~ | **Closed 2026-07-30.** `docs/assets/line/` holds the configuration, the specification, the recreation commands and the deployment image — verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, no `tEXt`/`iTXt`/`eXIf` metadata. The 7-step owner acceptance passed on LINE mobile and LINE for PC: the menu appears, sends `menu`, and the bot returns the English Flex menu containing `Search`. Still absent and still optional: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |
 | LINE-4 | ~~No runtime monitoring~~ | **Closed 2026-07-30.** `.github/workflows/line-health.yml` runs `build/line-health-check.mjs` daily: function GET → 405, unsigned POST → 401, anonymous snapshot read → denied. The third doubles as the keepalive for the free-tier 7-day pause and is the only automated guard on the `anon` revoke, so it replaces the separate keepalive cron in Infrastructure notes. Needs no repository secret. Verified live: run 1 against `main` at `2b54e02` returned `PASS (3/3)`, with the anonymous read denied by **401** — PostgREST answers 401 rather than 403, which is why the check accepts either. What it does **not** prove is bounded by LINE-5. |
 | LINE-5 | Health check cannot see an invalid credential | `index.ts` guards credentials by emptiness only, then answers 401 on the missing signature before it calls LINE or touches the database. A **deleted** secret therefore returns 500 and fails the check, but an **expired or rotated** LINE channel access token still returns 401 and LINE-4 stays green while every real event fails and the owner gets no reply. Closing it means storing a LINE channel access token in repository secrets so a check can call `GET /v2/bot/info` — a token able to post as the Official Account would then live in CI, reachable by any workflow and anyone with write access. **Owner decided on 2026-07-30 not to store the token — risk accepted, not open.** The workflow, the checker's SCOPE comment and the 6D audit all state the same limit: green means "deployed and configured", never "working". Compensating controls: a LINE channel access token is long-lived and does not lapse on its own, so this failure requires a deliberate rotation the owner performs knowingly and can re-test immediately (`docs/LINE_OFFICIAL_SETUP.md` → Rollback already lists rotation as an incident step); and with a single owner-user, a dead bot surfaces on first use rather than sitting unnoticed. **Revisit if** a second user is onboarded, or if a token ever does expire unexpectedly — either breaks a compensating control. Raised by automated review on PR #45. |
-| — | LINE confirmed mutations: rejected/expired mutations fail silently | `prepareMutations()` in `line-sync.js` marks a `not_found`/`duplicate_title` mutation `rejected`, or simply skips one past its 10-minute `expires_at`, with no message surfaced in Full or Mobile. Correct/safe (nothing wrong gets applied) but confusing — the owner sees "Confirmed" in LINE, then silence. Found during production acceptance testing on 2026-08-11. |
-| — | LINE `add`: relative date phrases | Owner requested `today`, `beginning/middle/end of {this,next} month/year` in place of `DD-MM-YYYY`. Ordinary deterministic date math, no AI needed — but needs an exact, unambiguous definition per phrase before implementation. Most are clear; "mid of next 3 months" is not (3 months out from today vs. somewhere within a 3-month window) and needs the owner to pick one meaning first. Requested 2026-08-11. |
-| — | LINE bot replies: "Open Planner" link | Owner requested a clickable link in the Add/Edit/Delete confirmation reply pointing at `https://champban.github.io/dashboard/`, so they don't have to navigate there manually to press Save to Cloud. Still requires the owner to press it themselves — true auto-save was also requested and declined for now, since it would mean the backend permanently holding a Google Drive credential it does not have today. Requested 2026-08-11. |
-| — | LINE `edit`: shorter syntax | Owner feedback: `edit <old title>, <new title>, DD-MM-YYYY` is verbose when only the date is changing (title must be repeated). Consider an optional-new-title form. Raised during production acceptance testing on 2026-08-11. |
-| — | `BUILD-MANIFEST.json` mobile hash is stale | The packaging pipeline (`build/pipeline.mjs`/`build/package.mjs`) only recalculates the `full.*` (Full app) entry; `mobile.sha256`/`mobile.bytes` are hand-maintained and drift whenever `mobile/index.html` is edited without a manual update. The live file itself was confirmed correct (byte-identical to the repo) during 2026-08-11 acceptance testing — only the manifest's record of it was wrong. Found 2026-08-11. |
+| — | ~~LINE confirmed mutations: rejected/expired mutations fail silently~~ | **Closed 2026-08-11.** `prepareMutations()` in `line-sync.js` now returns a `rejected` list (including a proper `expired` reason, previously invisible since expired rows were excluded from the query entirely) instead of discarding it. Full and Mobile surface it as an amber "Saved to cloud — N LINE change(s) could not be applied (reason)" note/toast instead of nothing. Merged in PR #56, deployed with `line-todo-webhook` v5/v6. |
+| — | ~~LINE \`add\`: relative date phrases~~ | **Closed 2026-08-11** for all phrases with an agreed meaning: `today`, `beginning/middle/end of this/next month/year`, computed deterministically from `bangkokToday()` (tested incl. month/year rollover and leap-year month length). Merged in PR #56, deployed. `mid of next 3 months` remains unsupported — see the still-open row below. |
+| — | LINE `add`: define "mid of next N months" | The one relative-date phrase not closed above. Ambiguous between "N months from today, at the middle of that month" and "somewhere within an N-month window" — needs the owner to pick one specific meaning before it can be built; guessing would silently create a task on the wrong date. Requested 2026-08-11. |
+| — | ~~LINE bot replies: "Open Planner" link~~ | **Closed 2026-08-11.** Added to both the mutation-confirmation reply and the persistent command menu/Quick Reply row (English "Open Planner" / Thai "เปิด Planner"), 10 actions total, still below LINE's 13-item limit. Merged in PR #56 and #57, deployed. Auto-save was requested too and explicitly declined — would require the backend to permanently hold a Google Drive credential it does not have today. |
+| — | ~~LINE \`edit\`: shorter syntax~~ | **Closed 2026-08-11.** `edit <title>, DD-MM-YYYY` now works when only the date changes, alongside the existing `edit <old title>, <new title>, DD-MM-YYYY` form. Merged in PR #56, deployed. |
+| — | ~~\`BUILD-MANIFEST.json\` mobile hash is stale~~ | **Closed 2026-08-11.** `build/pipeline.mjs` now recalculates `mobile.sha256`/`mobile.bytes` on every package run, alongside the existing `full.*` fields, so the two can no longer drift apart. Merged in PR #56. |
+| — | Desktop Save to Cloud button — owner acceptance | Added in PR #59 (2026-08-11): a header-level Save to Cloud button for desktop (≥1024px), mirroring the existing mobile/tablet one — the action was previously three clicks deep in the Profile+Sync dropdown on desktop. `npm run verify` passed and it was checked in a headless browser, but the owner has not yet eyeballed it on a real signed-in session with Drive linked. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
@@ -930,7 +934,6 @@ owner could not complete the Supabase backup manually):
   (`applyMutation` in `line-sync.js`) just verified for the not-found case.
   Drive-outage/retry behaviour was not live-tested but is covered by the
   passing automated Drive-conflict suite in `npm test`.
-- **Known gap, not a defect in this release:** a rejected (`not_found` /
-  `duplicate_title`) or expired (10-minute TTL) confirmed mutation fails
-  silently — `prepareMutations()` in `line-sync.js` marks it and moves on with
-  no message shown in Full or Mobile. Logged in Open backlog below.
+- **Gap found here, closed same day:** a rejected (`not_found` /
+  `duplicate_title`) or expired (10-minute TTL) confirmed mutation used to
+  fail silently. Fixed in PR #56 (2026-08-11) — see Open backlog below.
