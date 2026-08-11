@@ -20,6 +20,12 @@ export const HELP_TEXT_TH = [
   "• ค้นหา กิจกรรม 2026",
   "• add <ชื่อ>, DD-MM-YYYY",
   "  (หรือ today / beginning, middle, end of this หรือ next month/year / mid of next N months)",
+  "  (พิมพ์ add <ชื่อ> เฉย ๆ โดยไม่ใส่วันที่ก็ได้ — จะมีเมนูให้เลือกวันที่)",
+  "• edit <ชื่อเดิม>, <ชื่อใหม่>, DD-MM-YYYY",
+  "  (หรือ edit <ชื่อ>, DD-MM-YYYY ถ้าจะเปลี่ยนแค่วันที่ — พิมพ์ edit <ชื่อ> เฉย ๆ ก็ได้ จะมีเมนูวันที่)",
+  "• status <ชื่อ>, done/pending (งานส่วนตัว) หรือ status work <ชื่อ>, done/pending/to do/in progress/review",
+  "  (พิมพ์ status <ชื่อ> เฉย ๆ ก็ได้ — จะมีเมนูให้เลือกสถานะ)",
+  "  (แตะปุ่มแก้ไข/ลบ/สถานะ บนการ์ดงานได้โดยตรง)",
   "• สถานะ",
   "• เมนู",
   "• ช่วยเหลือ",
@@ -38,6 +44,12 @@ export const HELP_TEXT_EN = [
   "• search events 2026",
   "• add <title>, DD-MM-YYYY",
   "  (or today / beginning, middle, end of this or next month/year / mid of next N months)",
+  "  (or just add <title> with no date — you'll get a menu to pick one)",
+  "• edit <old title>, <new title>, DD-MM-YYYY",
+  "  (or edit <title>, DD-MM-YYYY to only change the date — or just edit <title> for a date menu)",
+  "• status <title>, done/pending (personal) or status work <title>, done/pending/to do/in progress/review",
+  "  (or just status <title> for a menu of the valid statuses)",
+  "  (or tap Edit/Delete/Status right on a task card)",
   "• status",
   "• menu",
   "• help",
@@ -56,6 +68,9 @@ const MENU_ACTIONS = {
     { label: "Search", kind: "search_prompt", language: "en" },
     { label: "Open Planner", kind: "uri", uri: PLANNER_URL },
     { label: "Status", text: "status" },
+    { label: "Add", kind: "prefill", promptKind: "add", language: "en" },
+    { label: "Edit", kind: "prefill", promptKind: "edit", language: "en" },
+    { label: "Set Status", kind: "prefill", promptKind: "status", language: "en" },
     { label: "Help", text: "help" },
     { label: "ภาษาไทย", text: "เมนู" },
   ],
@@ -68,6 +83,9 @@ const MENU_ACTIONS = {
     { label: "ค้นหา", kind: "search_prompt", language: "th" },
     { label: "เปิด Planner", kind: "uri", uri: PLANNER_URL },
     { label: "สถานะ", text: "สถานะ" },
+    { label: "เพิ่มงาน", kind: "prefill", promptKind: "add", language: "th" },
+    { label: "แก้ไข", kind: "prefill", promptKind: "edit", language: "th" },
+    { label: "ตั้งสถานะ", kind: "prefill", promptKind: "status", language: "th" },
     { label: "ช่วยเหลือ", text: "ช่วยเหลือ" },
     { label: "English", text: "menu" },
   ],
@@ -135,6 +153,27 @@ const mutationType = (value) => {
   return type==="work"||type==="business"?"work":type==="event"?"event":"personal";
 };
 
+// Personal tasks only ever have two states; work tasks have the app's full
+// four-stage workflow. Events have no status at all — never offered here.
+const STATUS_VALUES = {
+  personal:{pending:"pending",done:"done"},
+  work:{todo:"todo","to do":"todo","in progress":"inprogress",inprogress:"inprogress",review:"review",done:"done"},
+};
+const STATUS_LABELS = {
+  personal:{pending:{en:"Pending",th:"ค้าง"},done:{en:"Done",th:"เสร็จแล้ว"}},
+  work:{todo:{en:"To Do",th:"ต้องทำ"},inprogress:{en:"In Progress",th:"กำลังทำ"},
+    review:{en:"Review",th:"ตรวจสอบ"},done:{en:"Done",th:"เสร็จแล้ว"}},
+};
+const normalizeStatusValue=(type,raw)=>{
+  const folded=String(raw||"").toLocaleLowerCase("en-US").replace(/\s+/g," ").trim();
+  const table=type==="work"?STATUS_VALUES.work:STATUS_VALUES.personal;
+  return table[folded]||"";
+};
+const statusLabel=(type,value,lang)=>{
+  const table=type==="work"?STATUS_LABELS.work:STATUS_LABELS.personal;
+  return table[value]?.[lang]||value;
+};
+
 const mutationDate = (value) => {
   const match=String(value||"").match(/^(\d{2})-(\d{2})-(\d{4})$/);
   if(!match)return "";
@@ -192,23 +231,61 @@ export function parseMutationCommand(value,now=new Date()){
     return {action:"add",type:mutationType(add[1]),title:cleanText(add[2],240),date,
       category:"General",priority:"Medium"};
   }
-  const edit=text.match(/^edit(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  const edit=text.match(new RegExp(
+    `^edit(?:\\s+(personal|work|business|event))?\\s+(.+?)\\s*,\\s*(.+?)\\s*,\\s*(${MUTATION_DATE_TOKEN})$`,"iu"));
   if(edit){
-    const date=mutationDate(edit[4]);
+    const date=resolveMutationDate(edit[4],now);
     if(!date)return null;
     return {action:"edit",type:mutationType(edit[1]),matchTitle:cleanText(edit[2],240),
       title:cleanText(edit[3],240),date};
   }
   // Shorter form: only the date changes, so the title is not repeated.
-  const editDateOnly=text.match(/^edit(?:\s+(personal|work|business|event))?\s+(.+?)\s*,\s*(\d{2}-\d{2}-\d{4})$/iu);
+  const editDateOnly=text.match(new RegExp(
+    `^edit(?:\\s+(personal|work|business|event))?\\s+(.+?)\\s*,\\s*(${MUTATION_DATE_TOKEN})$`,"iu"));
   if(editDateOnly){
-    const date=mutationDate(editDateOnly[3]);
+    const date=resolveMutationDate(editDateOnly[3],now);
     if(!date)return null;
     const title=cleanText(editDateOnly[2],240);
     return {action:"edit",type:mutationType(editDateOnly[1]),matchTitle:title,title,date};
   }
+  const status=text.match(/^status(?:\s+(personal|work|business))?\s+(.+?)\s*,\s*(.+)$/iu);
+  if(status){
+    const type=mutationType(status[1]);
+    const statusValue=normalizeStatusValue(type,status[3]);
+    if(!statusValue)return null;
+    return {action:"status",type,matchTitle:cleanText(status[2],240),status:statusValue};
+  }
   const remove=text.match(/^delete(?:\s+(personal|work|business|event))?\s+(.+)$/iu);
   return remove?{action:"delete",type:mutationType(remove[1]),matchTitle:cleanText(remove[2],240)}:null;
+}
+
+// `add <title>` with no date attempt at all (no comma, or a bare trailing
+// comma) — offer a date picker instead of the generic unknown-command reply.
+// Deliberately excludes a comma followed by anything: that is a botched date
+// attempt (e.g. "add X, tmrw"), and guessing which part was meant as the
+// title would be worse than the existing "command not understood" reply.
+export function parseAddNeedsDate(value){
+  const text=normalizeCommand(value);
+  const match=text.match(/^add(?:\s+(personal|work|business|event))?\s+([^,]+?)\s*,?\s*$/iu);
+  return match?{type:mutationType(match[1]),title:cleanText(match[2],240)}:null;
+}
+
+// `edit <title>` with no date attempt — same exclusion logic as add. Title
+// is unchanged (this is always the date-only short form), so matchTitle and
+// title are the same value.
+export function parseEditNeedsDate(value){
+  const text=normalizeCommand(value);
+  const match=text.match(/^edit(?:\s+(personal|work|business|event))?\s+([^,]+?)\s*,?\s*$/iu);
+  return match?{type:mutationType(match[1]),title:cleanText(match[2],240)}:null;
+}
+
+// `status <title>` with no value — events are excluded entirely (mutationType
+// folds an "event" prefix to itself, but events have no status; the caller
+// must not offer this for an event-typed task).
+export function parseStatusNeedsValue(value){
+  const text=normalizeCommand(value);
+  const match=text.match(/^status(?:\s+(personal|work|business))?\s+([^,]+?)\s*,?\s*$/iu);
+  return match?{type:mutationType(match[1]),title:cleanText(match[2],240)}:null;
 }
 
 export function parseMutationPostback(value){
@@ -218,14 +295,87 @@ export function parseMutationPostback(value){
 
 export function buildMutationConfirmation(operation,id,language="en"){
   const lang=normalizeLanguage(language);
-  const label=operation.action==="add"?"Add":operation.action==="edit"?"Edit":"Delete";
+  const label=operation.action==="add"?"Add":operation.action==="edit"?"Edit"
+    :operation.action==="status"?"Update status":"Delete";
   const summary=[`${label} ${operation.type}`,operation.matchTitle?`Match: ${operation.matchTitle}`:"",
     operation.title?`Title: ${operation.title}`:"",operation.date?`Date: ${operation.date}`:"",
+    operation.status?`New status: ${statusLabel(operation.type,operation.status,lang)}`:"",
     operation.category?`Category: ${operation.category}`:"",operation.priority?`Priority: ${operation.priority}`:""].filter(Boolean).join("\n");
   return {type:"text",text:`${summary}\n\n${lang==="th"?"ยืนยันคำสั่งนี้หรือไม่?":"Confirm this change?"}`,
     quickReply:{items:["confirm","cancel"].map(decision=>({type:"action",action:{type:"postback",
       label:decision==="confirm"?(lang==="th"?"ยืนยัน":"Confirm"):(lang==="th"?"ยกเลิก":"Cancel"),
       data:`mutation=${decision}&id=${id}`}}))}};
+}
+
+// Each shortcut's `text` is a full, re-parseable `add` command — tapping one
+// sends it back exactly as if the owner had typed it, going through the
+// same parseMutationCommand() path as any other message. No server-side
+// session state is needed to remember the title in between messages.
+const ADD_DATE_SHORTCUTS = {
+  en: [
+    ["Today", "today"],
+    ["This month start", "beginning of this month"],
+    ["This month mid", "middle of this month"],
+    ["This month end", "end of this month"],
+    ["Next month start", "beginning of next month"],
+    ["Next month mid", "middle of next month"],
+    ["Next month end", "end of next month"],
+    ["This year start", "beginning of this year"],
+    ["This year mid", "middle of this year"],
+    ["This year end", "end of this year"],
+    ["Next year start", "beginning of next year"],
+    ["Next year mid", "middle of next year"],
+    ["Next year end", "end of next year"],
+  ],
+  th: [
+    ["วันนี้", "today"],
+    ["ต้นเดือนนี้", "beginning of this month"],
+    ["กลางเดือนนี้", "middle of this month"],
+    ["สิ้นเดือนนี้", "end of this month"],
+    ["ต้นเดือนหน้า", "beginning of next month"],
+    ["กลางเดือนหน้า", "middle of next month"],
+    ["สิ้นเดือนหน้า", "end of next month"],
+    ["ต้นปีนี้", "beginning of this year"],
+    ["กลางปีนี้", "middle of this year"],
+    ["สิ้นปีนี้", "end of this year"],
+    ["ต้นปีหน้า", "beginning of next year"],
+    ["กลางปีหน้า", "middle of next year"],
+    ["สิ้นปีหน้า", "end of next year"],
+  ],
+};
+
+function buildDateShortcutPrompt(action,needsDate,language){
+  const lang=normalizeLanguage(language);
+  const prefix=needsDate.type!=="personal"?`${needsDate.type} `:"";
+  const command=phrase=>`${action} ${prefix}${needsDate.title}, ${phrase}`;
+  return {type:"text",
+    text:lang==="th"
+      ?"เมื่อไหร่? เลือกจากเมนู หรือพิมพ์วันที่เป็น DD-MM-YYYY"
+      :"When? Pick one below, or type a date as DD-MM-YYYY.",
+    quickReply:{items:ADD_DATE_SHORTCUTS[lang].map(([label,phrase])=>({
+      type:"action",action:{type:"message",label,text:command(phrase)}}))}};
+}
+
+export function buildAddDatePrompt(needsDate,language="en"){
+  return buildDateShortcutPrompt("add",needsDate,language);
+}
+
+// Reuses the exact same date shortcuts as add — the short edit form
+// (`edit <title>, <date>`) keeps the title unchanged, so the reconstructed
+// command only ever changes the trailing date.
+export function buildEditDatePrompt(needsDate,language="en"){
+  return buildDateShortcutPrompt("edit",needsDate,language);
+}
+
+export function buildStatusPrompt(needsStatus,language="en"){
+  const lang=normalizeLanguage(language);
+  const prefix=needsStatus.type!=="personal"?`${needsStatus.type} `:"";
+  const command=value=>`status ${prefix}${needsStatus.title}, ${value}`;
+  const values=needsStatus.type==="work"?["todo","inprogress","review","done"]:["pending","done"];
+  return {type:"text",
+    text:lang==="th"?"เลือกสถานะใหม่ด้านล่าง":"Pick the new status below.",
+    quickReply:{items:values.map(value=>({type:"action",action:{type:"message",
+      label:statusLabel(needsStatus.type,value,lang),text:command(value)}}))}};
 }
 
 export function buildMutationResultMessage(status,matched){
@@ -304,6 +454,30 @@ export function buildSearchPromptText(language = "en") {
   return normalizeLanguage(language) === "th"
     ? "พิมพ์คำที่ต้องการหลัง “ค้นหา ” แล้วกดส่ง\nตัวอย่าง: ค้นหา พาสปอร์ต"
     : "Type a keyword after “search ”, then send.\nExample: search passport";
+}
+
+export function parseMutationPromptPostback(value) {
+  const match = String(value ?? "").match(/^action=mutation_prompt&kind=(add|edit|status)&lang=(en|th)$/);
+  return match ? { kind: match[1], language: match[2] } : null;
+}
+
+export function buildMutationPromptMessage(kind, language = "en") {
+  const lang = normalizeLanguage(language);
+  const text = {
+    add: {
+      en: "Type a title after “add ”, then send.\nExample: add Buy milk\nAdd a date too (add Buy milk, today) or leave it out and pick from a menu.",
+      th: "พิมพ์ชื่องานหลัง “add ” แล้วกดส่ง\nตัวอย่าง: add Buy milk\nจะใส่วันที่ด้วยก็ได้ (add Buy milk, today) หรือไม่ใส่ก็ได้ แล้วเลือกจากเมนู",
+    },
+    edit: {
+      en: "Type the exact existing title after “edit ”, then send.\nExample: edit Buy milk\nYou'll get a menu to pick the new date.",
+      th: "พิมพ์ชื่องานเดิมทั้งหมดหลัง “edit ” แล้วกดส่ง\nตัวอย่าง: edit Buy milk\nจะมีเมนูให้เลือกวันที่ใหม่",
+    },
+    status: {
+      en: "Type the exact existing title after “status ”, then send.\nExample: status Buy milk\nYou'll get a menu to pick the new status.",
+      th: "พิมพ์ชื่องานเดิมทั้งหมดหลัง “status ” แล้วกดส่ง\nตัวอย่าง: status Buy milk\nจะมีเมนูให้เลือกสถานะใหม่",
+    },
+  }[kind]?.[lang] || "";
+  return { type: "text", text, quickReply: buildQuickReply(lang) };
 }
 
 function formatDate(value, language) {
@@ -546,6 +720,30 @@ function attachmentButton(item, language) {
   };
 }
 
+// Each button's `text` is a full, re-parseable command — tapping one sends
+// it back exactly as if the owner had typed it. Edit/Status intentionally
+// send the bare (no comma) form so the owner lands on the same date/status
+// picker as typing it manually would; Delete needs nothing further and goes
+// straight to the existing Confirm/Cancel step. No task ID is ever needed or
+// exposed — exact title is already shown on the card.
+function taskActionButtons(task, lang) {
+  const title = cleanText(task?.title, 240);
+  if (!title) return [];
+  const type = task?.type === "event" ? "event" : task?.type === "work" ? "work" : "personal";
+  const prefix = type !== "personal" ? `${type} ` : "";
+  const buttons = [
+    { type: "button", style: "secondary", height: "sm", action: {
+      type: "message", label: lang === "th" ? "แก้ไข" : "Edit", text: `edit ${prefix}${title}` } },
+    { type: "button", style: "secondary", height: "sm", action: {
+      type: "message", label: lang === "th" ? "ลบ" : "Delete", text: `delete ${prefix}${title}` } },
+  ];
+  if (type !== "event") {
+    buttons.push({ type: "button", style: "secondary", height: "sm", action: {
+      type: "message", label: lang === "th" ? "สถานะ" : "Status", text: `status ${prefix}${title}` } });
+  }
+  return buttons;
+}
+
 function taskBubble(task, index, shownCount, totalCount, language, extraTaskCount = 0) {
   const lang = normalizeLanguage(language);
   const title = cleanText(task?.title) || (lang === "th" ? "(ไม่มีชื่อ)" : "(Untitled)");
@@ -686,16 +884,20 @@ function taskBubble(task, index, shownCount, totalCount, language, extraTaskCoun
       paddingAll: "lg",
       contents: bodyContents,
     },
-    ...(attachments.length > 0 ? {
-      footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "xs",
-        paddingAll: "sm",
-        separator: true,
-        contents: attachments.map((item) => attachmentButton(item, lang)),
-      },
-    } : {}),
+    ...(() => {
+      const actionButtons = taskActionButtons(task, lang);
+      const contents = [...actionButtons, ...attachments.map((item) => attachmentButton(item, lang))];
+      return contents.length > 0 ? {
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "xs",
+          paddingAll: "sm",
+          separator: true,
+          contents,
+        },
+      } : {};
+    })(),
   };
 }
 
@@ -769,6 +971,19 @@ function lineAction(item) {
   }
   if (item.kind === "uri") {
     return { type: "uri", label: item.label, uri: item.uri };
+  }
+  if (item.kind === "prefill") {
+    // The typed command itself (add/edit/status) stays English-only regardless
+    // of menu language, same as every other mutation command — only the
+    // button label and the follow-up instructional reply are translated.
+    const lang = normalizeLanguage(item.language);
+    return {
+      type: "postback",
+      label: item.label,
+      data: `action=mutation_prompt&kind=${item.promptKind}&lang=${lang}`,
+      inputOption: "openKeyboard",
+      fillInText: `${item.promptKind} `,
+    };
   }
   return {
     type: "message",

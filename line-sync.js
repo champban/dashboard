@@ -304,6 +304,7 @@ function applyMutation(profile,operation){
     if(matches.length!==1)return {error:matches.length?"duplicate_title":"not_found"};
     const index=matches[0];
     if(operation.action==="delete")list.splice(index,1);
+    else if(operation.action==="status")list[index]={...list[index],status:operation.status};
     else list[index]={...list[index],title:operation.title,
       ...(operation.type==="event"?{start:operation.date,end:operation.date}:{due:operation.date})};
   }

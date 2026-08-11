@@ -936,3 +936,51 @@ owner could not complete the Supabase backup manually):
 - **Gap found here, closed same day:** a rejected (`not_found` /
   `duplicate_title`) or expired (10-minute TTL) confirmed mutation used to
   fail silently. Fixed in PR #56 (2026-08-11) — see Open backlog below.
+
+### Interactive mutation menu, task-card actions, and status updates (2026-08-11)
+
+Owner request: menu shortcuts for Add/Edit/"Set Status" that prompt for the
+missing piece rather than requiring the exact one-line syntax, and clickable
+Edit/Delete/Status buttons directly on task cards.
+
+- Menu/Quick Reply grew from 10 to **13 actions — exactly LINE's limit, no
+  headroom left for a future addition without removing one.** New entries:
+  "Add" / "Edit" / "Set Status" (English), "เพิ่มงาน" / "แก้ไข" / "ตั้งสถานะ"
+  (Thai) — distinct from the pre-existing "Status" button, which still shows
+  the read-only pending/done/overdue counts. Each new entry is a
+  keyboard-prefill postback (`action=mutation_prompt&kind=…&lang=…`), same
+  mechanism the Search button already used: fills `add `/`edit `/`status `
+  into the input and separately replies with a short instructional message.
+  The typed command itself stays English-only regardless of menu language,
+  same as every other mutation command.
+- **New mutation type: `status`.** Personal tasks keep the app's existing
+  Pending/Done toggle; **work tasks get the app's full four-state workflow —
+  To Do, In Progress, Review, Done** (owner chose full parity over a
+  simplified Done/Pending-only toggle when asked, since the app itself
+  already has four states for work tasks). Events have no status concept and
+  are never offered it, at the parser, the picker, or the card-button level.
+  `status <title>, <value>` for the full command; `status <title>` alone
+  offers a picker (2 buttons for personal, 4 for work).
+- **`edit <title>` alone now also offers a date picker** — the exact same
+  shortcut set as `add`, reusing the machinery from PR #56's "add without a
+  date" feature. Its commands reconstruct the *short* edit form
+  (`edit <title>, <date>`), so the title is never touched. Consequence found
+  while wiring this up: **`edit`'s date field never supported the relative
+  phrases from PR #56 at all — only literal `DD-MM-YYYY`.** Fixed as part of
+  this change (both edit forms now go through the same `resolveMutationDate`
+  as add); a picker button generating `edit X, today` would otherwise have
+  silently failed to parse.
+- **Task cards (every Flex bubble, in every reply — today/week/search/etc.)
+  now carry Edit/Delete buttons, and Status too unless the task is an
+  event.** Each button just sends a fully-formed bare command
+  (`edit <type><title>` / `delete <type><title>` / `status <type><title>`)
+  as if the owner had typed it — no server-side session state, no task ID
+  ever exposed (the exact title was already on the card). Confirm/Cancel
+  before anything executes was already true for every mutation before this
+  change; nothing new was needed there.
+- The carousel byte-budget (`MAX_FLEX_CAROUSEL_BYTES`, 50 KiB) already
+  degrades gracefully by dropping the last card and rebuilding until it
+  fits — confirmed this still holds with the added button overhead using the
+  existing fixture-based byte-size test; no code change was needed for it,
+  but it means a very long task list may now show fewer cards per carousel
+  than before, since each card is a little larger.
