@@ -15009,6 +15009,30 @@ export default function App() {
                   </button>
                 );
               })()}
+              {/* Save to Cloud — desktop header. The compact (mobile/tablet) header
+                  already has this button; desktop only exposed the action inside the
+                  Profile+Sync dropdown, three clicks deep, so there was no header
+                  answer to "is my work safe yet?" above 1024px. Mirrors the mobile
+                  button: amber while this screen holds something Drive does not,
+                  green once it does. */}
+              {!!gsync.fileId && (()=>{
+                const notOnDrive = localUnsynced();
+                return (
+                  <button onClick={()=>setConfirmCloudSave(true)}
+                    disabled={gsyncStatus==="syncing"}
+                    title={notOnDrive?"This screen holds changes that are not on Drive yet":"Drive already has what is on screen"}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,
+                      border:"none",cursor:"pointer",whiteSpace:"nowrap",fontSize:"0.82em",fontWeight:800,
+                      background: notOnDrive?"#d97706":"#166534", color:"#fff",
+                      opacity:gsyncStatus==="syncing"?.7:1}}>
+                    <span style={{fontSize:"1.05em",display:"inline-block",
+                      animation:gsyncStatus==="syncing"?"spin 0.9s linear infinite":"none"}}>
+                      {gsyncStatus==="syncing"?"🔄":"☁️"}
+                    </span>
+                    {gsyncStatus==="syncing"?"Saving…":"Save to Cloud"}
+                  </button>
+                );
+              })()}
               {/* B: unified Profile + Sync + File button */}
               <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                 {(()=>{
