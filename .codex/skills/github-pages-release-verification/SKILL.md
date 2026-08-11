@@ -1,3 +1,8 @@
+---
+name: github-pages-release-verification
+description: Verify a GitHub Pages release against the intended branch, commit, files, URLs, and smoke tests. Use after or around a Pages deployment; do not use as a general code-review workflow.
+---
+
 # GitHub Pages Release Verification
 
 ## Purpose

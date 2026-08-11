@@ -1,3 +1,8 @@
+---
+name: github-codex-safe-patch-deploy
+description: Safely patch and release an existing GitHub-hosted application with Codex. Use for scoped code changes, verification, pull requests, and deployment checks; do not use for unrelated product planning.
+---
+
 # GitHub Codex Safe Patch & Deploy
 
 ## Purpose
