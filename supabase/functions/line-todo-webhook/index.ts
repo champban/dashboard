@@ -7,6 +7,7 @@ import {
   buildReplyMessages,
   buildSearchPromptMessage,
   buildMutationConfirmation,
+  buildMutationResultMessage,
   commandLanguage,
   extractLinkCode,
   parseIntent,
@@ -201,9 +202,7 @@ async function handlePostbackEvent(
       .eq("id",mutation.id).eq("owner_id",account.owner_id).eq("status","draft")
       .gt("expires_at",now).select("id").maybeSingle();
     if(error)throw new Error("Could not confirm LINE mutation");
-    await replyText(replyToken,data?(status==="confirmed"
-      ?"Confirmed. Open Planner and Save to Cloud to apply this change.":"Cancelled.")
-      :"This confirmation expired or was already used.",accessToken);
+    await replyLine(replyToken, [buildMutationResultMessage(status, !!data)], accessToken);
     return;
   }
   const language = parseSearchPromptPostback(event?.postback?.data);

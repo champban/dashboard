@@ -313,16 +313,25 @@ function applyMutation(profile,operation){
 
 async function prepareMutations(payload){
   const client=apiClient();const id=await ownerId();const now=new Date().toISOString();
-  const {data,error}=await client.from("mtp_line_mutations").select("id,operation")
-    .eq("owner_id",id).eq("status","confirmed").gt("expires_at",now).order("created_at");
+  const {data,error}=await client.from("mtp_line_mutations").select("id,operation,expires_at")
+    .eq("owner_id",id).eq("status","confirmed").order("created_at");
   if(error)throw new Error(error.message||"Could not read confirmed LINE changes.");
-  let next=payload;const mutationIds=[];
+  let next=payload;const mutationIds=[];const rejected=[];
   for(const row of data||[]){
+    if(row.expires_at<=now){
+      await client.from("mtp_line_mutations").update({status:"rejected",error_code:"expired",updated_at:now}).eq("id",row.id);
+      rejected.push({id:row.id,error:"expired"});
+      continue;
+    }
     const result=applyMutation(next,row.operation);
-    if(result.error){await client.from("mtp_line_mutations").update({status:"rejected",error_code:result.error,updated_at:now}).eq("id",row.id);continue;}
+    if(result.error){
+      await client.from("mtp_line_mutations").update({status:"rejected",error_code:result.error,updated_at:now}).eq("id",row.id);
+      rejected.push({id:row.id,error:result.error});
+      continue;
+    }
     next=result.payload;mutationIds.push(row.id);
   }
-  return {payload:next,mutationIds};
+  return {payload:next,mutationIds,rejected};
 }
 
 async function completeMutations(ids){
