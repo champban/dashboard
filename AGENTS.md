@@ -4,6 +4,33 @@ Read `PROJECT_CONTEXT.md` before changing this repository. For cross-project
 policy, also read `champban/Engineering1` → branch `Doc` →
 `project_context.md` through the connected GitHub tool.
 
+When Codex and Claude Code may share this Codespace/working tree, or the user
+asks for handover/takeover, also read `champban/Engineering1` → branch `Doc` →
+`skills/ai-continuity-handover/SKILL.md`.
+
+## AI continuity: Codex + Claude Code
+
+- `PROJECT_CONTEXT.md`, repository files and Git are the durable source of truth.
+- `.ai/state.json` is local ephemeral task/coordination state only and must stay
+  ignored by Git. Never put secrets, tokens, credentials, customer data, or
+  sensitive production payloads in it.
+- Only one active writer may edit this working tree at a time.
+- If `.ai/state.json` says Claude is `ACTIVE`, Codex remains read-only unless the
+  user explicitly asks Codex to `take over` (or equivalent).
+- On `handover to Claude`, Codex must stop new implementation work, inspect the
+  actual branch/HEAD/status/diff/test evidence, checkpoint the task into
+  `.ai/state.json`, set `READY_FOR_TAKEOVER`, and stop editing.
+- On explicit Codex `take over`, Codex must read the mandatory project context,
+  inspect `.ai/state.json`, independently verify branch/HEAD/status/diff/tests,
+  reconcile any stale state, set Codex `ACTIVE`, then continue from verified next
+  actions.
+- If Claude stops unexpectedly because of token/session limits, an explicit user
+  takeover authorizes Codex to assume the writer role after repository
+  verification. A separate prose handover is not required.
+- Do not implement automatic token monitoring or automatic failover.
+- Codex may perform read-only independent review while Claude is active when the
+  user asks for review.
+
 ## Source and release rules
 
 - `index.html` is generated. Edit `src/App.jsx` or `build/*`, then run
