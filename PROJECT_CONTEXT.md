@@ -5,11 +5,13 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production branch `main` is `ad3067f`; it includes the LINE/auth hotfix,
-  bilingual command menu, task-detail cards, and Search button.
-- Supabase `line-todo-webhook` version 3 is ACTIVE. Its three deployed source
-  files exactly match merged `main`; bundle SHA-256 is
-  `d4ed04cad2935502009ca61275062bd3130752780179f0f099d76ed2a3ab51f6`.
+- Production branch `main` is `a6f5d2f` (merge of PR #52, which resolved PR
+  #51's conflicts); it includes the confirmed LINE Add/Edit/Delete mutation
+  feature on top of the LINE/auth hotfix, bilingual command menu, task-detail
+  cards, Search button, and temporal search.
+- Supabase `line-todo-webhook` version 5 is ACTIVE, redeployed from this exact
+  `main` on `2026-08-11`; bundle SHA-256 is
+  `ac2d0a7ed2f7c9c6b742a9fc13da825d0d6cef2d407f1061c2f445cc476c66ce`.
 - Search-button release merged in PR #43 and deployed at
   `2026-07-30T12:05:31+07:00`. Owner acceptance passed on LINE mobile and
   LINE for PC on `2026-07-30`.
@@ -815,6 +817,10 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | LINE-3 | ~~Rich Menu backup and owner acceptance~~ | **Closed 2026-07-30.** `docs/assets/line/` holds the configuration, the specification, the recreation commands and the deployment image — verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, no `tEXt`/`iTXt`/`eXIf` metadata. The 7-step owner acceptance passed on LINE mobile and LINE for PC: the menu appears, sends `menu`, and the bot returns the English Flex menu containing `Search`. Still absent and still optional: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |
 | LINE-4 | ~~No runtime monitoring~~ | **Closed 2026-07-30.** `.github/workflows/line-health.yml` runs `build/line-health-check.mjs` daily: function GET → 405, unsigned POST → 401, anonymous snapshot read → denied. The third doubles as the keepalive for the free-tier 7-day pause and is the only automated guard on the `anon` revoke, so it replaces the separate keepalive cron in Infrastructure notes. Needs no repository secret. Verified live: run 1 against `main` at `2b54e02` returned `PASS (3/3)`, with the anonymous read denied by **401** — PostgREST answers 401 rather than 403, which is why the check accepts either. What it does **not** prove is bounded by LINE-5. |
 | LINE-5 | Health check cannot see an invalid credential | `index.ts` guards credentials by emptiness only, then answers 401 on the missing signature before it calls LINE or touches the database. A **deleted** secret therefore returns 500 and fails the check, but an **expired or rotated** LINE channel access token still returns 401 and LINE-4 stays green while every real event fails and the owner gets no reply. Closing it means storing a LINE channel access token in repository secrets so a check can call `GET /v2/bot/info` — a token able to post as the Official Account would then live in CI, reachable by any workflow and anyone with write access. **Owner decided on 2026-07-30 not to store the token — risk accepted, not open.** The workflow, the checker's SCOPE comment and the 6D audit all state the same limit: green means "deployed and configured", never "working". Compensating controls: a LINE channel access token is long-lived and does not lapse on its own, so this failure requires a deliberate rotation the owner performs knowingly and can re-test immediately (`docs/LINE_OFFICIAL_SETUP.md` → Rollback already lists rotation as an incident step); and with a single owner-user, a dead bot surfaces on first use rather than sitting unnoticed. **Revisit if** a second user is onboarded, or if a token ever does expire unexpectedly — either breaks a compensating control. Raised by automated review on PR #45. |
+| — | LINE confirmed mutations: rejected/expired mutations fail silently | `prepareMutations()` in `line-sync.js` marks a `not_found`/`duplicate_title` mutation `rejected`, or simply skips one past its 10-minute `expires_at`, with no message surfaced in Full or Mobile. Correct/safe (nothing wrong gets applied) but confusing — the owner sees "Confirmed" in LINE, then silence. Found during production acceptance testing on 2026-08-11. |
+| — | LINE `add`: relative date phrases | Owner requested `today`, `beginning/middle/end of {this,next} month/year` in place of `DD-MM-YYYY`. Ordinary deterministic date math, no AI needed — but needs an exact, unambiguous definition per phrase before implementation. Most are clear; "mid of next 3 months" is not (3 months out from today vs. somewhere within a 3-month window) and needs the owner to pick one meaning first. Requested 2026-08-11. |
+| — | LINE bot replies: "Open Planner" link | Owner requested a clickable link in the Add/Edit/Delete confirmation reply pointing at `https://champban.github.io/dashboard/`, so they don't have to navigate there manually to press Save to Cloud. Still requires the owner to press it themselves — true auto-save was also requested and declined for now, since it would mean the backend permanently holding a Google Drive credential it does not have today. Requested 2026-08-11. |
+| — | LINE `edit`: shorter syntax | Owner feedback: `edit <old title>, <new title>, DD-MM-YYYY` is verbose when only the date is changing (title must be repeated). Consider an optional-new-title form. Raised during production acceptance testing on 2026-08-11. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,
@@ -827,6 +833,25 @@ search highlighting.
 - Supabase free tier pauses after 7 days inactivity (data retained, manual
   restore); if this becomes a problem, add a GitHub Actions cron keepalive
   (`.github/workflows/keepalive.yml`, every ~3 days).
+- **The `qjaywadzvwvcspdsjxth` project also hosts an unrelated app**: an
+  `aicc-agent-gateway` Edge Function and eight `aicc_*` tables (agents,
+  sessions, tasks, messages, projects, and related), applied by 11 migrations
+  dated `2026-07-25` (versions `20260725072800` through `20260725073139`,
+  named `*_ai_command_center_*`) that do not exist anywhere in this repo. This
+  is a separate product sharing the same Supabase project, not a mistake or
+  leftover. Discovered `2026-08-11` when `supabase db push --dry-run` first
+  failed with `LegacyDbPushMissingLocalError` over these 11 versions plus the
+  already-documented `20260730031026`/`20260730041511` drift described
+  earlier in this file (LINE task-detail card production release).
+  - Their migration-history status is deliberately `reverted` — that word is
+    Supabase CLI's sentinel for "not tracked by this repo," **not** a claim
+    that their SQL was rolled back (their tables are live and in active use).
+    `applied` requires a local file to exist at that exact version; `reverted`
+    does not, which is what keeps `db push`/`migration list` from expecting
+    this repo to own them.
+  - Do not repair these to `applied` without also adding matching local
+    migration files, and do not delete or modify the `aicc_*` tables/function
+    from this repo's tooling — they belong to a different codebase.
 
 ## LINE temporal search release (production)
 
@@ -850,7 +875,10 @@ search highlighting.
   window so searches do not miss later windows or falsely match gaps between
   them; window descriptions remain excluded.
 
-## Pending confirmed LINE mutations
+## Confirmed LINE mutations (production release)
+
+Branch: `codex/troubleshoot-search-results-in-line-krwxqs`, merged via PR #51
+(conflicts resolved by PR #52, merged as `a6f5d2f`).
 
 - `add <title>, DD-MM-YYYY` defaults to Personal / General / Medium; `add work`
   and `add event` select the other record types. Edit/Delete use exact titles and
@@ -864,3 +892,44 @@ search highlighting.
   false conflict dialog.
 - `search week36 2026` includes Tasks and Events from ISO week 36 through week
   45 inclusive (the requested week plus nine following weeks).
+
+Production activation, `2026-08-11` (Claude Code handover, taken over after the
+owner could not complete the Supabase backup manually):
+
+- Fresh logical backup (roles + schema + data) of `qjaywadzvwvcspdsjxth`
+  created via `supabase db dump`, restore-verified against a local Supabase
+  stack (Postgres + Auth), GPG-encrypted, and moved to the owner's own durable
+  storage outside the Codespace.
+- Migration `20260802090000_line_confirmed_mutations.sql` applied (creates
+  `public.mtp_line_mutations`, RLS-scoped to `auth.uid() = owner_id`,
+  SELECT/UPDATE only for `authenticated`; INSERT is intentionally reserved for
+  `service_role` — the client never inserts a mutation row directly, only the
+  Edge Function does, after Confirm). `20260801090000_line_snapshot_v3_events.sql`
+  was re-applied in the same push as a no-op (its effect — the `(1,2,3)`
+  schema_version check — was already live); this closed a migration-history
+  tracking gap for that version without changing behaviour.
+- `line-todo-webhook` redeployed (now ACTIVE version 5, bundle SHA-256
+  `ac2d0a7ed2f7c9c6b742a9fc13da825d0d6cef2d407f1061c2f445cc476c66ce`).
+  `npm run health-check` PASS (3/3): GET→405, unsigned POST→401, anonymous
+  snapshot read denied.
+- Full/Mobile web deploy required no separate action: this repo's GitHub Pages
+  is legacy "serve from branch" on `main`, so it already matched the merged
+  build — confirmed by fetching the live `index.html` and `mobile/index.html`
+  and checksumming them against the local build (byte-identical).
+- Owner live-data acceptance, LINE + real Drive round trip: Add (with
+  Personal/General/Medium/Pending defaults) applied correctly on the next Save
+  to Cloud; Edit (exact-title match) applied correctly; Delete against a
+  non-existent title was correctly rejected server-side
+  (`mtp_line_mutations.status='rejected'`, `error_code='not_found'`, verified
+  by direct query) with nothing deleted; single-use enforcement confirmed (no
+  mutation rows left in `status='confirmed'` after use); confirmed mutations
+  apply only on a deliberate Drive save, never before; temporal-search
+  regression (`search buy December 2026`) still correct. Duplicate-title
+  rejection was not live-tested but shares the exact same code path
+  (`applyMutation` in `line-sync.js`) just verified for the not-found case.
+  Drive-outage/retry behaviour was not live-tested but is covered by the
+  passing automated Drive-conflict suite in `npm test`.
+- **Known gap, not a defect in this release:** a rejected (`not_found` /
+  `duplicate_title`) or expired (10-minute TTL) confirmed mutation fails
+  silently — `prepareMutations()` in `line-sync.js` marks it and moves on with
+  no message shown in Full or Mobile. Logged in Open backlog below.
