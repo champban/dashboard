@@ -18,7 +18,11 @@ REVIEWED START SHA: `7119be488fc9d054076ede84aa1564051cebec57`
 
 VERIFIED REMEDIATION CODE HEAD: `154c944eab5e28de0e46c8aed268fd024122f510`
 
+VERIFIED DOCUMENTATION HEAD: `a7d3da891c027e7aa5fe3ab99fea5030aa26a7a4`
+
 PULL REQUEST: Draft PR #70 — `L0a: harden LINE webhook redelivery and event idempotency`
+
+SUPERSEDED PR: PR #69 closed unmerged on `2026-08-17`; it must not be used as a deploy source.
 
 PRODUCTION RUNTIME: unchanged — Supabase `line-todo-webhook` v21
 
@@ -53,6 +57,7 @@ PRODUCTION RUNTIME: unchanged — Supabase `line-todo-webhook` v21
   `cancel-flow.js`, provider configuration and Production data unchanged.
 - Left the unrelated Thai help wording `เลือกสถานะใหม่` unchanged.
 - Updated L0a reliability design and current targeted 6D audit.
+- Closed PR #69 as superseded, unmerged, with a warning not to deploy from it.
 
 ## CHANGED FILES
 
@@ -72,7 +77,15 @@ No dependency or lockfile file changed.
 
 ## VERIFICATION
 
-GitHub Actions workflow run: `32043846970` / run #102
+### Code + SQL gate
+
+GitHub Actions workflow run: `32043846970` / run #102 at code head
+`154c944eab5e28de0e46c8aed268fd024122f510` — PASS.
+
+### Documentation exact-head gate
+
+GitHub Actions workflow run: `32044342990` / run #103 at documentation head
+`a7d3da891c027e7aa5fe3ab99fea5030aa26a7a4` — PASS.
 
 ### Main `verify` job — PASS
 
@@ -129,14 +142,14 @@ whichever occurs first.
 
 NONE.
 
-- PR remains Draft.
+- PR #70 remains Draft.
 - No merge.
 - No Supabase migration application.
 - No Edge Function deployment.
 - No Netlify, LINE Console, Rich Menu, secret or environment change.
 - Production remains on `line-todo-webhook` v21.
 
-## BLOCKERS / RISKS
+## REMAINING BLOCKERS / RISKS
 
 Before merge or Production approval:
 
@@ -146,25 +159,24 @@ Before merge or Production approval:
 4. Verify recoverable Supabase backup/export.
 5. Record exact v21 rollback source/version.
 6. Reconcile any final independent review finding.
-7. Close PR #69 as superseded.
-8. Obtain separate approvals for merge, migration and deployment.
+7. Obtain separate approvals for merge, migration and deployment.
 
 Residual delivery limitation: the ledger makes database work idempotent but does
 not make the external LINE Reply API exact-once. A redelivery cannot rely on the
 original consumed reply token.
 
-ACTIVE WRITER: none after final documentation checkpoint
+ACTIVE WRITER: none after this status checkpoint
 
 NEXT OWNER: OWNER
 
-NEXT TASK: Review the final Draft PR #70 evidence and decide whether to request
-an independent Claude re-review. Production gates remain separate.
+NEXT TASK: Review final Draft PR #70 evidence and decide whether to request an
+independent Claude re-review. Production gates remain separate.
 
 HANDOVER:
 
 - Continue only from the remote PR #70 head shown by GitHub.
 - Trust Git/CI evidence over local or stale status.
-- Do not merge PR #69; it is superseded by PR #70.
+- PR #69 is closed unmerged and superseded.
 - Do not apply migration or deploy without a recoverable backup and explicit
   Owner approval.
 
