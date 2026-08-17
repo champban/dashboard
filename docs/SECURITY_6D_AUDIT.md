@@ -1,306 +1,214 @@
-# Security 6D Audit — LINE Official Read-only Bot
+# Security 6D Audit — L0a LINE Webhook Reliability Hardening
 
-Latest audit: `2026-07-30T22:05:00+07:00` (`Asia/Bangkok`)
+Audit date: `2026-08-17` (`Asia/Bangkok`)
 
-Scope: branch `claude/todo-planner-line-handover-yrm2ei`, delivered by pull
-requests #45 and #46 (Rich Menu asset versioning including the deployment image,
-project-context corrections, scheduled LINE health check, owner acceptance
-closure). Auditor: Claude Opus 5 via Claude Code. The one binary added is an
-image asset, never executed and never served by the application — it is inert in
-the repository and read only by a human or by a manual `curl` upload to LINE.
+Repository: `champban/dashboard`
 
-Note on delivery: #45 merged one commit short of the cadence fix, and #46's
-first merge attempt pushed `e7ea377` to `main` without closing the PR. Both are
-recorded rather than tidied away — the audit's evidence is only worth what its
-account of how the code actually reached production is worth.
+Scope:
 
-Decision: **PASS**. No Critical or High findings. Every condition this audit was
-opened under has been closed:
+- Draft PR `#70`
+- Branch `fix/l0a-line-webhook-reliability`
+- Base `576513707f4567e6707e956e3e3b5ada75d42897`
+- Verified remediation code head `154c944eab5e28de0e46c8aed268fd024122f510`
+- Migration `20260817150000_line_webhook_event_reliability.sql`
+- `line-todo-webhook` reliability runtime and tests
 
-1. **Health check verified live.** `line-health` run 1 against `main` at
-   `2b54e02` returned `PASS (3/3)` on `2026-07-30T21:12:57+07:00`. Monitoring
-   is an active control, not a theoretical one.
-2. **Cadence fix delivered.** PR #46 merged as `e7ea377`; `main` now carries
-   `cron: '0 3 * * *'`, the `SCOPE` block, and the LINE-5 record. Verified
-   against the remote, not assumed from a local branch.
-3. **LINE-5 accepted by the owner on 2026-07-30**, with compensating controls
-   recorded below rather than left as an open decision.
+Production impact at this audit: **NONE**. PR remains Draft; migration is not
+applied; Edge Function v21 remains active; Netlify, LINE Console, Rich Menu,
+secrets and Production data are unchanged.
 
-One Medium residual remains and is **accepted, not open** — see LINE-5 in
-Residual risks. A green health-check run means "deployed and configured", never
-"working", and every surface that reports it says so.
+## Decision
 
-## Latest targeted findings — Rich Menu assets and health check
+**CONDITIONAL PASS FOR DRAFT RELEASE CANDIDATE / PRODUCTION BLOCKED**
 
-Change class: documentation, versioned assets, and one new CI workflow. **No
-runtime change.** No source, Edge Function, migration, RLS policy, Function
-Secret, snapshot, or browser-bundle modification.
+No unresolved Critical or High code finding remains in the reviewed L0a scope.
+Production promotion is blocked until the provider and data gates listed below
+are independently verified and separately approved.
 
-| Dimension | Result | Evidence / control | Open item |
+## Six-dimension decision table
+
+| Dimension | Result | Evidence / control | Open gate / residual |
 |---|---|---|---|
-| Identity and access | PASS | Nothing touches auth, the LINE HMAC gate, account mapping, link codes, or any RLS policy. The health check authenticates as nobody — it sends only the publishable key and asserts it is refused | None |
-| Secrets and data | PASS | Workflow needs **zero repository secrets**; the project URL and publishable key it uses already ship to every browser in `auth.js:3-4`. Rich Menu recreation commands read `$LINE_CHANNEL_ACCESS_TOKEN` from the shell environment and the README states the token must not reach chat, commit, log, or repo. `npm run scan-secrets` PASS over 70 tracked files. Check output is restricted to status codes — no task data, LINE user id, or token can appear | Publishable key now duplicated in two files (Low, see residuals) |
-| Input and content safety | PASS | The checker consumes **no** response body — it branches on `res.status` only, so a hostile or malformed response cannot reach a parser. Rich Menu JSON is static, validated against the specification (2500×843, one area, `text: "menu"`, `chatBarText: "Menu"`), and is never executed | None |
-| Browser and network controls | PASS | `index.html` and `BUILD-MANIFEST.json` regenerate **byte-for-byte** from source, so merging changes nothing GitHub Pages serves. No new origin, endpoint, CORS rule, or CSP hash. Outbound requests originate from GitHub runners to already-public Supabase endpoints, never from a user's browser | None |
-| Supply chain and deployment | PASS | New workflow declares `permissions: contents: read` (least privilege) and runs **no `npm ci`** — it imports nothing and uses only built-in `fetch`, so it adds no dependency surface and cannot be broken by a compromised package. Actions pinned to the same major tags as the existing `verify.yml` (`actions/checkout@v5`, `actions/setup-node@v5`). Lockfile unchanged; `npm audit --omit=dev --audit-level=high` reports 0 vulnerabilities | None |
-| Operations and recovery | PASS | Was `CONDITIONAL` while the control was unproven — a monitor that has never executed is a control on paper. Closed by `line-health` run 1 against `main` at `2b54e02`: `PASS (3/3)` on `2026-07-30T21:12:57+07:00`. `--selftest` (7 cases, offline, in `npm test`) separately proves the logic catches a dead function, a bypassed HMAC gate, a paused project, a grant regression, and a network failure | None — bounded by LINE-5, which is accepted, not open |
+| 1. Identity and access | PASS | `mtp_line_events` has RLS enabled; `anon` and `authenticated` have no table privileges and cannot execute claim/finalize/cleanup RPCs. `service_role` alone receives required access. The pre-L0a table-level authenticated mutation `UPDATE` is revoked and replaced with column-level access to `status`, `error_code`, `applied_at`, `updated_at`. Real PostgreSQL tests prove protected columns cannot be changed by the owner client. Existing owner RLS policies remain unchanged. | Production migration remains unapplied. Re-run the same permission matrix after application. |
+| 2. Secrets and data | PASS WITH LOW RESIDUAL | No raw webhook body, raw LINE user ID, reply token, planner content or secret is stored in the ledger or logged. Error persistence is a bounded code only. Missing `webhookEventId` uses a deterministic SHA-256 digest over canonical event fields; volatile reply fields are excluded. Secret scan passed over 84 tracked text files. | The fallback hash is pseudonymous, not anonymous: a low-entropy event could be guessed offline if the service-role-only ledger were exposed. Treat the digest and owner UUID as sensitive operational metadata. |
+| 3. Input and content safety | PASS | Raw-body HMAC verification remains before JSON parsing. Event IDs and error codes have explicit length/format bounds. Event processing is isolated per event. ISO-week parsing now asserts Monday/Sunday boundaries and exact week 1/week 53 dates. Mutation postbacks preserve legacy syntax while allowing only `lang=en|th`. No AI, free-form SQL or provider-generated code is introduced. | Signed replay through an isolated Netlify → Supabase path remains outstanding. |
+| 4. Browser and network controls | CONDITIONAL | No browser source or CSP changes. Netlify remains proxy-only with an 8-second timeout; Supabase remains sole processor/replier. The event lease is reduced to 30 seconds so a gateway timeout leaves at most roughly 22 additional seconds before stale reclaim. The outer handler returns sanitized errors and never logs provider payloads. | HTTP 503 retry safety requires LINE webhook redelivery to be enabled. With redelivery disabled and no internal retry worker, failed/busy events are lost. Provider setting and actual retry behavior are not yet verified. A redelivered reply token must not be relied upon for user-visible recovery. |
+| 5. Supply chain and deployment | CONDITIONAL PASS | No dependency or `package-lock.json` change. GitHub Actions uses pinned major action versions and adds a PostgreSQL 16 service-only SQL gate. Build, package/CSP `6/6`, generated-artifact parity and ES2019 guard passed. Exact code head and workflow evidence are recorded. | `npm ci` reports three pre-existing development dependency advisories: `1 moderate`, `2 high`. Accepted temporarily by Owner `champban`; expiry is **before any Production promotion or 2026-09-17, whichever occurs first**. Reassess package reachability and remediation before expiry; do not use `npm audit fix --force` without separate approval. |
+| 6. Operations and recovery | CONDITIONAL | Persistent lifecycle/attempt state, atomic claim, stale lease, old-attempt rejection, mutation `source_event_id` uniqueness, per-event batch isolation and terminal-row cleanup exist. Real PostgreSQL lifecycle/RLS/cleanup tests passed. Genuine two-session concurrency returned exactly `claimed=1, busy=1`. Production rollback remains Edge Function v21; migration is additive and nullable. | Verify recoverable Supabase backup, migration against an isolated Supabase environment or approved equivalent, LINE redelivery enabled, signed duplicate replay through Netlify, active v21 rollback evidence, and post-deploy smoke. No retention schedule is approved yet. |
 
-Checks performed:
+## L0a findings and closures
 
-- `npm test` — PASS, including the new offline `--selftest`.
-- `npm run verify` — PASS; static audit `0 blockers`, CSP hashes `6/6`.
-- `git diff -- index.html BUILD-MANIFEST.json` after `verify` — **empty**;
-  the shipped artifact is provably unchanged by this branch.
-- `npm run scan-secrets` — PASS (selftest + 70 tracked files).
-- `npm audit --omit=dev --audit-level=high` — `0 vulnerabilities`.
-- Rich Menu JSON asserted field-by-field against the recorded specification.
-- Migration drift confirmed against the live project: repo filename
-  `20260730031026_…` vs applied version `20260730041511`, same migration.
-- Production Edge Function re-confirmed: version 3 ACTIVE, `verify_jwt=false`,
-  bundle SHA-256 `d4ed04cad2935502009ca61275062bd3130752780179f0f099d76ed2a3ab51f6`
-  matching the recorded value; deployed source matches merged `main`.
+### L0A-01 — irreversible link claim ordering
 
-Defect found and corrected during this audit:
+**Status: CLOSED IN DRAFT**
 
-- The health check initially asserted that an anonymous snapshot read returns
-  `200` with an empty array. The activation migration revokes all privileges on
-  `mtp_line_snapshots` from `anon`, so that assertion could never pass and the
-  job would have failed on every run — the reliable way to get a check ignored
-  and then deleted. Corrected at `fb8692f` to assert **denial** (401 or 403),
-  which is the stronger property: a `200` now means the revoke was undone and
-  anonymous callers can reach owner snapshots. Nothing else in this repository
-  watches for that.
+`mtp_claim_line_link` consumes a one-time code. The runtime now sends the linked
+reply before attaching `owner_id` to the event ledger. A behavioral test proves a
+synthetic ledger-owner failure occurs only after linked messages were delivered.
+The code remains hashed, single-use and ten-minute limited.
 
-Backup and rollback readiness:
+Residual: if reply delivery itself fails after the claim, the code remains
+consumed. Recovery is generating a new link code; making codes reusable would
+violate the established security invariant.
 
-- No backup required: no migration, no destructive operation, no production
-  data touched.
-- Rollback is `git revert` of the branch. Reverting the workflow file stops the
-  schedule; nothing else has to be undone, because nothing else was changed.
-- Supabase, Google Drive, and the deployed application are all untouched.
-- Function version 2 remains the Edge Function rollback point, unchanged.
+### L0A-02 — authenticated idempotency-key squatting
 
-Residual risks:
+**Status: CLOSED IN DRAFT**
 
-| Risk | Severity | Owner | Status |
-|---|---|---|---|
-| ~~Health check never executed against production~~ | ~~Medium~~ | — | **Closed** — `line-health` run 1 against `main` at `2b54e02` on `2026-07-30T21:12:57+07:00` returned `PASS (3/3)`: GET 405, unsigned POST 401, anonymous snapshot read denied with 401. PostgREST answered 401 rather than 403, confirming the decision to accept either rather than pin one code |
-| Health check cannot distinguish a working credential from an invalid one. `index.ts` guards secrets by emptiness, then answers 401 on the missing signature before calling LINE or the database — so a deleted secret fails the check (500) but an expired or rotated channel access token still passes (401) while the bot is dead | Medium | Owner (`champban`) | **Accepted 2026-07-30 — LINE-5.** Closing it would require `GET /v2/bot/info` and therefore a token able to post as the Official Account living in repository secrets, reachable by any workflow and anyone with write access, in a public repo that has already had two key leaks. The owner judged that cost higher than the residual. Compensating controls: LINE channel access tokens are long-lived and do not lapse unprompted, so the failure needs a deliberate rotation the owner performs knowingly and can re-test at once; and with one owner-user a dead bot surfaces on first use. No due date — this is an accepted position, not deferred work. **Revisit if** a second user is onboarded or a token expires unexpectedly; either invalidates a compensating control |
-| Scheduled cadence `*/2` in day-of-month: succeed on the 1st, miss the 3rd, 5th and 7th, and the next attempt falls on the 9th — eight days of database inactivity, past the 7-day pause window the keepalive exists to prevent | ~~Medium~~ | — | **Closed.** Fixed at `9ba654f`, delivered by PR #46 and merged as `e7ea377`. `main` now carries `cron: '0 3 * * *'`, which survives five consecutive missed runs within six days. Verified by reading the workflow from the remote rather than assuming the merge landed — PR #45 had already merged one commit short of this fix once |
-| ~~`line-rich-menu-menu-v1.png` uncommitted~~ | ~~Medium~~ | Owner | **Closed** — uploaded at `6b25938` and verified: 2500 × 843, 418,567 bytes, PNG 8-bit indexed, SHA-256 `221784dd4655b9153e89492939591b2a2bceb015d7eb3fc5248b01b3836ed8a4`. Chunk walk found `IHDR cHRM PLTE bKGD tIME IDAT IEND` and **no `tEXt`, `iTXt`, or `eXIf`**, so the file carries no author name, software string, or GPS data into a public repository. Hash recorded in `docs/assets/line/README.md` so a future re-encode is detectable. Rich Menu is now recoverable in appearance as well as configuration. The 7-step owner acceptance passed on mobile and PC on `2026-07-30` |
-| Publishable key and project URL now appear in both `auth.js` and `build/line-health-check.mjs`. Not a disclosure risk — both are public by design — but the two can drift if the project is ever migrated | Low | Next maintainer | Accepted; `line-health-check.mjs` names `auth.js` as the source of truth and supports `MTP_SUPABASE_URL` / `MTP_SUPABASE_PUBLISHABLE_KEY` overrides |
-| Scheduled workflows are disabled by GitHub after 60 days of repository inactivity, which would silently stop the monitoring | Low | Next maintainer | Accepted and documented in the workflow file |
+Authenticated clients can no longer update every mutation column. Real SQL/RLS
+tests prove the allowed four queue-completion fields work while
+`source_event_id`, `operation`, `owner_id` and `expires_at` are denied.
 
-Deployment note: merging this branch to `main` republishes GitHub Pages, but the
-served bytes are identical, so there is no user-visible release. The real effect
-of the merge is **activating the scheduled workflow**. That is the only thing
-to watch after merge.
+### L0A-03 — real SQL and concurrency evidence
 
-## Historical targeted findings — Search button
+**Status: CLOSED FOR POSTGRESQL 16 / SUPABASE-SPECIFIC GATE REMAINS**
 
-| Dimension | Result | Evidence / control | Open item |
-|---|---|---|---|
-| Identity and access | PASS | Existing raw-body LINE HMAC gate and account mapping are unchanged; postback handling occurs only after HMAC verification | None |
-| Secrets and data | PASS | No new secret, task field, log field, database access, migration, or browser bundle; postback contains only fixed action/language | None |
-| Input and content safety | PASS | Exact allow-list `action=search_prompt&lang=en\|th`; extra/unknown postback data is ignored; typed query retains existing normalization and 120-character cap | None |
-| Browser and network controls | PASS | Uses LINE-native postback, `openKeyboard`, and fixed `fillInText`; no new origin, endpoint, CORS rule, URI action, or CSP change | Closed — owner acceptance passed `2026-07-30` |
-| Supply chain and deployment | PASS | Dependencies and lockfile unchanged; exact audited source anchor is `bf47521`, merged as `ad3067f`; targeted tests, full regression suite, TypeScript transform, production build, harness, audit and CSP verification pass | None |
-| Operations and recovery | PASS | Function v3 is ACTIVE; all three deployed files exactly match merged `main`; direct GET 405 and unsigned POST 401 are recorded in v3 logs; version 2 remains the rollback point | Closed — owner acceptance passed `2026-07-30` |
+Workflow run `32043846970`, job `LINE event ledger SQL / RLS / concurrency`:
 
-Checks performed:
+- migration execution: PASS;
+- lifecycle including `claimed_stale` and `claimed_retry`: PASS;
+- old attempt cannot finish new lease: PASS;
+- anon/authenticated table and RPC denial: PASS;
+- authenticated column-level mutation privileges: PASS;
+- terminal-only cleanup: PASS;
+- two concurrent sessions: `claimed=1, busy=1`.
 
-- Exact English/Thai Search postback and keyboard-prefill assertions.
-- Bare `search` / `ค้นหา`, desktop fallback, and unknown-postback regression
-  coverage.
-- Clean install from the committed lockfile — PASS using an isolated writable
-  npm cache.
-- `npm test` — PASS.
-- `npm run verify` — PASS; harness `LEN 25129 / NODES 141`, static audit
-  `0 blockers`, CSP hashes `6/6`.
-- Runtime dependency audit — `0 vulnerabilities`.
-- `npm run scan-secrets` — PASS immediately before commit/push.
-- PR #43 merged to `main` as `ad3067f`.
-- Production Function version 3 source parity — PASS; bundle SHA-256
-  `d4ed04cad2935502009ca61275062bd3130752780179f0f099d76ed2a3ab51f6`.
-- Version 3 smoke/security checks — GET 405 and unsigned POST 401; PASS.
+The first SQL attempt exposed a test-environment mismatch: a plain PostgreSQL
+`service_role` did not carry Supabase's `BYPASSRLS` behavior, so the stale-test
+setup update was silently filtered. The throwaway role was corrected to mirror
+Supabase and the complete gate passed. This was test-harness remediation, not a
+Production change.
 
-Backup and rollback readiness:
+### L0A-04 — retry and reply guarantee
 
-- Supabase remains the production Data/Auth source of truth and is unchanged;
-  no new backup is required for this non-destructive function-only release.
-- GitHub branch/commit is the primary source and rollback audit trail.
-- Google Drive remains supplementary planner recovery and is unchanged.
-- Roll back by redeploying ACTIVE `line-todo-webhook` version 2.
+**Status: DOCUMENTED / PROVIDER GATE OPEN**
 
-Residual risk: LINE client support for automatic keyboard opening varies by
-client/version. The deterministic instruction reply is the compensating
-fallback and exposes no planner data.
+The system guarantees persistent deduplication of completed database work and
+retryable event processing. It does not guarantee exact-once external replies.
 
-## Historical full-integration audit
+Two residual directions remain:
 
-Historical audit date: 2026-07-30
+1. reply accepted, final ledger write fails — redelivery may repair state but the
+   original reply token is consumed and user-visible delivery cannot be
+   guaranteed;
+2. marking processed before reply would suppress a failed reply permanently, so
+   the runtime deliberately does not take that ordering.
 
-Historical scope: LINE production activation, auth hotfix, bilingual command
-menu, and `feature/line-task-details`
+A durable outbound reply outbox/worker would be required for a stronger delivery
+guarantee and is outside L0a.
 
-Historical decision at that gate: **CONDITIONAL** pending the then-unfinished
-task-details production activation.
+### L0A-05 — current 6D scope
 
-## 1. Functional correctness and data integrity — PASS for release candidate
+**Status: THIS AUDIT**
 
-- Full and Mobile publish only after a successful Drive upload, download, or
-  content-confirmed reconciliation.
-- LINE publication errors are contained and cannot reverse a successful Drive
-  operation.
-- Date commands use `Asia/Bangkok`; week boundaries are Monday–Sunday.
-- The next-four-weeks filter uses an inclusive today/day-28 boundary and
-  excludes overdue and completed tasks; High priority excludes completed tasks.
-- Deterministic command, filtering, sort, cap, HMAC, and privacy tests pass.
-- Snapshot v2 keeps the 240 KiB browser budget by truncating at task
-  boundaries; PostgreSQL retains the 256 KiB hard limit.
-- Task Flex cards cap visible Subtasks at five, attachment actions at three,
-  tasks at twelve, and carousel JSON at 50 KiB.
-- Google Drive remains independent of the webhook; the function cannot mutate
-  planner tasks.
-- Activation diagnostics prove the failed link attempt stopped in the browser:
-  OAuth user lookup returned 200, no LINE PostgREST request was emitted, and all
-  three LINE tables remained empty.
-- The 3.77.1 regression test proves existing and refreshed Supabase sessions
-  retain both required tokens in Full and Mobile.
+The prior audit stated “No runtime change” and did not cover L0a. This targeted
+audit supersedes that decision only for PR #70. Historical release audits remain
+available in Git history at base `576513707f4567e6707e956e3e3b5ada75d42897`
+and in `AUDIT-6D-SECURITY-REPORT.md`; they are not evidence for this Draft.
 
-Production gate: complete Full/Mobile Drive → Supabase → LINE round trips with
-owner data.
+### L0A-06 / L0A-07 — ISO-week correctness and prevention commentary
 
-## 2. UI, usability, and accessibility — PASS with live-device gate
+**Status: CLOSED IN DRAFT**
 
-- Full Sync Manager and Mobile Sync show link state, snapshot time, one-time
-  code, copy action, refresh, busy state, and errors.
-- The default English Flex menu works in LINE PC and mobile; linked mobile
-  replies additionally carry nine Quick Reply actions. A static Thai/English
-  switch does not require storing a language preference.
-- The UI states that LINE is read-only and names fields excluded from the
-  snapshot.
-- Full and Mobile expose separate Subtask and HTTPS attachment-link opt-ins;
-  both default to off and state that another Save to Cloud is required.
-- Existing touch/button styling and focus behavior are reused.
-- A visible signed-in profile is no longer accepted as sufficient auth evidence
-  in testing; link-code acceptance must also produce a database row.
+Tests now assert exact cross-year boundaries and Monday/Sunday weekdays. The
+explanatory test comments removed by the first implementation were restored. The
+Flex footer comment now accurately records that a schema rejection becomes
+`line_reply_failed -> failed -> HTTP 503`, rather than being silently swallowed.
 
-Production gate: verify code copy, expiry text, and error layout on the owner’s
-iPhone and desktop browser.
+### L0A-08 — mutation decision testability
 
-## 3. Lean architecture and performance — PASS
+**Status: CLOSED IN DRAFT**
 
-- No AI, MCP server, vector database, cron, or new browser polling loop.
-- A LINE query is one account lookup, one snapshot lookup, and one reply call.
-  Task lists use one Flex bubble/carousel; status/help/empty results use text;
-  successful linking contains two messages, below LINE's five-message limit.
-- Snapshot is capped at 500 tasks / 240 KiB browser-side and 256 KiB in
-  PostgreSQL; replies are capped at 12 tasks, 50 KiB per Flex carousel, or
-  4,800 characters for text fallback.
-- Supabase JS is version-pinned for the Edge Function.
-
-Production gate: measure webhook p95 and reply success after activation.
-
-## 4. Security and privacy — PASS with disclosed residuals
-
-Controls:
-
-- `x-line-signature` is verified with HMAC-SHA256 against the untouched raw body
-  before JSON parsing.
-- The public webhook has Supabase JWT verification disabled by design; invalid
-  LINE signatures receive HTTP 401.
-- Browser writes use the signed-in publishable client plus RLS
-  (`auth.uid() = owner_id`).
-- Storage redaction exempts only the exact Supabase Auth session key required by
-  the SDK. Lookalike and ordinary keys still redact token/secret fields.
-- One-time link codes use CSPRNG, store SHA-256 only, expire in 10 minutes, and
-  are claimed atomically in a locked transaction.
-- The claim function is `SECURITY DEFINER` with an empty `search_path`; execution
-  is revoked from public/anon/authenticated and granted only to `service_role`.
-- LINE and Supabase backend keys exist only in Function Secrets.
-- Snapshot regression tests prove that profile/task/Subtask/attachment IDs,
-  notes, descriptions, local files, base64 data, config, HTTP URLs, URLs with
-  embedded username/password, and API-key fields are excluded. Only explicitly
-  enabled, sanitised Subtask text/done state and HTTPS attachment-link metadata
-  are allowed.
-- Function errors do not log request bodies, LINE user IDs, task data, or
-  secrets.
-- All menu buttons are fixed message actions that resolve to the deterministic
-  parser; they cannot inject a query, URL, user ID, or task field.
-
-Residuals:
-
-- Task title, status, due date, category, and priority are copied to Supabase and
-  may be delivered into LINE chat history. Users must not treat either location
-  as suitable for highly sensitive information.
-- When enabled, Subtask text and HTTPS attachment URLs also enter Supabase and
-  LINE chat history. A URI button opens user-provided content in LINE's in-app
-  browser; the app validates HTTPS and rejects embedded credentials but cannot
-  certify third-party content.
-- The MVP does not persist LINE `webhookEventId`; a provider retry can attempt
-  the same one-time reply twice. LINE reply tokens are single-use, so the second
-  attempt should fail rather than duplicate a state change, but operational
-  metrics should watch this.
-- Account unlink is performed by re-linking to another LINE user or operational
-  support; a self-service unlink control is not in this release candidate.
-
-## 5. Reliability and recovery — PASS with provider gate
-
-- Google Drive is not read from the webhook and stays available when LINE is
-  down.
-- Supabase snapshot publishing is secondary and fails visibly without failing
-  Drive.
-- Linking can recover from a stolen/incorrect code by creating a new code and
-  re-linking the owner; the mapping remains one owner ↔ one LINE user.
-- Database migration, function source, tests, and runbook are versioned in
-  GitHub.
-- Snapshot v2 migration is additive and accepts both v1/v2; it rewrites no
-  planner rows. Rollback is the previous app/function commit while retaining
-  the compatibility constraint.
-- The failed activation wrote no LINE rows and changed no task/Drive data, so
-  recovery needs a client redeploy and fresh login rather than a database
-  restore.
-
-Production gate: induce a Supabase snapshot error and a LINE reply error, then
-confirm recovery and retry behavior.
-
-## 6. Connectivity and operations — CONDITIONAL / partially activated
-
-- Local build/package CSP passes, static audit reports 0 blockers, and all
-  existing plus LINE regression tests pass.
-- `supabase/config.toml` pins the project and declares the public webhook
-  verification mode.
-- Deployment order and rollback are documented in
-  `docs/LINE_OFFICIAL_SETUP.md`.
-- Completed in production: logical backup acceptance, migration, Function
-  Secrets, Edge Function deployment, and successful LINE webhook verification.
-- The activation stop was detected during owner acceptance before a link code
-  or snapshot entered Supabase.
-
-Remaining production items:
-
-1. Create and verify a fresh logical Supabase backup.
-2. Apply and verify migration `20260730031026_line_task_details_snapshot_v2.sql`.
-3. Review and merge the stacked pull requests only after explicit owner
-   approval.
-4. Redeploy `line-todo-webhook` and the Full/Mobile app only after separate
-   explicit deploy approval.
-5. Verify the English Flex menu in LINE PC and the Quick Replies in LINE
-   iOS/Android; switch to and from Thai.
-6. Verify Subtask display, all three HTTPS attachment kinds, opt-out behavior,
-   and local-file exclusion with owner data.
-7. Complete the expanded command and day-0/day-28 boundary acceptance set.
-8. Exercise an invalid-signature request and induced provider failures.
-9. Re-run this audit with live evidence and change the decision explicitly.
+Mutation repository wiring and decision semantics were extracted from
+`index.ts` into dependency-free `event-processing.js`. Behavioral tests cover
+retried confirm, conflicting cancel, expired draft and missing draft.
 
 ## Verification evidence
 
-- `npm test` — existing Drive/UI regressions plus:
-  - `build/line-bot.test.mjs`
-  - `build/line-sync-browser.test.mjs`
-  - `build/auth-storage-security.test.mjs`
-  - `build/line-contract.test.mjs`
-- `npm run verify` — Vite build, jsdom harness, six-dimension static audit,
-  generated package, and 6/6 CSP hash verification.
-- `npm run scan-secrets` — required again immediately before commit/push.
+Exact code head: `154c944eab5e28de0e46c8aed268fd024122f510`
+
+GitHub Actions run: `32043846970` / run #102
+
+### Main job — PASS
+
+- `npm ci`
+- `npm run scan-secrets`: no credentials found
+- `npm run verify`
+- Vite Production build
+- harness `LEN 25129 / NODES 141`
+- static audit `0 blockers`, pre-existing warnings `3`
+- package/CSP verification `6/6`
+- `npm test`
+- LINE bot logic: PASS
+- Cancel flow: 6/6
+- LINE event processing reliability: PASS
+- LINE browser snapshot: PASS
+- Supabase auth-storage security: PASS
+- LINE integration contracts: PASS
+- health-check self-test: PASS
+- generated artifact byte parity: PASS
+- ES2019 guard: PASS
+
+### SQL/RLS/concurrency job — PASS
+
+- PostgreSQL `16.15` service
+- repeatable migration/RLS test
+- lifecycle and lease test
+- permission matrix
+- cleanup test
+- two-session concurrency test
+
+## Production stop gates
+
+Production remains blocked until all are complete:
+
+1. Independent review/reconciliation of the final PR #70 head.
+2. PR #69 closed as superseded so it cannot overwrite the function source.
+3. Recoverable Supabase backup/export verified.
+4. Exact migration reviewed and applied only under separate approval.
+5. LINE Developers Console webhook redelivery verified **enabled**.
+6. Signed event replayed twice through Netlify → isolated Supabase; one database
+   effect and safe terminal-event skip proven.
+7. Netlify 8-second timeout / 30-second lease behavior exercised.
+8. Active v21 runtime rollback source/version recorded.
+9. Exact reviewed merge SHA deployed to Supabase.
+10. Invalid signature, menu, duplicate event, ISO-week search and Thai mutation
+    result smoke tests passed.
+11. Post-deploy 6D decision updated from Conditional to PASS or explicitly
+    BLOCKED.
+
+## Rollback and backup
+
+- Before migration: take and verify a recoverable Supabase backup/export.
+- Runtime rollback: redeploy current active `line-todo-webhook` v21.
+- Migration is additive; the ledger and nullable `source_event_id` may remain
+  unused if runtime rolls back.
+- Do not drop ledger/audit rows during incident response unless recovery evidence
+  proves that is necessary.
+- No task/planner data is changed by this Draft PR.
+
+## Accepted risks register
+
+| ID | Risk | Severity | Owner | Expiry / revisit trigger | Status |
+|---|---|---:|---|---|---|
+| L0A-R1 | Redelivery disabled would make failed/busy events permanently lost because no internal retry worker exists | High if disabled; controlled gate before deploy | Owner / release manager | Before any Production promotion | OPEN — Production blocker |
+| L0A-R2 | Reply accepted but final ledger update fails; retry cannot rely on a usable reply token | Medium | Backend owner | Revisit before multi-user rollout or when an outbound worker is designed | Accepted for owner-only Draft with documented limitation |
+| L0A-R3 | Deterministic fallback digest may be guessable for low-entropy events if the ledger is exposed | Low | Backend/security owner | Revisit if ledger access expands beyond service role | Accepted with service-role-only control |
+| L0A-R4 | Netlify timeout can leave an event busy for up to roughly 22 additional seconds | Medium | Backend/operations owner | Verify before Production; revisit if forwarder timeout changes | OPEN — Production gate |
+| L0A-R5 | Pre-existing dev dependency advisories: 1 moderate, 2 high | Medium | `champban` | Before Production promotion or `2026-09-17`, whichever occurs first | Temporarily accepted; no dependency change in L0a |
+| L0A-R6 | Retention RPC exists but no schedule is approved | Low | Operations owner | Before ledger exceeds agreed retention/volume threshold | Deferred; cleanup remains outside request path |
+
+## Historical audit index
+
+The previous `2026-07-30` audit covered Rich Menu assets, health monitoring,
+Search-button activation and the earlier read-only LINE integration. Its final
+Decision was PASS for that historical scope and included accepted residual
+`LINE-5` for credential-health monitoring. It explicitly did **not** cover this
+runtime/migration change.
+
+Authoritative historical evidence remains available through Git history at:
+
+- base commit `576513707f4567e6707e956e3e3b5ada75d42897`;
+- `AUDIT-6D-SECURITY-REPORT.md`;
+- `docs/PROJECT_PERFORMANCE_KPI.md`;
+- prior workflow and release records referenced by `PROJECT_CONTEXT.md`.
