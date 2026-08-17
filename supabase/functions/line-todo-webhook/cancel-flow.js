@@ -1,4 +1,5 @@
 const CANCEL_PATTERN = /^(?:cancel|ยกเลิก)$/iu;
+const LINE_QUICK_REPLY_MAX_ITEMS = 13;
 
 export function isCancelCommand(value) {
   return CANCEL_PATTERN.test(String(value ?? "").trim());
@@ -22,11 +23,14 @@ export function withCancelQuickReply(message, language = "en") {
       text: language === "th" ? "ยกเลิก" : "cancel",
     },
   };
+  const kept = current.slice(0, LINE_QUICK_REPLY_MAX_ITEMS - 1);
   return {
     ...message,
     quickReply: {
       ...(message?.quickReply || {}),
-      items: [...current, cancelItem],
+      items: [...kept, cancelItem],
     },
   };
 }
+
+export { LINE_QUICK_REPLY_MAX_ITEMS };
