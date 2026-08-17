@@ -32,8 +32,11 @@ import {
 } from "./cancel-flow.js";
 import {
   createSupabaseLineEventLedger,
+  createSupabaseMutationRepository,
   ensureMutationDraftForEvent,
   processLineEventBatch,
+  replyThenAttachLineEventOwner,
+  resolveMutationDecision,
 } from "./event-processing.js";
 
 const jsonResponse = (body: unknown, status = 200) => new Response(
@@ -108,45 +111,10 @@ async function replyText(
   }], accessToken);
 }
 
-async function createMutationDraft(
-  supabase: ReturnType<typeof createClient>,
-  ownerId: string,
-  operation: Record<string, unknown>,
-  sourceEventId: string,
-) {
-  return ensureMutationDraftForEvent({
-    eventId: sourceEventId,
-    ownerId,
-    operation,
-    insertDraft: async ({ eventId, ownerId: insertOwnerId, operation: insertOperation }) => {
-      const { data, error } = await supabase
-        .from("mtp_line_mutations")
-        .insert({
-          owner_id: insertOwnerId,
-          operation: insertOperation,
-          source_event_id: eventId,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    findDraft: async ({ eventId, ownerId: findOwnerId }) => {
-      const { data, error } = await supabase
-        .from("mtp_line_mutations")
-        .select("id")
-        .eq("owner_id", findOwnerId)
-        .eq("source_event_id", eventId)
-        .maybeSingle();
-      if (error) throw codedError("mutation_draft_lookup_failed");
-      return data;
-    },
-  });
-}
-
 async function handleTextEvent(
   event: Record<string, any>,
   supabase: ReturnType<typeof createClient>,
+  mutationRepository: ReturnType<typeof createSupabaseMutationRepository>,
   accessToken: string,
   eventContext: {
     eventId: string;
@@ -168,12 +136,13 @@ async function handleTextEvent(
       })
       .single();
     if (error) throw codedError("line_link_claim_failed");
-    if (data?.owner_id) await eventContext.setOwner(data.owner_id);
-    await replyLine(
-      replyToken,
-      buildLinkReplyMessages(data?.status),
-      accessToken,
-    );
+
+    await replyThenAttachLineEventOwner({
+      messages: buildLinkReplyMessages(data?.status),
+      ownerId: data?.owner_id,
+      reply: (messages) => replyLine(replyToken, messages, accessToken),
+      setOwner: eventContext.setOwner,
+    });
     return;
   }
 
@@ -207,12 +176,13 @@ async function handleTextEvent(
 
   const mutation = parseMutationCommand(text);
   if (mutation) {
-    const draft = await createMutationDraft(
-      supabase,
-      account.owner_id,
-      mutation,
-      eventContext.eventId,
-    );
+    const draft = await ensureMutationDraftForEvent({
+      eventId: eventContext.eventId,
+      ownerId: account.owner_id,
+      operation: mutation,
+      insertDraft: mutationRepository.insertDraft,
+      findDraft: mutationRepository.findDraft,
+    });
     await replyLine(
       replyToken,
       [buildMutationConfirmation(mutation, draft.id, language)],
@@ -301,45 +271,10 @@ async function handleTextEvent(
   );
 }
 
-async function resolveMutationDecision(
-  supabase: ReturnType<typeof createClient>,
-  mutation: { decision: string; id: string },
-  ownerId: string,
-) {
-  const status = mutation.decision === "confirm" ? "confirmed" : "cancelled";
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("mtp_line_mutations")
-    .update({
-      status,
-      updated_at: now,
-      ...(status === "confirmed" ? { confirmed_at: now } : {}),
-    })
-    .eq("id", mutation.id)
-    .eq("owner_id", ownerId)
-    .eq("status", "draft")
-    .gt("expires_at", now)
-    .select("id")
-    .maybeSingle();
-  if (error) throw codedError("line_mutation_decision_failed");
-  if (data?.id) return { status, matched: true };
-
-  // A crash can occur after the state transition but before the reply/event
-  // ledger is finalized. Treat the same already-applied decision as idempotent;
-  // a different decision or an expired/missing draft remains unmatched.
-  const { data: existing, error: existingError } = await supabase
-    .from("mtp_line_mutations")
-    .select("status")
-    .eq("id", mutation.id)
-    .eq("owner_id", ownerId)
-    .maybeSingle();
-  if (existingError) throw codedError("line_mutation_decision_read_failed");
-  return { status, matched: existing?.status === status };
-}
-
 async function handlePostbackEvent(
   event: Record<string, any>,
   supabase: ReturnType<typeof createClient>,
+  mutationRepository: ReturnType<typeof createSupabaseMutationRepository>,
   accessToken: string,
   eventContext: {
     setOwner: (ownerId: string) => Promise<void>;
@@ -359,11 +294,11 @@ async function handlePostbackEvent(
     if (!account?.owner_id) return;
 
     await eventContext.setOwner(account.owner_id);
-    const result = await resolveMutationDecision(
-      supabase,
+    const result = await resolveMutationDecision({
       mutation,
-      account.owner_id,
-    );
+      ownerId: account.owner_id,
+      repository: mutationRepository,
+    });
     await replyLine(
       replyToken,
       [buildMutationResultMessage(
@@ -406,6 +341,7 @@ async function handlePostbackEvent(
 async function processLineEvent(
   event: Record<string, any>,
   supabase: ReturnType<typeof createClient>,
+  mutationRepository: ReturnType<typeof createSupabaseMutationRepository>,
   accessToken: string,
   eventContext: {
     eventId: string;
@@ -417,12 +353,24 @@ async function processLineEvent(
     && event?.message?.type === "text"
     && event?.source?.type === "user"
   ) {
-    await handleTextEvent(event, supabase, accessToken, eventContext);
+    await handleTextEvent(
+      event,
+      supabase,
+      mutationRepository,
+      accessToken,
+      eventContext,
+    );
   } else if (
     event?.type === "postback"
     && event?.source?.type === "user"
   ) {
-    await handlePostbackEvent(event, supabase, accessToken, eventContext);
+    await handlePostbackEvent(
+      event,
+      supabase,
+      mutationRepository,
+      accessToken,
+      eventContext,
+    );
   }
   // Unsupported but valid events are intentionally recorded as processed.
 }
@@ -467,32 +415,40 @@ Deno.serve(async (request) => {
   const supabase = createClient(supabaseUrl, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const ledger = createSupabaseLineEventLedger(supabase);
-  const batch = await processLineEventBatch({
-    events,
-    ledger,
-    processEvent: (event, eventContext) => processLineEvent(
-      event,
-      supabase,
-      accessToken,
-      eventContext,
-    ),
-  });
 
-  if (!batch.ok) {
-    // No internal retry worker owns failed events yet. A retryable non-2xx asks
-    // LINE to redeliver; terminal events in the same batch are skipped safely.
+  try {
+    const ledger = createSupabaseLineEventLedger(supabase);
+    const mutationRepository = createSupabaseMutationRepository(supabase);
+    const batch = await processLineEventBatch({
+      events,
+      ledger,
+      processEvent: (event, eventContext) => processLineEvent(
+        event,
+        supabase,
+        mutationRepository,
+        accessToken,
+        eventContext,
+      ),
+    });
+
+    if (!batch.ok) {
+      // No internal retry worker owns failed events yet. A retryable non-2xx asks
+      // LINE to redeliver; terminal events in the same batch are skipped safely.
+      return jsonResponse({
+        error: "event_processing_retry",
+        retryable: true,
+        failed: batch.failedCount,
+        busy: batch.busyCount,
+      }, 503);
+    }
+
     return jsonResponse({
-      error: "event_processing_retry",
-      retryable: true,
-      failed: batch.failedCount,
-      busy: batch.busyCount,
-    }, 503);
+      ok: true,
+      processed: batch.processedCount,
+      duplicates: batch.duplicateCount,
+    });
+  } catch {
+    // Do not log request bodies, LINE user ids, planner content, or secrets.
+    return jsonResponse({ error: "event_processing_failed" }, 500);
   }
-
-  return jsonResponse({
-    ok: true,
-    processed: batch.processedCount,
-    duplicates: batch.duplicateCount,
-  });
 });

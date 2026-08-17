@@ -10,6 +10,8 @@ const CLAIMED_DECISIONS = new Set([
   "claimed_stale",
 ]);
 
+export const DEFAULT_EVENT_LEASE_SECONDS = 30;
+
 function codedError(code) {
   const error = new Error(code);
   error.code = code;
@@ -70,9 +72,29 @@ export function safeErrorCode(error) {
     : "event_processing_failed";
 }
 
+export async function replyThenAttachLineEventOwner({
+  messages,
+  ownerId,
+  reply,
+  setOwner,
+}) {
+  if (typeof reply !== "function") {
+    throw codedError("line_reply_handler_missing");
+  }
+
+  await reply(messages);
+
+  if (ownerId) {
+    if (typeof setOwner !== "function") {
+      throw codedError("event_owner_handler_missing");
+    }
+    await setOwner(ownerId);
+  }
+}
+
 export function createSupabaseLineEventLedger(
   supabase,
-  { staleAfterSeconds = 120 } = {},
+  { staleAfterSeconds = DEFAULT_EVENT_LEASE_SECONDS } = {},
 ) {
   if (!supabase || typeof supabase.rpc !== "function") {
     throw codedError("event_ledger_client_missing");
@@ -141,6 +163,68 @@ export function createSupabaseLineEventLedger(
   }
 }
 
+export function createSupabaseMutationRepository(supabase) {
+  if (!supabase || typeof supabase.from !== "function") {
+    throw codedError("mutation_repository_client_missing");
+  }
+
+  return {
+    async insertDraft({ eventId, ownerId, operation }) {
+      const { data, error } = await supabase
+        .from("mtp_line_mutations")
+        .insert({
+          owner_id: ownerId,
+          operation,
+          source_event_id: eventId,
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return data;
+    },
+
+    async findDraft({ eventId, ownerId }) {
+      const { data, error } = await supabase
+        .from("mtp_line_mutations")
+        .select("id")
+        .eq("owner_id", ownerId)
+        .eq("source_event_id", eventId)
+        .maybeSingle();
+      if (error) throw codedError("mutation_draft_lookup_failed");
+      return data;
+    },
+
+    async applyDecision({ mutationId, ownerId, status, now }) {
+      const { data, error } = await supabase
+        .from("mtp_line_mutations")
+        .update({
+          status,
+          updated_at: now,
+          ...(status === "confirmed" ? { confirmed_at: now } : {}),
+        })
+        .eq("id", mutationId)
+        .eq("owner_id", ownerId)
+        .eq("status", "draft")
+        .gt("expires_at", now)
+        .select("id")
+        .maybeSingle();
+      if (error) throw codedError("line_mutation_decision_failed");
+      return data;
+    },
+
+    async findStatus({ mutationId, ownerId }) {
+      const { data, error } = await supabase
+        .from("mtp_line_mutations")
+        .select("status")
+        .eq("id", mutationId)
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (error) throw codedError("line_mutation_decision_read_failed");
+      return data;
+    },
+  };
+}
+
 export async function ensureMutationDraftForEvent({
   eventId,
   ownerId,
@@ -168,6 +252,39 @@ export async function ensureMutationDraftForEvent({
   const existing = await findDraft({ eventId, ownerId });
   if (!existing?.id) throw codedError("mutation_draft_idempotency_failed");
   return { id: existing.id, reused: true };
+}
+
+export async function resolveMutationDecision({
+  mutation,
+  ownerId,
+  repository,
+  now = new Date(),
+}) {
+  if (!mutation?.id || !ownerId || !repository) {
+    throw codedError("mutation_decision_input_invalid");
+  }
+  if (
+    typeof repository.applyDecision !== "function"
+    || typeof repository.findStatus !== "function"
+  ) {
+    throw codedError("mutation_decision_repository_missing");
+  }
+
+  const status = mutation.decision === "confirm" ? "confirmed" : "cancelled";
+  const nowIso = now instanceof Date ? now.toISOString() : new Date(now).toISOString();
+  const updated = await repository.applyDecision({
+    mutationId: mutation.id,
+    ownerId,
+    status,
+    now: nowIso,
+  });
+  if (updated?.id) return { status, matched: true };
+
+  const existing = await repository.findStatus({
+    mutationId: mutation.id,
+    ownerId,
+  });
+  return { status, matched: existing?.status === status };
 }
 
 export async function processLineEventBatch({

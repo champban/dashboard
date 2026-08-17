@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import fs from "node:fs";
+import { buildLinkReplyMessages } from "../supabase/functions/line-todo-webhook/logic.js";
 import {
+  DEFAULT_EVENT_LEASE_SECONDS,
   deriveLineEventId,
   ensureMutationDraftForEvent,
   processLineEventBatch,
+  replyThenAttachLineEventOwner,
+  resolveMutationDecision,
   safeErrorCode,
 } from "../supabase/functions/line-todo-webhook/event-processing.js";
 
@@ -73,6 +77,35 @@ function createMemoryLedger({ onClaim } = {}) {
     row.errorCode = errorCode;
     return true;
   }
+}
+
+function createMemoryMutationRepository(initialRow = null) {
+  let row = initialRow ? { ...initialRow } : null;
+
+  return {
+    get row() {
+      return row;
+    },
+
+    async applyDecision({ mutationId, ownerId, status, now }) {
+      if (
+        !row
+        || row.id !== mutationId
+        || row.ownerId !== ownerId
+        || row.status !== "draft"
+        || row.expiresAt <= now
+      ) {
+        return null;
+      }
+      row = { ...row, status };
+      return { id: row.id };
+    },
+
+    async findStatus({ mutationId, ownerId }) {
+      if (!row || row.id !== mutationId || row.ownerId !== ownerId) return null;
+      return { status: row.status };
+    },
+  };
 }
 
 function lineEvent(id, text, extras = {}) {
@@ -195,8 +228,8 @@ function lineEvent(id, text, extras = {}) {
   assert.equal(drafts.size, 1);
 }
 
-// Concurrent handlers: the first owns processing, the second receives busy and
-// cannot run the business handler.
+// This is an in-memory orchestration test only. Real claimed_stale, row locking
+// and concurrent-session proof lives in supabase/tests and the PostgreSQL CI job.
 {
   let claimedResolve;
   const claimed = new Promise((resolve) => { claimedResolve = resolve; });
@@ -230,6 +263,86 @@ function lineEvent(id, text, extras = {}) {
   assert.equal(ledger.rows.get("line:evt-concurrent").status, "processed");
 }
 
+// A one-time link-code claim is irreversible. The linked reply must therefore be
+// delivered before a best-effort event-ledger owner attachment can fail.
+{
+  const rpcResult = {
+    status: "linked",
+    owner_id: "00000000-0000-0000-0000-000000000001",
+  };
+  const expected = buildLinkReplyMessages(rpcResult.status);
+  const delivered = [];
+
+  await assert.rejects(
+    replyThenAttachLineEventOwner({
+      messages: expected,
+      ownerId: rpcResult.owner_id,
+      reply: async (messages) => { delivered.push(messages); },
+      setOwner: async () => {
+        const error = new Error("synthetic ledger failure");
+        error.code = "event_ledger_owner_failed";
+        throw error;
+      },
+    }),
+    /synthetic ledger failure/,
+  );
+  assert.deepEqual(delivered, [expected]);
+}
+
+// Mutation decisions are idempotent only for the same already-applied decision.
+{
+  const ownerId = "00000000-0000-0000-0000-000000000001";
+  const mutationId = "22222222-2222-4222-8222-222222222222";
+  const now = new Date("2026-08-17T10:00:00.000Z");
+
+  const retriedConfirm = await resolveMutationDecision({
+    mutation: { id: mutationId, decision: "confirm" },
+    ownerId,
+    repository: createMemoryMutationRepository({
+      id: mutationId,
+      ownerId,
+      status: "confirmed",
+      expiresAt: "2026-08-17T10:10:00.000Z",
+    }),
+    now,
+  });
+  assert.deepEqual(retriedConfirm, { status: "confirmed", matched: true });
+
+  const cancelAfterConfirm = await resolveMutationDecision({
+    mutation: { id: mutationId, decision: "cancel" },
+    ownerId,
+    repository: createMemoryMutationRepository({
+      id: mutationId,
+      ownerId,
+      status: "confirmed",
+      expiresAt: "2026-08-17T10:10:00.000Z",
+    }),
+    now,
+  });
+  assert.deepEqual(cancelAfterConfirm, { status: "cancelled", matched: false });
+
+  const expiredDraft = await resolveMutationDecision({
+    mutation: { id: mutationId, decision: "confirm" },
+    ownerId,
+    repository: createMemoryMutationRepository({
+      id: mutationId,
+      ownerId,
+      status: "draft",
+      expiresAt: "2026-08-17T09:59:59.000Z",
+    }),
+    now,
+  });
+  assert.deepEqual(expiredDraft, { status: "confirmed", matched: false });
+
+  const missingDraft = await resolveMutationDecision({
+    mutation: { id: mutationId, decision: "confirm" },
+    ownerId,
+    repository: createMemoryMutationRepository(null),
+    now,
+  });
+  assert.deepEqual(missingDraft, { status: "confirmed", matched: false });
+}
+
 // Missing webhookEventId never disables deduplication: volatile reply fields are
 // excluded from a deterministic fallback identity.
 {
@@ -259,11 +372,13 @@ function lineEvent(id, text, extras = {}) {
   assert.notEqual(different, first);
 }
 
+assert.equal(DEFAULT_EVENT_LEASE_SECONDS, 30);
 assert.equal(safeErrorCode({ code: "LINE_REPLY_FAILED" }), "line_reply_failed");
 assert.equal(safeErrorCode(new Error("private message must not persist")), "event_processing_failed");
 
 // Migration and runtime contracts: service-role-only ledger, atomic RPCs,
-// idempotent mutation source key, and retention outside the request path.
+// idempotent mutation source key, column-level authenticated grants, and
+// retention outside the request path.
 {
   const migration = fs.readFileSync(
     "supabase/migrations/20260817150000_line_webhook_event_reliability.sql",
@@ -273,29 +388,51 @@ assert.equal(safeErrorCode(new Error("private message must not persist")), "even
     "supabase/functions/line-todo-webhook/index.ts",
     "utf8",
   );
+  const sqlTest = fs.readFileSync(
+    "supabase/tests/line_event_ledger.test.sql",
+    "utf8",
+  );
+  const sqlRunner = fs.readFileSync(
+    "supabase/tests/run_line_event_ledger_tests.sh",
+    "utf8",
+  );
 
-  assert.match(migration, /create table public\.mtp_line_events/);
+  assert.match(migration, /create table if not exists public\.mtp_line_events/);
   assert.match(migration, /status in \('received', 'processing', 'processed', 'failed'\)/);
   assert.match(migration, /attempt_count integer not null default 0/);
   assert.match(migration, /alter table public\.mtp_line_events enable row level security/);
   assert.match(migration, /revoke all on table public\.mtp_line_events from anon/);
   assert.match(migration, /revoke all on table public\.mtp_line_events from authenticated/);
   assert.match(migration, /grant select, insert, update, delete on table public\.mtp_line_events to service_role/);
+  assert.match(migration, /add column if not exists source_event_id text/);
+  assert.match(migration, /create unique index if not exists mtp_line_mutations_source_event_uidx/);
+  assert.match(migration, /revoke update on table public\.mtp_line_mutations from authenticated/);
+  assert.match(migration, /grant update \(status, error_code, applied_at, updated_at\)/);
+  assert.match(migration, /p_stale_after_seconds integer default 30/);
+  assert.match(migration, /p_stale_after_seconds is null/);
   assert.match(migration, /create or replace function public\.mtp_claim_line_event/);
   assert.match(migration, /for update/);
   assert.match(migration, /create or replace function public\.mtp_finish_line_event/);
-  assert.match(migration, /source_event_id text/);
-  assert.match(migration, /create unique index mtp_line_mutations_source_event_uidx/);
   assert.match(migration, /create or replace function public\.mtp_cleanup_line_events/);
   assert.doesNotMatch(migration, /raw_body|line_user_id|reply_token/i);
 
+  assert.match(webhook, /replyThenAttachLineEventOwner/);
+  assert.match(webhook, /createSupabaseMutationRepository/);
+  assert.match(webhook, /resolveMutationDecision/);
   assert.match(webhook, /processLineEventBatch/);
-  assert.match(webhook, /source_event_id: eventId/);
   assert.match(webhook, /event_processing_retry/);
   assert.match(webhook, /}, 503\);/);
+  assert.match(webhook, /event_processing_failed/);
   assert.doesNotMatch(webhook, /console\.(?:log|warn|error)/);
   assert.doesNotMatch(webhook, /mtp_cleanup_line_events/,
     "retention cleanup must stay out of the webhook critical path");
+
+  assert.match(sqlTest, /claimed_stale/);
+  assert.match(sqlTest, /claimed_retry/);
+  assert.match(sqlTest, /duplicate_processed/);
+  assert.match(sqlTest, /authenticated unexpectedly updated source_event_id/);
+  assert.match(sqlRunner, /sql-concurrent-event/);
+  assert.match(sqlRunner, /claimed=1, busy=1/);
 }
 
 console.log("LINE event processing reliability: PASS");

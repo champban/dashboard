@@ -4,7 +4,7 @@
 -- Production application requires a separate Owner-approved migration gate and
 -- a recoverable Supabase backup/export.
 
-create table public.mtp_line_events (
+create table if not exists public.mtp_line_events (
   event_id text primary key
     check (char_length(event_id) between 1 and 200),
   owner_id uuid references auth.users(id) on delete cascade,
@@ -20,9 +20,9 @@ create table public.mtp_line_events (
   updated_at timestamptz not null default now()
 );
 
-create index mtp_line_events_status_updated_idx
+create index if not exists mtp_line_events_status_updated_idx
   on public.mtp_line_events (status, updated_at);
-create index mtp_line_events_received_idx
+create index if not exists mtp_line_events_received_idx
   on public.mtp_line_events (received_at);
 
 alter table public.mtp_line_events enable row level security;
@@ -34,15 +34,23 @@ grant select, insert, update, delete on table public.mtp_line_events to service_
 -- before the event ledger reaches processed. The event ledger is retained only
 -- for a bounded period, so this audit key deliberately has no foreign key.
 alter table public.mtp_line_mutations
-  add column source_event_id text
+  add column if not exists source_event_id text
     check (source_event_id is null or char_length(source_event_id) between 1 and 200);
 
-create unique index mtp_line_mutations_source_event_uidx
+create unique index if not exists mtp_line_mutations_source_event_uidx
   on public.mtp_line_mutations (source_event_id)
   where source_event_id is not null;
 
 comment on column public.mtp_line_mutations.source_event_id is
   'Stable LINE webhook event identity used to prevent duplicate mutation drafts.';
+
+-- The pre-L0a table grant allowed authenticated users to update every column.
+-- Restrict browser clients to the four queue-completion fields actually written
+-- by line-sync.js. In particular, clients cannot squat source_event_id values or
+-- rewrite operation/owner/expiry fields.
+revoke update on table public.mtp_line_mutations from authenticated;
+grant update (status, error_code, applied_at, updated_at)
+  on table public.mtp_line_mutations to authenticated;
 
 -- Atomically claim one event. A currently-processing event is owned by one
 -- invocation until its lease becomes stale. Failed and stale attempts may be
@@ -50,7 +58,7 @@ comment on column public.mtp_line_mutations.source_event_id is
 create or replace function public.mtp_claim_line_event(
   p_event_id text,
   p_owner_id uuid default null,
-  p_stale_after_seconds integer default 120
+  p_stale_after_seconds integer default 30
 )
 returns table (decision text, attempt_count integer)
 language plpgsql
@@ -65,6 +73,7 @@ declare
   v_processing_started_at timestamptz;
 begin
   if char_length(coalesce(p_event_id, '')) not between 1 and 200
+     or p_stale_after_seconds is null
      or p_stale_after_seconds not between 30 and 3600 then
     return query select 'invalid_request'::text, 0::integer;
     return;

@@ -115,21 +115,29 @@ assert.equal(parseMutationCommand("add Party, end of this year",now).date,"2026-
 assert.equal(parseMutationCommand("add Party, beginning of next year",now).date,"2027-01-01");
 assert.equal(parseMutationCommand("add Party, middle of next year",now).date,"2027-07-01");
 assert.equal(parseMutationCommand("add Party, end of next year",now).date,"2027-12-31");
+// Case-insensitive and whitespace-tolerant, same as the rest of the parser.
 assert.equal(parseMutationCommand("add Party, BEGINNING   OF   NEXT MONTH",now).date,"2026-08-01");
+// Month rollover into the next year.
 assert.equal(
   parseMutationCommand("add Party, beginning of next month", new Date("2026-12-15T02:00:00.000Z")).date,
   "2027-01-01",
 );
+// Leap-year month length ("end of next month" landing on February).
 assert.equal(
   parseMutationCommand("add Party, end of next month", new Date("2028-01-15T02:00:00.000Z")).date,
   "2028-02-29",
 );
+// "mid of next N months": day 15 of the month N months from now (owner-defined 2026-08-11).
 assert.equal(parseMutationCommand("add Party, mid of next 3 months",now).date,"2026-10-15");
 assert.equal(parseMutationCommand("add Party, mid of next 1 month",now).date,"2026-08-15");
 assert.equal(parseMutationCommand("add Party, MID OF NEXT 3 MONTHS",now).date,"2026-10-15");
+// Year rollover.
 assert.equal(parseMutationCommand("add Party, mid of next 6 months",now).date,"2027-01-15");
+// Still no guessing for genuinely different phrasing.
 assert.equal(parseMutationCommand("add Party, mid of the next 3 months",now),null);
 
+// add <title> with no date attempt at all: offer a date picker instead of a
+// generic unknown-command reply.
 assert.deepEqual(parseAddNeedsDate("add Buy milk"), {type:"personal",title:"Buy milk"});
 assert.deepEqual(parseAddNeedsDate("add work Buy milk"), {type:"work",title:"Buy milk"});
 assert.deepEqual(parseAddNeedsDate("add Buy milk,"), {type:"personal",title:"Buy milk"});
@@ -149,23 +157,32 @@ for (const language of ["en", "th"]) {
     assert.equal(item.action.type, "message");
     assert.ok(item.action.label.length <= 20);
     assert.ok(item.action.text.length <= 300);
+    // Every shortcut must round-trip through the real command parser into a
+    // fully-formed, ready-to-confirm add operation for the same title.
     const reparsed = parseMutationCommand(item.action.text);
     assert.equal(reparsed?.action, "add");
     assert.equal(reparsed?.title, "Buy milk");
     assert.ok(reparsed?.date);
   }
+  // Labels must be unique — LINE would silently dedupe/confuse otherwise.
   assert.equal(new Set(prompt.quickReply.items.map(i => i.action.label)).size, 13);
 }
+// A non-default type is preserved into every reconstructed command.
 const workPrompt = buildAddDatePrompt({type:"work",title:"Ship report"}, "en");
 for (const item of workPrompt.quickReply.items) {
   assert.equal(parseMutationCommand(item.action.text)?.type, "work");
 }
 
+// edit <title> with no date attempt: same date-picker mechanism as add, but
+// the reconstructed command keeps the title unchanged (short edit form).
 assert.deepEqual(parseEditNeedsDate("edit Buy insurance"), {type:"personal",title:"Buy insurance"});
 assert.equal(parseEditNeedsDate("edit Buy insurance, 15-12-2026"), null, "a valid full command must not be reinterpreted");
 for (const language of ["en", "th"]) {
   const prompt = buildEditDatePrompt({type:"personal",title:"Buy insurance"}, language);
   assert.equal(prompt.quickReply.items.length, 13);
+  // There is no server-side memory of the pending title between messages —
+  // the prompt text must show the exact full command, not imply a bare
+  // typed date alone would work (that silently went nowhere in production).
   assert.match(prompt.text, /edit Buy insurance, DD-MM-YYYY/);
   for (const item of prompt.quickReply.items) {
     const reparsed = parseMutationCommand(item.action.text);
@@ -176,12 +193,16 @@ for (const language of ["en", "th"]) {
   }
 }
 
+// Edit now also accepts relative date phrases, same as add (both forms).
 assert.equal(parseMutationCommand("edit Buy insurance, today",now).date, "2026-07-28");
 assert.equal(
   parseMutationCommand("edit Buy insurance, Buy insurance policy, beginning of next month",now).date,
   "2026-08-01",
 );
 
+// status <title>, <value>: owner-requested feature. Personal tasks are a
+// simple Pending/Done toggle; work tasks have the app's full four-state
+// workflow. Events have no status and are never offered it.
 assert.deepEqual(parseMutationCommand("status Buy insurance, done"), {
   action:"status",type:"personal",matchTitle:"Buy insurance",status:"done",
 });
@@ -191,12 +212,17 @@ assert.deepEqual(parseMutationCommand("status work Ship report, in progress"), {
 assert.deepEqual(parseMutationCommand("status work Ship report, review"), {
   action:"status",type:"work",matchTitle:"Ship report",status:"review",
 });
+// A work-only value must not silently apply to the personal default type.
 assert.equal(parseMutationCommand("status Buy insurance, review"), null);
 assert.equal(parseMutationCommand("status Buy insurance, not-a-status"), null);
 
 assert.deepEqual(parseStatusNeedsValue("status Buy insurance"), {type:"personal",title:"Buy insurance"});
 assert.deepEqual(parseStatusNeedsValue("status work Ship report"), {type:"work",title:"Ship report"});
 assert.equal(parseStatusNeedsValue("status Buy insurance, done"), null, "a valid full command must not be reinterpreted");
+// "event" is not a recognised type prefix here (status has no event support),
+// so it is treated as leading title text — safe (resolves to not_found later)
+// and never reachable via the UI anyway, since event cards never get a Status
+// button (see the card-button test below).
 assert.deepEqual(parseStatusNeedsValue("status event Trip"), {type:"personal",title:"event Trip"});
 
 for (const language of ["en", "th"]) {
@@ -214,10 +240,13 @@ for (const language of ["en", "th"]) {
       assert.equal(reparsed?.action, "status");
       assert.ok(reparsed?.status);
     }
+    // Labels must be unique within one prompt.
     assert.equal(new Set(prompt.quickReply.items.map(i => i.action.label)).size, prompt.quickReply.items.length);
   }
 }
 
+// Confirmation display: status operations get their own label and field,
+// not the add/edit/delete summary shape.
 const statusConfirm = buildMutationConfirmation(
   {action:"status",type:"work",matchTitle:"Ship report",status:"inprogress"},
   "123e4567-e89b-12d3-a456-426614174000", "en",
@@ -225,6 +254,7 @@ const statusConfirm = buildMutationConfirmation(
 assert.match(statusConfirm.text, /Update status/);
 assert.match(statusConfirm.text, /New status: In Progress/);
 
+// Menu prefill postbacks (Add/Edit/Set Status buttons): parse + instructional reply.
 for (const kind of ["add","edit","status"]) {
   for (const language of ["en","th"]) {
     const parsed = parseMutationPromptPostback(`action=mutation_prompt&kind=${kind}&lang=${language}`);
@@ -238,6 +268,7 @@ for (const kind of ["add","edit","status"]) {
 assert.equal(parseMutationPromptPostback("action=search_prompt&lang=en"), null);
 assert.equal(parseMutationPromptPostback("action=mutation_prompt&kind=bogus&lang=en"), null);
 
+// Edit: full form (title change) and the shorter date-only form.
 assert.deepEqual(parseMutationCommand("edit Buy insurance, Buy insurance policy, 15-12-2026"), {
   action:"edit",type:"personal",matchTitle:"Buy insurance",title:"Buy insurance policy",date:"2026-12-15",
 });
@@ -246,6 +277,7 @@ assert.deepEqual(parseMutationCommand("edit work Buy insurance, 15-12-2026"), {
 });
 assert.equal(parseMutationCommand("edit Bad date, 31-02-2026"),null);
 
+// Confirmed-mutation reply: link only appears once matched and confirmed.
 assert.equal(PLANNER_URL,"https://champban.github.io/dashboard/");
 const confirmedReply=buildMutationResultMessage("confirmed",true,"en");
 assert.match(confirmedReply.text,/Confirmed/);
@@ -283,15 +315,25 @@ assert.deepEqual(parseTemporalSearch("กิจกรรม สัปดาห�
 assert.deepEqual(parseTemporalSearch("week36 2026"), {
   query: "", start: "2026-08-31", end: "2026-09-06", scope: "all", status: "",
 });
+assert.deepEqual(parseTemporalSearch("week 1 2026"), {
+  query: "", start: "2025-12-29", end: "2026-01-04", scope: "all", status: "",
+});
+assert.deepEqual(parseTemporalSearch("week 53 2026"), {
+  query: "", start: "2026-12-28", end: "2027-01-03", scope: "all", status: "",
+});
 for (const week of [1,36,49,53]) {
   const range=parseTemporalSearch(`week ${week} 2026`);
   const span=(Date.parse(range.end)-Date.parse(range.start))/86400000;
   assert.equal(span,6,`ISO week ${week} must cover exactly seven inclusive calendar days`);
+  assert.equal(new Date(`${range.start}T00:00:00Z`).getUTCDay(),1,"starts Monday");
+  assert.equal(new Date(`${range.end}T00:00:00Z`).getUTCDay(),0,"ends Sunday");
 }
 assert.deepEqual(parseTemporalSearch("งาน เดือน 12 ปี 2026"), {
   query: "", start: "2026-12-01", end: "2026-12-31", scope: "task", status: "",
 });
 
+// Search status filter: "search <text> <status>" — optional trailing status
+// word, any status if omitted. Matches the owner's own phrasing exactly.
 assert.deepEqual(parseTemporalSearch("ภาษี pending"), {
   query: "ภาษี", start: "", end: "", scope: "all", status: "pending",
 });
@@ -313,9 +355,11 @@ assert.deepEqual(parseTemporalSearch("ค่าไฟ ค้าง"), {
 assert.deepEqual(parseTemporalSearch("ค่าไฟ เสร็จแล้ว"), {
   query: "ค่าไฟ", start: "", end: "", scope: "all", status: "done",
 });
+// No trailing status word at all: search every status, as before.
 assert.deepEqual(parseTemporalSearch("Buy insurance"), {
   query: "buy insurance", start: "", end: "", scope: "all", status: "",
 });
+// Combines with the existing temporal/scope tokens.
 assert.deepEqual(parseTemporalSearch("tax done December 2026"), {
   query: "tax", start: "2026-12-01", end: "2026-12-31", scope: "all", status: "done",
 });
@@ -346,12 +390,19 @@ assert.match(todayFlexText, /ส่งให้ทีม/);
 assert.match(todayFlexText, /https:\/\/example\.com\/diagram\.png/);
 assert.match(todayFlexText, /https:\/\/youtu\.be\/demo/);
 assert.doesNotMatch(todayFlexText, /http:\/\/example\.com\/unsafe/);
+// LINE's Flex schema does not recognise `separator` as a field on the footer
+// box itself — it only exists as bubble-level `styles.footer.separator`. A
+// box-level `separator` field is REJECTED outright by LINE's reply API with
+// a 400 ("unknown field"). The failure now surfaces as
+// line_reply_failed -> failed -> HTTP 503 — the production incident this guards.
 assert.equal(todayMessages[0].contents.footer.separator, undefined);
 assert.equal(todayMessages[0].contents.styles?.footer?.separator, true);
 const footerActions = todayMessages[0].contents.footer.contents.map((button) => button.action);
 const attachmentActions = footerActions.filter((action) => action.type === "uri");
 assert.ok(attachmentActions.every((action) => action.uri.startsWith("https://")));
 assert.ok(attachmentActions.every((action) => action.altUri.desktop === action.uri));
+// Edit/Delete/Status card buttons: a work task (this fixture's "ส่งรายงาน") gets
+// all three; each reconstructs into a valid, re-parseable bare command.
 const cardActions = footerActions.filter((action) => action.type === "message");
 assert.equal(cardActions.length, 3);
 const cardLabels = cardActions.map((action) => action.label).sort();
@@ -368,6 +419,7 @@ assert.deepEqual(
   {action:"delete",type:"work",matchTitle:"ส่งรายงาน"},
 );
 
+// Event cards get Edit/Delete but never a Status button — events have no status.
 const eventCardSnapshot = {
   dataUpdatedAt: "2026-07-28T01:30:00.000Z",
   tasks: [],
@@ -394,6 +446,9 @@ const searchReply = buildReply(parseIntent("ค้นหา Alpha"), snapshot, {
 assert.match(searchReply, /ส่งรายงาน/);
 assert.match(searchReply, /งานที่จบแล้ว/, "search intentionally includes completed tasks");
 
+// "search <text> <status>" — owner-requested trailing status filter, e.g.
+// "search ภาษี pending" / "search Fortuner done". No status word: every
+// status still shows, unchanged from before this feature.
 const searchAlphaPending = buildReply(parseIntent("ค้นหา Alpha ค้าง"), snapshot, { now });
 assert.match(searchAlphaPending, /ส่งรายงาน/);
 assert.match(searchAlphaPending, /ประชุมปลายสัปดาห์/);
@@ -447,7 +502,7 @@ const taxAnyStatus = buildReply(parseIntent("search tax"), statusSearchSnapshot,
 assert.match(taxAnyStatus, /Pay tax now/);
 assert.match(taxAnyStatus, /Pay tax later/);
 assert.match(taxAnyStatus, /Tax filing archive/);
-assert.match(taxAnyStatus, /Tax filing deadline/, "no status word: search still covers events, same as before this feature");
+assert.match(taxAnyStatus, /Tax filing deadline/, "no status word: search still covers events, same as before");
 
 const temporalSnapshot = {
   dataUpdatedAt: "2026-08-01T08:37:00.000Z",
@@ -583,6 +638,8 @@ for (const language of ["en", "th"]) {
   const plannerItems = quickReply.items.filter((item) => item.action.type === "uri");
   assert.equal(plannerItems.length, 1);
   assert.equal(plannerItems[0].action.uri, PLANNER_URL);
+  // add/edit/status prefill shortcuts — three, one per kind, all English commands
+  // regardless of menu language.
   const prefillItems = quickReply.items.filter((item) =>
     item.action.type === "postback" && parseMutationPromptPostback(item.action.data));
   assert.equal(prefillItems.length, 3);
@@ -609,6 +666,7 @@ for (const language of ["en", "th"]) {
       assert.ok(parseSearchPromptPostback(item.action.data) || parseMutationPromptPostback(item.action.data));
     }
   }
+  // Labels must be unique — LINE would silently dedupe/confuse otherwise.
   assert.equal(new Set(quickReply.items.map(i => i.action.label)).size, 13);
 
   const prompt = buildSearchPromptMessage(language);
