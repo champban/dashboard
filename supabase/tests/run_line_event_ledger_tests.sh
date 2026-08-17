@@ -18,10 +18,15 @@ begin
     create role authenticated nologin;
   end if;
   if not exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role') then
-    create role service_role nologin;
+    create role service_role nologin bypassrls;
   end if;
 end;
 $$;
+
+-- Supabase's service_role bypasses RLS. Make the throwaway PostgreSQL role match
+-- that runtime property so direct maintenance/setup statements exercise the
+-- same access model rather than being silently filtered by RLS.
+alter role service_role bypassrls;
 
 create schema if not exists auth;
 create table if not exists auth.users (
