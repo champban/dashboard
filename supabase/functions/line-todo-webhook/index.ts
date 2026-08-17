@@ -26,6 +26,11 @@ import {
   truncateReply,
   verifyLineSignature,
 } from "./logic.js";
+import {
+  cancelReplyText,
+  isCancelCommand,
+  withCancelQuickReply,
+} from "./cancel-flow.js";
 
 const jsonResponse = (body: unknown, status = 200) => new Response(
   JSON.stringify(body),
@@ -134,6 +139,11 @@ async function handleTextEvent(
   }
 
   const language = commandLanguage(text);
+  if (isCancelCommand(text)) {
+    await replyText(replyToken, cancelReplyText(language), accessToken, language);
+    return;
+  }
+
   const mutation = parseMutationCommand(text);
   if (mutation) {
     const { data: draft, error: mutationError } = await supabase
@@ -145,17 +155,17 @@ async function handleTextEvent(
   }
   const needsDate = parseAddNeedsDate(text);
   if (needsDate) {
-    await replyLine(replyToken, [buildAddDatePrompt(needsDate, language)], accessToken);
+    await replyLine(replyToken, [withCancelQuickReply(buildAddDatePrompt(needsDate, language), language)], accessToken);
     return;
   }
   const editNeedsDate = parseEditNeedsDate(text);
   if (editNeedsDate) {
-    await replyLine(replyToken, [buildEditDatePrompt(editNeedsDate, language)], accessToken);
+    await replyLine(replyToken, [withCancelQuickReply(buildEditDatePrompt(editNeedsDate, language), language)], accessToken);
     return;
   }
   const needsStatus = parseStatusNeedsValue(text);
   if (needsStatus) {
-    await replyLine(replyToken, [buildStatusPrompt(needsStatus, language)], accessToken);
+    await replyLine(replyToken, [withCancelQuickReply(buildStatusPrompt(needsStatus, language), language)], accessToken);
     return;
   }
   const intent = parseIntent(text);
@@ -233,7 +243,7 @@ async function handlePostbackEvent(
   if (mutationPrompt) {
     await replyLine(
       replyToken,
-      [buildMutationPromptMessage(mutationPrompt.kind, mutationPrompt.language)],
+      [withCancelQuickReply(buildMutationPromptMessage(mutationPrompt.kind, mutationPrompt.language), mutationPrompt.language)],
       accessToken,
     );
     return;
