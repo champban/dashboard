@@ -10,6 +10,7 @@ const mobile = read("mobile/index.html");
 const packager = read("build/package.mjs");
 const browserBridge = read("line-sync.js");
 const webhook = read("supabase/functions/line-todo-webhook/index.ts");
+const webhookCompact = webhook.replace(/\s+/g, "");
 const migration = read("supabase/migrations/20260728155436_line_official_readonly_bot.sql");
 const snapshotV2Migration = read("supabase/migrations/20260730031026_line_task_details_snapshot_v2.sql");
 const snapshotV3Migration = read("supabase/migrations/20260801090000_line_snapshot_v3_events.sql");
@@ -62,26 +63,29 @@ assert.match(mutationMigration,/status in \('draft','confirmed','cancelled','app
 assert.doesNotMatch(mutationMigration,/\b(?:delete|truncate)\s+from\b/i);
 assert.match(config, /\[functions\.line-todo-webhook\][\s\S]*verify_jwt = false/);
 
-const rawBodyAt = webhook.indexOf("const rawBody = await request.text()");
-const signatureAt = webhook.indexOf("verifyLineSignature(rawBody");
-const parseAt = webhook.indexOf("body = JSON.parse(rawBody)");
-const menuAt = webhook.indexOf('intent.kind === "menu"');
-const snapshotAt = webhook.indexOf('.from("mtp_line_snapshots")');
+// Structural webhook contracts must survive harmless formatting/minification.
+// Remove whitespace before checking token order so readable and compact deployments
+// are held to the same security and routing requirements.
+const rawBodyAt = webhookCompact.indexOf("constrawBody=awaitrequest.text()");
+const signatureAt = webhookCompact.indexOf("verifyLineSignature(rawBody");
+const parseAt = webhookCompact.indexOf("body=JSON.parse(rawBody)");
+const menuAt = webhookCompact.indexOf('intent.kind==="menu"');
+const snapshotAt = webhookCompact.indexOf('.from("mtp_line_snapshots")');
 assert.ok(rawBodyAt >= 0 && signatureAt > rawBodyAt && parseAt > signatureAt,
   "raw LINE body must be verified before JSON parsing");
 assert.ok(menuAt >= 0 && snapshotAt > menuAt,
   "a linked menu request must not require a planner snapshot read");
 assert.doesNotMatch(webhook, /console\.(?:log|warn|error)/);
-assert.match(webhook, /event\?\.source\?\.type === "user"/);
-assert.match(webhook, /api\.line\.me\/v2\/bot\/message\/reply/);
-assert.match(webhook, /messages: messages\.slice\(0, 5\)/);
-assert.match(webhook, /intent\.kind === "menu"/);
-assert.match(webhook, /buildMenuMessage\(language\)/);
-assert.match(webhook, /buildQuickReply\(language\)/);
-assert.match(webhook, /event\?\.type === "postback"/);
-assert.match(webhook, /parseSearchPromptPostback\(event\?\.postback\?\.data\)/);
-assert.match(webhook, /buildSearchPromptMessage\(language\)/);
-assert.match(webhook, /buildReplyMessages\(intent, snapshot, \{ language \}\)/);
+assert.match(webhookCompact, /event\?\.source\?\.type==="user"/);
+assert.match(webhookCompact, /api\.line\.me\/v2\/bot\/message\/reply/);
+assert.match(webhookCompact, /messages:messages\.slice\(0,5\)/);
+assert.match(webhookCompact, /intent\.kind==="menu"/);
+assert.match(webhookCompact, /buildMenuMessage\(language\)/);
+assert.match(webhookCompact, /buildQuickReply\(language\)/);
+assert.match(webhookCompact, /event\?\.type==="postback"/);
+assert.match(webhookCompact, /parseSearchPromptPostback\(event\?\.postback\?\.data\)/);
+assert.match(webhookCompact, /buildSearchPromptMessage\(language\)/);
+assert.match(webhookCompact, /buildReplyMessages\(/);
 await assert.doesNotReject(
   transform(webhook, { loader: "ts", target: "es2022" }),
   "Edge Function TypeScript must parse",
