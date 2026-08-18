@@ -1,0 +1,94 @@
+# One-time, post-deploy public endpoint verification for L0a v22.
+# Temporary branch only. Do not merge this workflow into main.
+name: L0a v22 post-deploy public endpoint smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/l0a-v22-post-deploy-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l0a-v22-public-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  public-endpoint-smoke:
+    name: Public endpoint and invalid-signature checks
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l0a-v22-post-deploy-smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Verify direct Supabase and Netlify gateway behavior
+        shell: bash
+        env:
+          SUPABASE_FUNCTION_URL: https://qjaywadzvwvcspdsjxth.supabase.co/functions/v1/line-todo-webhook
+          NETLIFY_WEBHOOK_URL: https://line-app-public-line-webhook.netlify.app/api/webhook
+        run: |
+          set -euo pipefail
+
+          request_status() {
+            local output_file="$1"
+            shift
+            curl \
+              --silent \
+              --show-error \
+              --location \
+              --connect-timeout 10 \
+              --max-time 20 \
+              --output "$output_file" \
+              --write-out '%{http_code}' \
+              "$@"
+          }
+
+          direct_get_status="$(request_status /tmp/direct-get.json "$SUPABASE_FUNCTION_URL")"
+          test "$direct_get_status" = "405"
+          grep -q 'method_not_allowed' /tmp/direct-get.json
+
+          direct_invalid_status="$(request_status /tmp/direct-invalid.json \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header 'x-line-signature: invalid-signature' \
+            --data '{"events":[]}' \
+            "$SUPABASE_FUNCTION_URL")"
+          test "$direct_invalid_status" = "401"
+          grep -q 'invalid_signature' /tmp/direct-invalid.json
+
+          gateway_get_status="$(request_status /tmp/gateway-get.json "$NETLIFY_WEBHOOK_URL")"
+          test "$gateway_get_status" = "200"
+          grep -q '"ok":true' /tmp/gateway-get.json
+          grep -q '"configured":true' /tmp/gateway-get.json
+
+          gateway_invalid_status="$(request_status /tmp/gateway-invalid.json \
+            --request POST \
+            --header 'content-type: application/json' \
+            --header 'x-line-signature: invalid-signature' \
+            --data '{"events":[]}' \
+            "$NETLIFY_WEBHOOK_URL")"
+          test "$gateway_invalid_status" = "401"
+          grep -q 'Invalid signature' /tmp/gateway-invalid.json
+
+          {
+            echo '### L0a v22 public endpoint smoke'
+            echo ''
+            echo '- Direct Supabase GET: 405 method_not_allowed'
+            echo '- Direct Supabase invalid-signature POST: 401 invalid_signature'
+            echo '- Netlify gateway GET: 200 configured'
+            echo '- Netlify gateway invalid-signature POST: 401 Invalid signature'
+            echo '- Synthetic payload only; no secret or user data used'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo 'L0a v22 public endpoint and invalid-signature checks: PASS'
