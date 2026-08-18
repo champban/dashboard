@@ -41,7 +41,7 @@ Exact function package at that commit:
 
 ## 2. Approval boundaries
 
-This release has two independent irreversible gates.
+This release has two independently controlled Production gates.
 
 ### Gate A — Migration approval
 
@@ -244,7 +244,7 @@ Use an approval equivalent to:
 ไป project qjaywadzvwvcspdsjxth โดยคง verify_jwt=false
 หลัง migration/RLS gate PASS เท่านั้น
 ห้ามเปลี่ยน Netlify, LINE Console, Rich Menu, secrets, cleanup, L0b หรือ L1
-หาก source SHA, file blobs, migration state หรือ rollback evidenceเปลี่ยน ให้หยุด
+หาก source SHA, file blobs, migration state หรือ rollback evidence เปลี่ยน ให้หยุด
 ```
 
 ## 8. Deploy exact reviewed function package
