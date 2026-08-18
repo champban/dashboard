@@ -71,3 +71,36 @@ jobs:
             echo "::error::es2019 guard failed — '??' or '?.[' reached the shipped bundle; older iOS Safari will render nothing."
             exit 1
           fi
+
+  line-event-ledger-sql:
+    name: LINE event ledger SQL / RLS / concurrency
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: l0a_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d l0a_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/l0a_test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure PostgreSQL client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Execute repeatable ledger migration, RLS and concurrency gate
+        run: bash supabase/tests/run_line_event_ledger_tests.sh

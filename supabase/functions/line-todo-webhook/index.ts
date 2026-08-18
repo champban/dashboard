@@ -6,7 +6,6 @@ import {
   buildMenuMessage,
   buildMutationPromptMessage,
   buildQuickReply,
-  buildReply,
   buildReplyMessages,
   buildSearchPromptMessage,
   buildStatusPrompt,
@@ -31,6 +30,14 @@ import {
   isCancelCommand,
   withCancelQuickReply,
 } from "./cancel-flow.js";
+import {
+  createSupabaseLineEventLedger,
+  createSupabaseMutationRepository,
+  ensureMutationDraftForEvent,
+  processLineEventBatch,
+  replyThenAttachLineEventOwner,
+  resolveMutationDecision,
+} from "./event-processing.js";
 
 const jsonResponse = (body: unknown, status = 200) => new Response(
   JSON.stringify(body),
@@ -42,6 +49,12 @@ const jsonResponse = (body: unknown, status = 200) => new Response(
     },
   },
 );
+
+function codedError(code: string) {
+  const error = new Error(code) as Error & { code?: string };
+  error.code = code;
+  return error;
+}
 
 function parseSecretKeySet(raw: string | undefined) {
   if (!raw) return "";
@@ -81,7 +94,7 @@ async function replyLine(
       messages: messages.slice(0, 5),
     }),
   });
-  if (!response.ok) throw new Error(`LINE reply failed (${response.status})`);
+  if (!response.ok) throw codedError("line_reply_failed");
 }
 
 async function replyText(
@@ -101,7 +114,12 @@ async function replyText(
 async function handleTextEvent(
   event: Record<string, any>,
   supabase: ReturnType<typeof createClient>,
+  mutationRepository: ReturnType<typeof createSupabaseMutationRepository>,
   accessToken: string,
+  eventContext: {
+    eventId: string;
+    setOwner: (ownerId: string) => Promise<void>;
+  },
 ) {
   const replyToken = String(event?.replyToken || "");
   const lineUserId = String(event?.source?.userId || "");
@@ -117,9 +135,14 @@ async function handleTextEvent(
         p_line_user_id: lineUserId,
       })
       .single();
-    if (error) throw new Error("Could not claim LINE link code");
-    const status = data?.status;
-    await replyLine(replyToken, buildLinkReplyMessages(status), accessToken);
+    if (error) throw codedError("line_link_claim_failed");
+
+    await replyThenAttachLineEventOwner({
+      messages: buildLinkReplyMessages(data?.status),
+      ownerId: data?.owner_id,
+      reply: (messages) => replyLine(replyToken, messages, accessToken),
+      setOwner: eventContext.setOwner,
+    });
     return;
   }
 
@@ -128,7 +151,7 @@ async function handleTextEvent(
     .select("owner_id")
     .eq("line_user_id", lineUserId)
     .maybeSingle();
-  if (accountError) throw new Error("Could not read LINE account mapping");
+  if (accountError) throw codedError("line_account_read_failed");
   if (!account?.owner_id) {
     await replyText(
       replyToken,
@@ -138,42 +161,73 @@ async function handleTextEvent(
     return;
   }
 
+  await eventContext.setOwner(account.owner_id);
+
   const language = commandLanguage(text);
   if (isCancelCommand(text)) {
-    await replyText(replyToken, cancelReplyText(language), accessToken, language);
+    await replyText(
+      replyToken,
+      cancelReplyText(language),
+      accessToken,
+      language,
+    );
     return;
   }
 
   const mutation = parseMutationCommand(text);
   if (mutation) {
-    const { data: draft, error: mutationError } = await supabase
-      .from("mtp_line_mutations").insert({ owner_id: account.owner_id, operation: mutation })
-      .select("id").single();
-    if (mutationError || !draft?.id) throw new Error("Could not create LINE mutation draft");
-    await replyLine(replyToken, [buildMutationConfirmation(mutation, draft.id, language)], accessToken);
+    const draft = await ensureMutationDraftForEvent({
+      eventId: eventContext.eventId,
+      ownerId: account.owner_id,
+      operation: mutation,
+      insertDraft: mutationRepository.insertDraft,
+      findDraft: mutationRepository.findDraft,
+    });
+    await replyLine(
+      replyToken,
+      [buildMutationConfirmation(mutation, draft.id, language)],
+      accessToken,
+    );
     return;
   }
+
   const needsDate = parseAddNeedsDate(text);
   if (needsDate) {
-    await replyLine(replyToken, [withCancelQuickReply(buildAddDatePrompt(needsDate, language), language)], accessToken);
+    await replyLine(
+      replyToken,
+      [withCancelQuickReply(buildAddDatePrompt(needsDate, language), language)],
+      accessToken,
+    );
     return;
   }
+
   const editNeedsDate = parseEditNeedsDate(text);
   if (editNeedsDate) {
-    await replyLine(replyToken, [withCancelQuickReply(buildEditDatePrompt(editNeedsDate, language), language)], accessToken);
+    await replyLine(
+      replyToken,
+      [withCancelQuickReply(buildEditDatePrompt(editNeedsDate, language), language)],
+      accessToken,
+    );
     return;
   }
+
   const needsStatus = parseStatusNeedsValue(text);
   if (needsStatus) {
-    await replyLine(replyToken, [withCancelQuickReply(buildStatusPrompt(needsStatus, language), language)], accessToken);
+    await replyLine(
+      replyToken,
+      [withCancelQuickReply(buildStatusPrompt(needsStatus, language), language)],
+      accessToken,
+    );
     return;
   }
+
   const intent = parseIntent(text);
   if (intent.kind === "menu" || intent.kind === "search_prompt") {
-    await supabase
+    const { error } = await supabase
       .from("mtp_line_accounts")
       .update({ last_seen_at: new Date().toISOString() })
       .eq("owner_id", account.owner_id);
+    if (error) throw codedError("line_account_touch_failed");
     await replyLine(
       replyToken,
       [intent.kind === "menu"
@@ -189,7 +243,7 @@ async function handleTextEvent(
     .select("snapshot, updated_at, data_updated_at")
     .eq("owner_id", account.owner_id)
     .maybeSingle();
-  if (snapshotError) throw new Error("Could not read planner snapshot");
+  if (snapshotError) throw codedError("line_snapshot_read_failed");
   if (!record?.snapshot) {
     await replyText(
       replyToken,
@@ -199,10 +253,11 @@ async function handleTextEvent(
     return;
   }
 
-  await supabase
+  const { error: touchError } = await supabase
     .from("mtp_line_accounts")
     .update({ last_seen_at: new Date().toISOString() })
     .eq("owner_id", account.owner_id);
+  if (touchError) throw codedError("line_account_touch_failed");
 
   const snapshot = {
     ...record.snapshot,
@@ -219,35 +274,61 @@ async function handleTextEvent(
 async function handlePostbackEvent(
   event: Record<string, any>,
   supabase: ReturnType<typeof createClient>,
+  mutationRepository: ReturnType<typeof createSupabaseMutationRepository>,
   accessToken: string,
+  eventContext: {
+    setOwner: (ownerId: string) => Promise<void>;
+  },
 ) {
   const replyToken = String(event?.replyToken || "");
   const lineUserId = String(event?.source?.userId || "");
   const mutation = parseMutationPostback(event?.postback?.data);
+
   if (replyToken && lineUserId && mutation) {
-    const { data: account } = await supabase.from("mtp_line_accounts")
-      .select("owner_id").eq("line_user_id",lineUserId).maybeSingle();
-    if(!account?.owner_id)return;
-    const status=mutation.decision==="confirm"?"confirmed":"cancelled";
-    const now=new Date().toISOString();
-    const {data,error}=await supabase.from("mtp_line_mutations")
-      .update({status,updated_at:now,...(status==="confirmed"?{confirmed_at:now}:{})})
-      .eq("id",mutation.id).eq("owner_id",account.owner_id).eq("status","draft")
-      .gt("expires_at",now).select("id").maybeSingle();
-    if(error)throw new Error("Could not confirm LINE mutation");
-    await replyLine(replyToken, [buildMutationResultMessage(status, !!data)], accessToken);
-    return;
-  }
-  if (!replyToken) return;
-  const mutationPrompt = parseMutationPromptPostback(event?.postback?.data);
-  if (mutationPrompt) {
+    const { data: account, error: accountError } = await supabase
+      .from("mtp_line_accounts")
+      .select("owner_id")
+      .eq("line_user_id", lineUserId)
+      .maybeSingle();
+    if (accountError) throw codedError("line_account_read_failed");
+    if (!account?.owner_id) return;
+
+    await eventContext.setOwner(account.owner_id);
+    const result = await resolveMutationDecision({
+      mutation,
+      ownerId: account.owner_id,
+      repository: mutationRepository,
+    });
     await replyLine(
       replyToken,
-      [withCancelQuickReply(buildMutationPromptMessage(mutationPrompt.kind, mutationPrompt.language), mutationPrompt.language)],
+      [buildMutationResultMessage(
+        result.status,
+        result.matched,
+        mutation.language,
+      )],
       accessToken,
     );
     return;
   }
+
+  if (!replyToken) return;
+
+  const mutationPrompt = parseMutationPromptPostback(event?.postback?.data);
+  if (mutationPrompt) {
+    await replyLine(
+      replyToken,
+      [withCancelQuickReply(
+        buildMutationPromptMessage(
+          mutationPrompt.kind,
+          mutationPrompt.language,
+        ),
+        mutationPrompt.language,
+      )],
+      accessToken,
+    );
+    return;
+  }
+
   const language = parseSearchPromptPostback(event?.postback?.data);
   if (!language) return;
   await replyLine(
@@ -255,6 +336,43 @@ async function handlePostbackEvent(
     [buildSearchPromptMessage(language)],
     accessToken,
   );
+}
+
+async function processLineEvent(
+  event: Record<string, any>,
+  supabase: ReturnType<typeof createClient>,
+  mutationRepository: ReturnType<typeof createSupabaseMutationRepository>,
+  accessToken: string,
+  eventContext: {
+    eventId: string;
+    setOwner: (ownerId: string) => Promise<void>;
+  },
+) {
+  if (
+    event?.type === "message"
+    && event?.message?.type === "text"
+    && event?.source?.type === "user"
+  ) {
+    await handleTextEvent(
+      event,
+      supabase,
+      mutationRepository,
+      accessToken,
+      eventContext,
+    );
+  } else if (
+    event?.type === "postback"
+    && event?.source?.type === "user"
+  ) {
+    await handlePostbackEvent(
+      event,
+      supabase,
+      mutationRepository,
+      accessToken,
+      eventContext,
+    );
+  }
+  // Unsupported but valid events are intentionally recorded as processed.
 }
 
 Deno.serve(async (request) => {
@@ -297,22 +415,38 @@ Deno.serve(async (request) => {
   const supabase = createClient(supabaseUrl, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
   try {
-    for (const event of events) {
-      if (
-        event?.type === "message"
-        && event?.message?.type === "text"
-        && event?.source?.type === "user"
-      ) {
-        await handleTextEvent(event, supabase, accessToken);
-      } else if (
-        event?.type === "postback"
-        && event?.source?.type === "user"
-      ) {
-        await handlePostbackEvent(event, supabase, accessToken);
-      }
+    const ledger = createSupabaseLineEventLedger(supabase);
+    const mutationRepository = createSupabaseMutationRepository(supabase);
+    const batch = await processLineEventBatch({
+      events,
+      ledger,
+      processEvent: (event, eventContext) => processLineEvent(
+        event,
+        supabase,
+        mutationRepository,
+        accessToken,
+        eventContext,
+      ),
+    });
+
+    if (!batch.ok) {
+      // No internal retry worker owns failed events yet. A retryable non-2xx asks
+      // LINE to redeliver; terminal events in the same batch are skipped safely.
+      return jsonResponse({
+        error: "event_processing_retry",
+        retryable: true,
+        failed: batch.failedCount,
+        busy: batch.busyCount,
+      }, 503);
     }
-    return jsonResponse({ ok: true });
+
+    return jsonResponse({
+      ok: true,
+      processed: batch.processedCount,
+      duplicates: batch.duplicateCount,
+    });
   } catch {
     // Do not log request bodies, LINE user ids, planner content, or secrets.
     return jsonResponse({ error: "event_processing_failed" }, 500);

@@ -279,25 +279,55 @@ assert.equal(parseMutationCommand("edit Bad date, 31-02-2026"),null);
 
 // Confirmed-mutation reply: link only appears once matched and confirmed.
 assert.equal(PLANNER_URL,"https://champban.github.io/dashboard/");
-const confirmedReply=buildMutationResultMessage("confirmed",true);
+const confirmedReply=buildMutationResultMessage("confirmed",true,"en");
 assert.match(confirmedReply.text,/Confirmed/);
 assert.equal(confirmedReply.quickReply.items[0].action.uri,PLANNER_URL);
-assert.equal(buildMutationResultMessage("cancelled",true).quickReply,undefined);
-assert.match(buildMutationResultMessage("cancelled",true).text,/Cancelled/);
-assert.match(buildMutationResultMessage("confirmed",false).text,/expired|already used/);
+assert.equal(buildMutationResultMessage("cancelled",true,"en").quickReply,undefined);
+assert.match(buildMutationResultMessage("cancelled",true,"en").text,/Cancelled/);
+assert.match(buildMutationResultMessage("confirmed",false,"en").text,/expired|already used/);
+const confirmedReplyTh=buildMutationResultMessage("confirmed",true,"th");
+assert.match(confirmedReplyTh.text,/ยืนยันแล้ว/);
+assert.equal(confirmedReplyTh.quickReply.items[0].action.label,"เปิด Planner");
+assert.match(buildMutationResultMessage("cancelled",true,"th").text,/ยกเลิกแล้ว/);
+assert.match(buildMutationResultMessage("confirmed",false,"th").text,/หมดอายุ|ถูกใช้/);
 
 const mutationId="123e4567-e89b-12d3-a456-426614174000";
-assert.deepEqual(parseMutationPostback(`mutation=confirm&id=${mutationId}`),{decision:"confirm",id:mutationId});
-assert.match(JSON.stringify(buildMutationConfirmation(parseMutationCommand("add Buy insurance, 01-12-2026"),mutationId,"en")),/Confirm/);
+assert.deepEqual(
+  parseMutationPostback(`mutation=confirm&id=${mutationId}&lang=th`),
+  {decision:"confirm",id:mutationId,language:"th"},
+);
+assert.deepEqual(
+  parseMutationPostback(`mutation=confirm&id=${mutationId}`),
+  {decision:"confirm",id:mutationId,language:"en"},
+  "legacy postbacks remain compatible and default to English",
+);
+const confirmation=buildMutationConfirmation(
+  parseMutationCommand("add Buy insurance, 01-12-2026"),mutationId,"en",
+);
+assert.match(JSON.stringify(confirmation),/Confirm/);
+assert.ok(confirmation.quickReply.items.every((item)=>item.action.data.endsWith("&lang=en")));
 assert.deepEqual(parseTemporalSearch("Buy December 2026"), {
   query: "buy", start: "2026-12-01", end: "2026-12-31", scope: "all", status: "",
 });
 assert.deepEqual(parseTemporalSearch("กิจกรรม สัปดาห์ 49 ปี 2026"), {
-  query: "", start: "2026-11-30", end: "2027-02-07", scope: "event", status: "",
+  query: "", start: "2026-11-30", end: "2026-12-06", scope: "event", status: "",
 });
 assert.deepEqual(parseTemporalSearch("week36 2026"), {
-  query: "", start: "2026-08-31", end: "2026-11-08", scope: "all", status: "",
+  query: "", start: "2026-08-31", end: "2026-09-06", scope: "all", status: "",
 });
+assert.deepEqual(parseTemporalSearch("week 1 2026"), {
+  query: "", start: "2025-12-29", end: "2026-01-04", scope: "all", status: "",
+});
+assert.deepEqual(parseTemporalSearch("week 53 2026"), {
+  query: "", start: "2026-12-28", end: "2027-01-03", scope: "all", status: "",
+});
+for (const week of [1,36,49,53]) {
+  const range=parseTemporalSearch(`week ${week} 2026`);
+  const span=(Date.parse(range.end)-Date.parse(range.start))/86400000;
+  assert.equal(span,6,`ISO week ${week} must cover exactly seven inclusive calendar days`);
+  assert.equal(new Date(`${range.start}T00:00:00Z`).getUTCDay(),1,"starts Monday");
+  assert.equal(new Date(`${range.end}T00:00:00Z`).getUTCDay(),0,"ends Sunday");
+}
 assert.deepEqual(parseTemporalSearch("งาน เดือน 12 ปี 2026"), {
   query: "", start: "2026-12-01", end: "2026-12-31", scope: "task", status: "",
 });
@@ -363,8 +393,8 @@ assert.doesNotMatch(todayFlexText, /http:\/\/example\.com\/unsafe/);
 // LINE's Flex schema does not recognise `separator` as a field on the footer
 // box itself — it only exists as bubble-level `styles.footer.separator`. A
 // box-level `separator` field is REJECTED outright by LINE's reply API with
-// a 400 ("unknown field"), which is silent on this end since replyLine's
-// failure is caught upstream — the exact production incident this guards.
+// a 400 ("unknown field"). The failure now surfaces as
+// line_reply_failed -> failed -> HTTP 503 — the production incident this guards.
 assert.equal(todayMessages[0].contents.footer.separator, undefined);
 assert.equal(todayMessages[0].contents.styles?.footer?.separator, true);
 const footerActions = todayMessages[0].contents.footer.contents.map((button) => button.action);
@@ -472,7 +502,7 @@ const taxAnyStatus = buildReply(parseIntent("search tax"), statusSearchSnapshot,
 assert.match(taxAnyStatus, /Pay tax now/);
 assert.match(taxAnyStatus, /Pay tax later/);
 assert.match(taxAnyStatus, /Tax filing archive/);
-assert.match(taxAnyStatus, /Tax filing deadline/, "no status word: search still covers events, same as before this feature");
+assert.match(taxAnyStatus, /Tax filing deadline/, "no status word: search still covers events, same as before");
 
 const temporalSnapshot = {
   dataUpdatedAt: "2026-08-01T08:37:00.000Z",
