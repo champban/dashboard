@@ -1,0 +1,64 @@
+name: L0a pre-production replay and timeout gates
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/l0a-preproduction-gates.yml"
+      - "build/l0a-forwarder-integration.test.mjs"
+      - "supabase/functions/line-todo-webhook/**"
+      - "supabase/migrations/20260817150000_line_webhook_event_reliability.sql"
+      - "supabase/tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-netlify-supabase-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: l0a_gate
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d l0a_gate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/l0a_gate
+
+    steps:
+      - name: Checkout dashboard exact candidate
+        uses: actions/checkout@v5
+
+      - name: Checkout Production Netlify gateway source
+        uses: actions/checkout@v5
+        with:
+          repository: champban/Line-app
+          ref: 86522956f9b05d18e716e81ed90549d3d9556a3b
+          path: vendor/Line-app
+
+      - name: Confirm PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Apply throwaway schema and run real SQL/RLS/concurrency gate
+        run: bash supabase/tests/run_line_event_ledger_tests.sh
+
+      - name: Replay signed duplicates and Production timeout/lease cases
+        env:
+          LINE_APP_DIR: ${{ github.workspace }}/vendor/Line-app
+        run: node build/l0a-forwarder-integration.test.mjs
