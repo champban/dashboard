@@ -1,0 +1,114 @@
+# One-time, Owner-approved logical backup for L0a Production activation.
+# This file lives only on the temporary ops branch and is not intended for main.
+name: L0a one-time encrypted Supabase backup
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/l0a-one-time-encrypted-backup.yml"
+      - "ops/l0a-one-time-backup.sh"
+      - "docs/L0A_ONE_TIME_GITHUB_BACKUP.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l0a-one-time-backup-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  encrypted-logical-backup:
+    name: Encrypted logical backup (Owner-gated)
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l0a-one-time-production-backup'
+    environment: production-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      EXPECTED_PROJECT_REF: qjaywadzvwvcspdsjxth
+      EXPECTED_BASE_REF: main
+      EXPECTED_HEAD_REF: ops/l0a-one-time-production-backup
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Validate branch, target and protected inputs
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+
+          if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
+            echo "::error::Missing production-backup environment secret SUPABASE_DB_URL"
+            exit 1
+          fi
+
+          if [[ -z "${BACKUP_PASSPHRASE:-}" ]]; then
+            echo "::error::Missing production-backup environment secret BACKUP_PASSPHRASE"
+            exit 1
+          fi
+
+          if [[ ${#BACKUP_PASSPHRASE} -lt 24 ]]; then
+            echo "::error::BACKUP_PASSPHRASE must contain at least 24 characters"
+            exit 1
+          fi
+
+          if [[ "$SUPABASE_DB_URL" != postgres://* && "$SUPABASE_DB_URL" != postgresql://* ]]; then
+            echo "::error::SUPABASE_DB_URL must be a PostgreSQL connection URI"
+            exit 1
+          fi
+
+          if [[ "$SUPABASE_DB_URL" != *"$EXPECTED_PROJECT_REF"* ]]; then
+            echo "::error::SUPABASE_DB_URL does not identify the approved Dashboard project"
+            exit 1
+          fi
+
+          echo "Branch and protected-input gate: PASS"
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@aa3515eac405eac768fa4a72147c22d88a283c7b
+        with:
+          version: 2.111.0
+
+      - name: Ensure encryption tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gpg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gnupg
+          fi
+          supabase --version
+          gpg --version | head -n 1
+
+      - name: Export, encrypt and verify backup
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: bash ops/l0a-one-time-backup.sh
+
+      - name: Upload encrypted backup for one day
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dashboard-supabase-backup-${{ env.BACKUP_STAMP }}
+          path: |
+            ${{ env.BACKUP_ARTIFACT_PATH }}
+            ${{ env.BACKUP_MANIFEST_PATH }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
