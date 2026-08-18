@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/l0a-preproduction-gates.yml"
       - "build/l0a-forwarder-integration.test.mjs"
+      - "build/fixtures/line-app-86522956/**"
       - "supabase/functions/line-todo-webhook/**"
       - "supabase/migrations/20260817150000_line_webhook_event_reliability.sql"
       - "supabase/tests/**"
@@ -40,12 +41,13 @@ jobs:
       - name: Checkout dashboard exact candidate
         uses: actions/checkout@v5
 
-      - name: Checkout Production Netlify gateway source
-        uses: actions/checkout@v5
-        with:
-          repository: champban/Line-app
-          ref: 86522956f9b05d18e716e81ed90549d3d9556a3b
-          path: vendor/Line-app
+      - name: Verify Production gateway fixture provenance
+        run: |
+          test -f build/fixtures/line-app-86522956/lib/lineWebhookForwarder.js
+          test -f build/fixtures/line-app-86522956/lib/line.js
+          test "$(git hash-object build/fixtures/line-app-86522956/lib/lineWebhookForwarder.js)" = "bec7691b2118fd4e23e42182cb67cabde494d896"
+          test "$(git hash-object build/fixtures/line-app-86522956/lib/line.js)" = "51bf6d31155e404a42543f36bfac09068090ff52"
+          echo "Production gateway fixture provenance: PASS"
 
       - name: Confirm PostgreSQL client
         run: |
@@ -60,5 +62,5 @@ jobs:
 
       - name: Replay signed duplicates and Production timeout/lease cases
         env:
-          LINE_APP_DIR: ${{ github.workspace }}/vendor/Line-app
+          LINE_APP_DIR: ${{ github.workspace }}/build/fixtures/line-app-86522956
         run: node build/l0a-forwarder-integration.test.mjs
