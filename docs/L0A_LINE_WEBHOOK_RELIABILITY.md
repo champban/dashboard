@@ -1,6 +1,6 @@
 # L0a — LINE Webhook Reliability Hardening
 
-Status: **PRODUCTION VERIFIED / FORMAL CLOSURE IN PROGRESS**
+Status: **PRODUCTION VERIFIED / FORMAL CLOSURE RECORDED**
 
 - Initial Owner approval: `2026-08-17`
 - Production verification: `2026-08-19` (`Asia/Bangkok`)
