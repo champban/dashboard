@@ -40,8 +40,6 @@ No provider secret, Netlify, Rich Menu, or Todo source-of-truth change occurred.
 
 ## L0a findings and closures
 
-## L0a findings and closures
-
 ### L0A-01 — irreversible link claim ordering
 
 **Status: CLOSED IN PRODUCTION**
@@ -72,10 +70,10 @@ including `claimed -> busy -> claimed_stale -> claimed_retry ->
 duplicate_processed`, old-attempt rejection, terminal-only cleanup and genuine
 two-session `claimed=1, busy=1` behavior.
 
-Production migration `20260818154406_line_webhook_event_reliability` then passed catalog verification: required
-columns/indexes/constraints exist, RLS is enabled, client roles are denied,
-service-role RPC access is present, mutation column privileges are restricted,
-and the 17 pre-existing mutation rows were unchanged.
+Production migration `20260818154406_line_webhook_event_reliability` then passed
+catalog verification: required columns/indexes/constraints exist, RLS is enabled,
+client roles are denied, service-role RPC access is present, mutation column
+privileges are restricted, and the 17 pre-existing mutation rows were unchanged.
 
 ### L0A-04 — retry and reply guarantee
 
@@ -125,9 +123,10 @@ retried confirm, conflicting cancel, expired draft and missing draft.
 - Evidence PR #71: signed duplicate replay and timeout/lease tests — PASS.
 - Evidence PR #72: encrypted logical backup creation/decryption/hash verification
   — PASS; Owner accepted Personal-PC-only storage risk.
-- Production migration `20260818154406_line_webhook_event_reliability`: structure, RLS, grants, RPCs and unchanged
-  mutation count — PASS.
-- Edge Function v22 ACTIVE, `verify_jwt=false`, bundle `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa`.
+- Production migration `20260818154406_line_webhook_event_reliability`:
+  structure, RLS, grants, RPCs and unchanged mutation count — PASS.
+- Edge Function v22 ACTIVE, `verify_jwt=false`, bundle
+  `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa`.
 - Evidence PR #74 / CI #116: direct and Netlify invalid-signature/public endpoint
   checks — PASS.
 - Owner live smoke: `menu`, Edit -> Cancel, `search week 49 2026` — PASS.
