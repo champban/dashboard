@@ -1,0 +1,518 @@
+name: L0a formal release documentation closure
+
+on:
+  push:
+    branches:
+      - docs/l0a-formal-release-closure
+
+permissions:
+  contents: write
+
+concurrency:
+  group: l0a-formal-release-closure
+  cancel-in-progress: false
+
+jobs:
+  close-release-docs:
+    if: github.actor == 'champban'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact closure branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: docs/l0a-formal-release-closure
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Update the four approved closure documents
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "27634ef9d971dfc204607b2ff8a0500e8bd4c4f0"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          BASE = "27634ef9d971dfc204607b2ff8a0500e8bd4c4f0"
+          SOURCE = "3cafa19aa56f89c8d640acc717726d0043b3bd2c"
+          REVIEWED = "73ad8b6a9815411364afeae34d9ce52418bd6967"
+          MIGRATION = "20260818154406_line_webhook_event_reliability"
+          BUNDLE = "6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa"
+
+          def read(path):
+              return Path(path).read_text(encoding="utf-8")
+
+          def write(path, text):
+              Path(path).write_text(text.rstrip() + "\n", encoding="utf-8")
+
+          def replace_section(text, start_heading, end_heading, replacement):
+              start = text.find(start_heading)
+              if start < 0:
+                  raise SystemExit(f"Missing start heading: {start_heading}")
+              end = text.find(end_heading, start + len(start_heading))
+              if end < 0:
+                  raise SystemExit(f"Missing end heading: {end_heading}")
+              return text[:start] + replacement.rstrip() + "\n\n" + text[end:]
+
+          # PROJECT_CONTEXT.md
+          path = "PROJECT_CONTEXT.md"
+          text = read(path)
+          current_release = f'''## Current release
+
+- Production GitHub baseline before this documentation-only closure is
+  `main@{BASE}` (PR #73, L0a Production Deployment Runbook).
+- The exact L0a runtime source package is pinned to merge commit `{SOURCE}`,
+  which contains independently reviewed implementation head `{REVIEWED}`.
+- Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
+  migration `{MIGRATION}`, mapped to repository file
+  `supabase/migrations/20260817150000_line_webhook_event_reliability.sql`.
+- Supabase Edge Function `line-todo-webhook` version **22** is `ACTIVE`, keeps
+  `verify_jwt=false` by design, and has bundle SHA-256 `{BUNDLE}`.
+- Verified live path: `LINE @103rexjo -> Netlify line-app-public-line-webhook
+  -> Supabase line-todo-webhook v22 -> LINE Reply API`.
+- L0a Production acceptance passed on 2026-08-19: `menu`, Edit -> Cancel, and
+  `search week 49 2026`; five ledger events were `processed`, zero were
+  `failed`/`processing`, maximum attempt count was 1, and mutation rows stayed
+  at 17 with no new `source_event_id` values.
+- `APP_VERSION` in `src/App.jsx` remains the Full version source; it flows into
+  the UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
+  artifacts.
+- Full application: `index.html` — **generated, do not edit directly**.
+- Mobile application: `mobile/index.html` (separate hand-written vanilla-JS
+  app, task-details candidate v3.75.2).
+- Live planner: https://champban.github.io/dashboard/
+
+### L0a webhook reliability Production release
+
+- PR #70 merged the exact reviewed L0a source; PR #69 was closed unmerged as
+  superseded. PR #73 merged the deployment runbook.
+- LINE Developers Console was Owner-verified with `Use webhook = Enabled` and
+  `Webhook redelivery = Enabled` before migration/deployment.
+- Encrypted logical backup `20260818T145008Z` passed export, decryption and
+  SHA-256 integrity checks. Owner accepted the single-copy Personal-PC risk.
+- Production migration verification confirmed RLS enabled, no client ledger
+  access, service-role-only RPC access, authenticated mutation updates limited
+  to `status`, `error_code`, `applied_at`, and `updated_at`, and no change to
+  the 17 pre-existing mutation rows.
+- Runtime rollback remains captured Edge Function v21, bundle
+  `a32064244b6faf3d419f9cc5c6b9d9fea981159b3cecd8f5d838aaef53629bc7`.
+  The additive ledger schema may remain in place during runtime rollback.
+- Evidence-only PRs #71 (isolated replay/timeout), #72 (encrypted backup), and
+  #74 (post-deploy public endpoint smoke) are intentionally closed unmerged
+  after this closure record is committed.
+- No Netlify code/configuration, LINE Rich Menu, provider secret, retention
+  cleanup, Todo source-of-truth cutover, L0b, or L1 change is part of L0a.
+- Current Todo source of truth remains browser + Google Drive. The approved
+  future sequence remains `L0a -> L0b normalized Supabase data -> L1 direct
+  Supabase Todo`; only after L1 is Production-verified does Drive become
+  backup/export/archive only.
+'''
+          text = replace_section(
+              text,
+              "## Current release\n",
+              "## LINE Official read-only bot activation\n",
+              current_release,
+          )
+
+          stale_week = (
+              "- `search week36 2026` includes Tasks and Events from ISO week 36 through week\n"
+              "  45 inclusive (the requested week plus nine following weeks)."
+          )
+          fixed_week = (
+              "- `search week36 2026` now covers ISO week 36 only, Monday through\n"
+              "  Sunday. L0a corrected the former 69-day end-date defect to a 7-day\n"
+              "  inclusive range and added exact week 1/week 53 boundary tests."
+          )
+          if stale_week not in text:
+              raise SystemExit("Missing stale week36 context claim")
+          text = text.replace(stale_week, fixed_week, 1)
+
+          audit_anchor = (
+              "| 2026-07-30 | merge `e7ea377` (PRs #45 and #46) | Docs, assets and CI only — no runtime change | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |"
+          )
+          audit_row = (
+              "| 2026-08-19 | source `3cafa19` / Production v22 | Supabase Production L0a webhook reliability | Pass | Pass | Pass | Pass | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |"
+          )
+          if audit_row not in text:
+              if audit_anchor not in text:
+                  raise SystemExit("Missing targeted audit table anchor")
+              text = text.replace(audit_anchor, audit_anchor + "\n" + audit_row, 1)
+
+          recurrence_anchor = (
+              "| LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |"
+          )
+          recurrence_row = (
+              "| LINE-WEBHOOK-1 | LINE redelivery or partial batch failure could duplicate drafts and reprocess completed events | No persistent webhook event identity/state, batch-level failure handling, and an 8-second gateway timeout | Service-role-only `mtp_line_events` ledger, atomic claim/finalize RPCs, per-event isolation, 30-second lease, `source_event_id` mutation idempotency, and provider redelivery enabled | Final review PASS at `73ad8b6`; CI #104/#116; isolated replay/timeout PASS; migration `20260818154406`; v22 live smoke: 5 processed, 0 failed/processing, max attempt 1, no new mutation |"
+          )
+          if recurrence_row not in text:
+              if recurrence_anchor not in text:
+                  raise SystemExit("Missing Prevented Recurrence anchor")
+              text = text.replace(recurrence_anchor, recurrence_anchor + "\n" + recurrence_row, 1)
+          write(path, text)
+
+          # docs/L0A_LINE_WEBHOOK_RELIABILITY.md
+          path = "docs/L0A_LINE_WEBHOOK_RELIABILITY.md"
+          text = read(path)
+          l0a_header = f'''# L0a — LINE Webhook Reliability Hardening
+
+Status: **PRODUCTION VERIFIED / FORMAL CLOSURE IN PROGRESS**
+
+- Initial Owner approval: `2026-08-17`
+- Production verification: `2026-08-19` (`Asia/Bangkok`)
+- Repository: `champban/dashboard`
+- Implementation base: `576513707f4567e6707e956e3e3b5ada75d42897`
+- Final independently reviewed head: `{REVIEWED}`
+- Source merge: `{SOURCE}` (PR #70)
+- Runbook baseline on `main`: `{BASE}` (PR #73)
+- Applied Production migration: `{MIGRATION}`
+- Active Edge Function: `line-todo-webhook` v22
+- Function bundle SHA-256: `{BUNDLE}`
+- Function setting: `verify_jwt=false` by design; LINE HMAC is verified on the
+  untouched raw body at both Netlify and Supabase.
+- Runtime rollback: captured v21 bundle
+  `a32064244b6faf3d419f9cc5c6b9d9fea981159b3cecd8f5d838aaef53629bc7`.
+'''
+          text = replace_section(text, "# L0a — LINE Webhook Reliability Hardening\n", "## Owner architecture decision\n", l0a_header)
+          text = text.replace(
+              "The 30-second setting still requires provider-level redelivery verification\nbefore Production.",
+              "The 30-second setting was verified with the Netlify 8-second timeout in an\nisolated replay test, and LINE webhook redelivery was Owner-confirmed enabled\nbefore Production activation.",
+              1,
+          )
+          old_redelivery = (
+              "**This strategy requires webhook redelivery to be enabled in the LINE Developers\n"
+              "Console.** If redelivery is disabled, a failed or busy event that receives a\n"
+              "non-2xx response is permanently lost because no internal worker owns it. The\n"
+              "setting has not yet been verified and is a Production stop gate."
+          )
+          new_redelivery = (
+              "**This strategy requires webhook redelivery to remain enabled in the LINE\n"
+              "Developers Console.** The Owner verified both `Use webhook = Enabled` and\n"
+              "`Webhook redelivery = Enabled` before migration and v22 deployment. If that\n"
+              "setting is later disabled, failed or busy events can again be lost because no\n"
+              "internal retry worker owns them."
+          )
+          if old_redelivery not in text:
+              raise SystemExit("Missing redelivery stop-gate paragraph")
+          text = text.replace(old_redelivery, new_redelivery, 1)
+          text = text.replace(
+              "- A recoverable Supabase backup/export remains mandatory before any future\n  Production migration application.",
+              "- Encrypted logical backup `20260818T145008Z` passed export, decryption and\n  SHA-256 integrity verification before the Production migration. Owner accepted\n  the Personal-PC-only copy as a documented conditional risk.",
+              1,
+          )
+
+          verification = f'''## Verification evidence
+
+### Independent review and exact-head CI
+
+- Claude final read-only review verdict: `PASS` at `{REVIEWED}`.
+- GitHub Actions run #104 passed both `verify` and real PostgreSQL
+  SQL/RLS/concurrency jobs at that exact head.
+- PR #70 merged the reviewed source into `{SOURCE}` without changing the
+  reviewed implementation tree.
+
+### Isolated release gates
+
+- Evidence PR #71: signed duplicate replay, partial failure/retry behavior,
+  Netlify 8-second timeout versus 30-second lease, mutation idempotency, and
+  genuine concurrent claim testing passed against synthetic data only.
+- Evidence PR #72: logical `roles.sql`, `schema.sql`, and `data.sql` exports were
+  non-empty, hashed, encrypted with GPG AES256, decrypted, and re-verified.
+- Public endpoint evidence PR #74 and CI run #116 passed: direct Supabase GET
+  `405`, direct invalid signature `401`, Netlify configured GET `200`, and
+  Netlify invalid signature `401`.
+
+### Production migration and RLS — PASS
+
+- Provider migration version: `{MIGRATION}`.
+- `mtp_line_events` exists with RLS enabled and zero client policies.
+- `anon` and `authenticated` have no ledger table/RPC access.
+- `service_role` has the required ledger table/RPC access.
+- Authenticated mutation updates are limited to `status`, `error_code`,
+  `applied_at`, and `updated_at`; protected identity/operation fields are denied.
+- Pre-existing mutation row count remained 17 and every existing
+  `source_event_id` remained null.
+
+### Production v22 and live LINE smoke — PASS
+
+- `line-todo-webhook` v22 became ACTIVE with bundle `{BUNDLE}`.
+- Owner acceptance: `menu`, Edit -> Cancel, and `search week 49 2026` all passed.
+- Five resulting ledger events were `processed`; zero were `failed` or
+  `processing`; no row exceeded the 30-second lease; maximum attempt count was 1.
+- Mutation rows remained 17, with zero non-null `source_event_id` values.
+- Valid live POSTs returned HTTP 200; invalid signatures remained HTTP 401.
+'''
+          text = replace_section(text, "## Verification evidence\n", "## Not yet verified / Production stop gates\n", verification)
+
+          production = '''## Production verification
+
+Completed gates:
+
+- [x] Final independent review and exact-head CI.
+- [x] PR #69 closed unmerged as superseded; PR #70 merged.
+- [x] Recoverable encrypted backup created and integrity-verified.
+- [x] LINE `Use webhook` and `Webhook redelivery` verified enabled.
+- [x] Signed duplicate replay and gateway-timeout/lease behavior tested in isolation.
+- [x] v21 source/version/bundle captured as rollback evidence.
+- [x] Exact additive migration applied and Production schema/RLS verified.
+- [x] Exact five-file package deployed as v22 with `verify_jwt=false`.
+- [x] Invalid-signature checks, menu, Cancel, and ISO-week search smoke passed.
+- [x] Ledger and mutation-state post-smoke verification passed.
+
+Intentionally deferred and not authorized by L0a:
+
+- retention scheduling or ledger cleanup;
+- normalized Todo tables or source-of-truth cutover (L0b);
+- direct Supabase Todo mutation or removal of Open Planner/Save to Cloud (L1);
+- Netlify, Rich Menu, LINE provider, or secret changes.
+'''
+          text = replace_section(text, "## Not yet verified / Production stop gates\n", "## Rollback\n", production)
+
+          rollback = '''## Rollback
+
+Runtime rollback remains redeploying the captured `line-todo-webhook` v21 source
+and confirming invalid-signature rejection plus one controlled `menu` reply.
+The additive migration is compatible with v21 and should remain in place unless a
+separate destructive cleanup is reviewed and explicitly approved.
+
+A database restore is reserved for verified data damage. L0a did not rewrite
+Todo/planner content, and Production verification found the pre-existing mutation
+row count unchanged.
+'''
+          text = replace_section(text, "## Rollback\n", "## Current stop gate\n", rollback)
+
+          closure = '''## Formal closure state
+
+- L0a runtime is Production verified on v22; rollback was not required.
+- This documentation-only closure updates the durable release, audit, KPI and
+  recurrence records.
+- Evidence-only PRs #71, #72 and #74 may be closed unmerged after this closure
+  evidence is committed; their branches and backup are not deleted.
+- Retention cleanup, provider/secrets changes, temporary-branch deletion, L0b and
+  L1 remain outside scope and require separate Owner approval.
+- Next product phase after formal closure: review and approve L0b normalized
+  Supabase data foundation; do not start it from this closure task.
+'''
+          start = text.find("## Current stop gate\n")
+          if start < 0:
+              raise SystemExit("Missing current stop gate")
+          text = text[:start] + closure
+          write(path, text)
+
+          # docs/SECURITY_6D_AUDIT.md
+          path = "docs/SECURITY_6D_AUDIT.md"
+          text = read(path)
+          security_header = f'''# Security 6D Audit — L0a LINE Webhook Reliability Hardening
+
+Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
+
+Post-deploy targeted closure: `2026-08-19` (`Asia/Bangkok`)
+
+Repository: `champban/dashboard`
+
+Production scope:
+
+- Final reviewed implementation head `{REVIEWED}`
+- Source merge `{SOURCE}` (PR #70)
+- Applied migration `{MIGRATION}`
+- Active `line-todo-webhook` v22, `verify_jwt=false`
+- Bundle SHA-256 `{BUNDLE}`
+- Netlify proxy-only gateway unchanged
+- Owner-confirmed LINE webhook and redelivery enabled
+- Controlled live LINE smoke and Production ledger verification
+
+## Decision
+
+**CONDITIONAL PASS — PRODUCTION VERIFIED**
+
+No unresolved Critical or High finding remains in the L0a scope. The conditional
+status records accepted operational residuals rather than a deployment blocker:
+Personal-PC-only backup, no scheduled retention cleanup, no exact-once external
+LINE reply guarantee, and three pre-existing development dependency advisories.
+No provider secret, Netlify, Rich Menu, or Todo source-of-truth change occurred.
+
+## Six-dimension decision table
+
+| Dimension | Result | Production evidence / control | Residual |
+|---|---|---|---|
+| 1. Identity and access | PASS | Production migration verified RLS on `mtp_line_events`; `anon`/`authenticated` cannot access the table or execute ledger RPCs; `service_role` has required access only; authenticated mutation updates are column-limited and owner RLS remains active. | None blocking. |
+| 2. Secrets and data | PASS WITH LOW RESIDUAL | No raw body, LINE user ID, reply token, planner content or secret is persisted/logged; only stable event identity, owner UUID, bounded error code and timestamps are stored. Secret scans passed. | Fallback digest remains pseudonymous and service-role-only. |
+| 3. Input and content safety | PASS | Raw-body HMAC at both hops, 1 MiB limits, bounded IDs/error codes, per-event isolation, exact ISO-week boundary tests, strict postback parsing and no AI/free-form SQL. Public invalid-signature tests returned 401. | None blocking. |
+| 4. Browser and network controls | PASS WITH ACCEPTED RESIDUAL | Netlify stayed proxy-only with 8-second timeout; 30-second lease and redelivery were tested; Owner verified provider redelivery enabled; live valid POSTs returned 200. | External LINE replies are not mathematically exact-once; a consumed reply token cannot be replayed after a rare reply/finalization crash window. |
+| 5. Supply chain and deployment | CONDITIONAL PASS | Final exact-head review passed; CI #104/#116, build, tests, secret scan, generated-artifact parity and real PostgreSQL gate passed; exact five-file package and bundle were recorded. No dependency/lockfile change. | Pre-existing `1 moderate` and `2 high` development advisories are accepted by Owner as a bounded follow-up through `2026-09-17`; no `npm audit fix --force`. |
+| 6. Operations and recovery | CONDITIONAL PASS | Encrypted backup integrity passed; v21 rollback source/hash retained; migration/RLS verified; v22 ACTIVE; live smoke produced 5 processed, 0 failed/processing, max attempt 1, and no mutation change. | Backup has one Owner-approved copy on Personal PC; retention RPC is not scheduled. |
+
+## L0a findings and closures
+'''
+          text = replace_section(text, "# Security 6D Audit — L0a LINE Webhook Reliability Hardening\n", "## L0a findings and closures\n", security_header)
+          text = text.replace("**Status: CLOSED IN DRAFT**", "**Status: CLOSED IN PRODUCTION**")
+
+          l0a03 = '''### L0A-03 — real SQL and concurrency evidence
+
+**Status: CLOSED IN PRODUCTION**
+
+Real PostgreSQL lifecycle/RLS/concurrency testing passed before deployment,
+including `claimed -> busy -> claimed_stale -> claimed_retry ->
+duplicate_processed`, old-attempt rejection, terminal-only cleanup and genuine
+two-session `claimed=1, busy=1` behavior.
+
+Production migration `{migration}` then passed catalog verification: required
+columns/indexes/constraints exist, RLS is enabled, client roles are denied,
+service-role RPC access is present, mutation column privileges are restricted,
+and the 17 pre-existing mutation rows were unchanged.
+'''.format(migration=MIGRATION)
+          text = replace_section(text, "### L0A-03 — real SQL and concurrency evidence\n", "### L0A-04 — retry and reply guarantee\n", l0a03)
+
+          l0a04 = '''### L0A-04 — retry and reply guarantee
+
+**Status: CLOSED FOR L0a / RESIDUAL ACCEPTED**
+
+Persistent deduplication, per-event retry state and mutation-draft idempotency
+are Production verified. Owner confirmed LINE webhook redelivery enabled, and the
+8-second gateway timeout/30-second lease behavior passed isolated testing.
+
+The system truthfully does not claim exact-once external replies. If LINE accepts
+a reply and final ledger completion then fails, state can be repaired but a
+consumed reply token generally cannot reproduce the original user-visible reply.
+A durable outbound outbox/worker would be required for a stronger guarantee and
+is outside L0a.
+'''
+          text = replace_section(text, "### L0A-04 — retry and reply guarantee\n", "### L0A-05 — current 6D scope\n", l0a04)
+
+          l0a05 = '''### L0A-05 — current 6D scope
+
+**Status: POST-DEPLOY TARGETED AUDIT COMPLETE**
+
+This report now covers implementation review, the exact Production migration,
+v22 deployment, public endpoint checks, controlled live smoke, ledger/mutation
+verification, backup and rollback readiness. Historical audits remain available
+for their original scopes but are not used as substitute evidence for L0a.
+'''
+          text = replace_section(text, "### L0A-05 — current 6D scope\n", "### L0A-06 / L0A-07 — ISO-week correctness and prevention commentary\n", l0a05)
+
+          verification = f'''## Verification evidence
+
+- Final Claude read-only review: `PASS` at `{REVIEWED}`.
+- GitHub Actions #104: exact-head standard verification plus real PostgreSQL
+  SQL/RLS/concurrency — PASS.
+- Evidence PR #71: signed duplicate replay and timeout/lease tests — PASS.
+- Evidence PR #72: encrypted logical backup creation/decryption/hash verification
+  — PASS; Owner accepted Personal-PC-only storage risk.
+- Production migration `{MIGRATION}`: structure, RLS, grants, RPCs and unchanged
+  mutation count — PASS.
+- Edge Function v22 ACTIVE, `verify_jwt=false`, bundle `{BUNDLE}`.
+- Evidence PR #74 / CI #116: direct and Netlify invalid-signature/public endpoint
+  checks — PASS.
+- Owner live smoke: `menu`, Edit -> Cancel, `search week 49 2026` — PASS.
+- Post-smoke data: 5 processed; 0 failed; 0 processing; max attempt 1; mutation
+  rows 17; no non-null `source_event_id`; no rollback required.
+'''
+          text = replace_section(text, "## Verification evidence\n", "## Production stop gates\n", verification)
+
+          gates = '''## Production gates completed
+
+1. Final independent exact-head review — PASS.
+2. PR #69 closed unmerged; PR #70 merged reviewed source — PASS.
+3. Encrypted logical backup and integrity verification — PASS with accepted
+   single-copy risk.
+4. Exact additive migration applied and Production schema/RLS checked — PASS.
+5. LINE webhook and redelivery Owner-verified enabled — PASS.
+6. Signed duplicate replay through exact gateway logic — PASS in isolation.
+7. Netlify 8-second timeout / 30-second lease test — PASS.
+8. v21 rollback source/version/hash recorded — PASS.
+9. Exact five-file source package deployed as v22 — PASS.
+10. Invalid signature, menu, Cancel and ISO-week live smoke — PASS.
+11. Post-deploy targeted 6D decision — this `CONDITIONAL PASS` closure.
+'''
+          text = replace_section(text, "## Production stop gates\n", "## Rollback and backup\n", gates)
+
+          recovery = '''## Rollback and backup
+
+- Runtime rollback: redeploy captured `line-todo-webhook` v21 and verify invalid
+  signature rejection plus one controlled `menu` reply.
+- The additive ledger migration remains compatible with v21 and is not removed
+  during runtime rollback without separate destructive-change approval.
+- Encrypted backup `20260818T145008Z` passed integrity verification. Owner accepts
+  one Personal-PC copy; passphrase remains separate.
+- L0a did not rewrite Todo/planner content; Production mutation rows remained 17.
+- No retention cleanup or restore drill is authorized by this closure.
+'''
+          text = replace_section(text, "## Rollback and backup\n", "## Accepted risks register\n", recovery)
+
+          risks = '''## Accepted risks register
+
+| ID | Risk | Severity | Owner | Revisit trigger | Status |
+|---|---|---:|---|---|---|
+| L0A-R1 | Redelivery disabled would lose failed/busy events without an internal worker | High if configuration regresses | Owner / release manager | Any LINE provider configuration change | CLOSED FOR RELEASE — enabled verified; configuration must remain enabled |
+| L0A-R2 | Reply accepted but final ledger update fails; retry cannot rely on consumed reply token | Medium | Backend owner | Multi-user rollout or outbound-worker design | Accepted, documented residual |
+| L0A-R3 | Deterministic fallback digest may be guessable for low-entropy events if ledger access expands | Low | Backend/security owner | Access beyond service role | Accepted with service-role-only control |
+| L0A-R4 | Gateway timeout can leave an event busy until the 30-second lease expires | Medium | Backend/operations owner | Forwarder timeout or LINE retry behavior changes | CLOSED FOR RELEASE — isolated 8s/30s test passed; live max runtime below 8s |
+| L0A-R5 | Pre-existing dev dependency advisories: 1 moderate, 2 high | Medium | `champban` | `2026-09-17` or dependency/runtime reachability change | Explicitly accepted for this release; no package/lockfile change; separate remediation required |
+| L0A-R6 | Retention RPC exists but no schedule is approved | Low | Operations owner | Before ledger volume/retention threshold is reached | Deferred; cleanup remains outside request path |
+| L0A-R7 | Only one encrypted backup copy exists on Personal PC | Medium | P'Boy | Before future destructive migration or device-risk change | Explicitly accepted for additive L0a only |
+'''
+          text = replace_section(text, "## Accepted risks register\n", "## Historical audit index\n", risks)
+          write(path, text)
+
+          # docs/PROJECT_PERFORMANCE_KPI.md
+          path = "docs/PROJECT_PERFORMANCE_KPI.md"
+          text = read(path)
+          text = text.replace(
+              "# Project Performance KPI — LINE Official Read-only Bot",
+              "# Project Performance KPI — LINE Official Integration",
+              1,
+          )
+          old_status = (
+              "Status: backend, bilingual command menu, task-details v2, and Search button\n"
+              "active in production and owner-accepted on LINE mobile and LINE for PC"
+          )
+          new_status = (
+              "Status: backend, bilingual command menu, task-details v2, Search button,\n"
+              "confirmed-mutation UX, and L0a webhook reliability v22 are active in\n"
+              "Production and owner-accepted on LINE."
+          )
+          if old_status not in text:
+              raise SystemExit("Missing KPI status paragraph")
+          text = text.replace(old_status, new_status, 1)
+
+          marker = "## L0a webhook reliability release — M6 Production Verified"
+          if marker not in text:
+              text += f'''\n\n{marker}\n\nTechnical Production verification completed on `2026-08-19` (`Asia/Bangkok`).\nThe exact M0 start time was not captured when the Owner first approved L0a on\n2026-08-17, so wall-clock hours from M0 to M6 are **N/A** rather than\nreconstructed. The last live-smoke Function POST recorded at approximately\n`2026-08-19T13:06:01+07:00` is the measured technical M6 evidence timestamp.\n\nComparability: **Not directly comparable** to the Shared Calendar application\nbaseline. L0a is a reliability migration/runtime release on an existing system,\nnot a new application or equivalent feature build. No speed-improvement\npercentage is published.\n\n### Release evidence\n\n| Gate | Result | Evidence |\n|---|---|---|\n| Final review | PASS | Claude independent exact-head review at `{REVIEWED}` |\n| Code quality | PASS | CI #104 and #116; build, tests, secret scan, generated-artifact parity, ES2019 guard |\n| SQL/RLS/concurrency | PASS | Real PostgreSQL lifecycle/RLS and genuine two-session claim test |\n| Backup | CONDITIONAL PASS | Encrypted logical export/decrypt/hash verified; one Personal-PC copy accepted by Owner |\n| Migration | PASS | `{MIGRATION}` applied; RLS/grants/RPCs verified; 17 existing mutations unchanged |\n| Runtime | PASS | `line-todo-webhook` v22 ACTIVE; bundle `{BUNDLE}` |\n| Public security smoke | PASS | Direct/Netlify invalid signature 401; direct GET 405; gateway configured GET 200 |\n| Owner live smoke | PASS | `menu`, Edit -> Cancel, `search week 49 2026` |\n| Ledger/data | PASS | 5 processed, 0 failed/processing, max attempt 1; no mutation count/source-event change |\n| Rollback | READY | Captured v21 source/version/bundle; additive migration compatible |\n\n### L0a KPI record\n\n| KPI | Value | Basis / caveat |\n|---|---:|---|\n| Wall-clock hours to M6 | `N/A` | M0 exact time was not captured; do not reconstruct |\n| Failed Production deploys | `0` | Migration and v22 deployment each succeeded on the approved attempt |\n| Confirmed CI retries | `>=1` | One documented retry corrected the throwaway `service_role`/BYPASSRLS harness mismatch; full historical count was not captured at M0 |\n| Rework cycles | `1` | Initial implementation reopened once after independent review and L0A-01…08 remediation |\n| Known-error recurrence | `0` | No duplicate/lost processing recurrence during controlled Production smoke |\n| Production escapes from L0a | `0` | No L0a defect found after M6 verification |\n| Manual intervention batches | `7` | LINE redelivery check; two-secret entry; backup approval; backup storage; migration approval; deploy approval; live smoke |\n| Prevention closure rate | `100%` | Root cause, persistent controls, regression tests, rollback, Production verification and recurrence record completed |\n\n### Manual-step analysis\n\nOwner-controlled steps were limited to provider settings, secret entry, local\nbackup custody, gated approvals and physical LINE-client acceptance. The encrypted\nGitHub Actions backup removed the earlier Codespace dependency. Future releases\nshould reuse the Owner-gated backup workflow pattern, but its temporary branch,\nEnvironment secrets and artifact cleanup remain separate approvals.\n\n### Remaining follow-ups, not L0a blockers\n\n- Schedule/retention decision for `mtp_cleanup_line_events`.\n- Dependency advisory review by `2026-09-17`; no forced upgrade.\n- L0b normalized Supabase data foundation requires a new approval and KPI record.\n- L1 direct Todo mutation and Drive export-only cutover remain unstarted.\n'''
+          write(path, text)
+
+          # The workflow is an execution aid only. Remove it so the final PR diff
+          # remains exactly the four Owner-approved documentation files.
+          workflow = Path(".github/workflows/l0a-formal-release-closure.yml")
+          if not workflow.exists():
+              raise SystemExit("Closure workflow missing before self-removal")
+          workflow.unlink()
+          PY
+
+          git diff --check
+          changed="$(git status --short | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' \
+            .github/workflows/l0a-formal-release-closure.yml \
+            PROJECT_CONTEXT.md \
+            docs/L0A_LINE_WEBHOOK_RELIABILITY.md \
+            docs/PROJECT_PERFORMANCE_KPI.md \
+            docs/SECURITY_6D_AUDIT.md | sort)"
+          test "$changed" = "$expected"
+
+      - name: Commit documentation-only closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "champban"
+          git config user.email "champbanyat@gmail.com"
+          git add PROJECT_CONTEXT.md \
+            docs/L0A_LINE_WEBHOOK_RELIABILITY.md \
+            docs/SECURITY_6D_AUDIT.md \
+            docs/PROJECT_PERFORMANCE_KPI.md \
+            .github/workflows/l0a-formal-release-closure.yml
+          git commit -m "docs(line): close L0a Production release"
+          git push origin HEAD:docs/l0a-formal-release-closure
+
+          test "$(git diff --name-only 27634ef9d971dfc204607b2ff8a0500e8bd4c4f0...HEAD | sort)" = "$(printf '%s\n' \
+            PROJECT_CONTEXT.md \
+            docs/L0A_LINE_WEBHOOK_RELIABILITY.md \
+            docs/PROJECT_PERFORMANCE_KPI.md \
+            docs/SECURITY_6D_AUDIT.md | sort)"
