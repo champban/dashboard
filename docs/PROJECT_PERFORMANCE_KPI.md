@@ -1,7 +1,8 @@
-# Project Performance KPI — LINE Official Read-only Bot
+# Project Performance KPI — LINE Official Integration
 
-Status: backend, bilingual command menu, task-details v2, and Search button
-active in production and owner-accepted on LINE mobile and LINE for PC
+Status: backend, bilingual command menu, task-details v2, Search button,
+confirmed-mutation UX, and L0a webhook reliability v22 are active in
+Production and owner-accepted on LINE.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -226,3 +227,60 @@ window and PR #46 closed it the same hour, but it reached the production branch,
 and the prevention is stated where the next person will read it: **verify what
 landed on `main` after a merge; do not infer it from the branch that was
 pushed.**
+
+
+## L0a webhook reliability release — M6 Production Verified
+
+Technical Production verification completed on `2026-08-19` (`Asia/Bangkok`).
+The exact M0 start time was not captured when the Owner first approved L0a on
+2026-08-17, so wall-clock hours from M0 to M6 are **N/A** rather than
+reconstructed. The last live-smoke Function POST recorded at approximately
+`2026-08-19T13:06:01+07:00` is the measured technical M6 evidence timestamp.
+
+Comparability: **Not directly comparable** to the Shared Calendar application
+baseline. L0a is a reliability migration/runtime release on an existing system,
+not a new application or equivalent feature build. No speed-improvement
+percentage is published.
+
+### Release evidence
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Final review | PASS | Claude independent exact-head review at `73ad8b6a9815411364afeae34d9ce52418bd6967` |
+| Code quality | PASS | CI #104 and #116; build, tests, secret scan, generated-artifact parity, ES2019 guard |
+| SQL/RLS/concurrency | PASS | Real PostgreSQL lifecycle/RLS and genuine two-session claim test |
+| Backup | CONDITIONAL PASS | Encrypted logical export/decrypt/hash verified; one Personal-PC copy accepted by Owner |
+| Migration | PASS | `20260818154406_line_webhook_event_reliability` applied; RLS/grants/RPCs verified; 17 existing mutations unchanged |
+| Runtime | PASS | `line-todo-webhook` v22 ACTIVE; bundle `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa` |
+| Public security smoke | PASS | Direct/Netlify invalid signature 401; direct GET 405; gateway configured GET 200 |
+| Owner live smoke | PASS | `menu`, Edit -> Cancel, `search week 49 2026` |
+| Ledger/data | PASS | 5 processed, 0 failed/processing, max attempt 1; no mutation count/source-event change |
+| Rollback | READY | Captured v21 source/version/bundle; additive migration compatible |
+
+### L0a KPI record
+
+| KPI | Value | Basis / caveat |
+|---|---:|---|
+| Wall-clock hours to M6 | `N/A` | M0 exact time was not captured; do not reconstruct |
+| Failed Production deploys | `0` | Migration and v22 deployment each succeeded on the approved attempt |
+| Confirmed CI retries | `>=1` | One documented retry corrected the throwaway `service_role`/BYPASSRLS harness mismatch; full historical count was not captured at M0 |
+| Rework cycles | `1` | Initial implementation reopened once after independent review and L0A-01…08 remediation |
+| Known-error recurrence | `0` | No duplicate/lost processing recurrence during controlled Production smoke |
+| Production escapes from L0a | `0` | No L0a defect found after M6 verification |
+| Manual intervention batches | `7` | LINE redelivery check; two-secret entry; backup approval; backup storage; migration approval; deploy approval; live smoke |
+| Prevention closure rate | `100%` | Root cause, persistent controls, regression tests, rollback, Production verification and recurrence record completed |
+
+### Manual-step analysis
+
+Owner-controlled steps were limited to provider settings, secret entry, local
+backup custody, gated approvals and physical LINE-client acceptance. The encrypted
+GitHub Actions backup removed the earlier Codespace dependency. Future releases
+should reuse the Owner-gated backup workflow pattern, but its temporary branch,
+Environment secrets and artifact cleanup remain separate approvals.
+
+### Remaining follow-ups, not L0a blockers
+
+- Schedule/retention decision for `mtp_cleanup_line_events`.
+- Dependency advisory review by `2026-09-17`; no forced upgrade.
+- L0b normalized Supabase data foundation requires a new approval and KPI record.
+- L1 direct Todo mutation and Drive export-only cutover remain unstarted.

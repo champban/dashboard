@@ -1,15 +1,21 @@
 # L0a — LINE Webhook Reliability Hardening
 
-Status: **IMPLEMENTED AND VERIFIED IN DRAFT PR / NOT DEPLOYED**
+Status: **PRODUCTION VERIFIED / FORMAL CLOSURE IN PROGRESS**
 
-- Owner approval: `2026-08-17`
+- Initial Owner approval: `2026-08-17`
+- Production verification: `2026-08-19` (`Asia/Bangkok`)
 - Repository: `champban/dashboard`
-- Base: `576513707f4567e6707e956e3e3b5ada75d42897`
-- Branch: `fix/l0a-line-webhook-reliability`
-- Verified remediation code head: `154c944eab5e28de0e46c8aed268fd024122f510`
-- Draft PR: `#70`
-- Production Edge Function remains: `line-todo-webhook` v21
-- Production migration/deployment impact: **NONE**
+- Implementation base: `576513707f4567e6707e956e3e3b5ada75d42897`
+- Final independently reviewed head: `73ad8b6a9815411364afeae34d9ce52418bd6967`
+- Source merge: `3cafa19aa56f89c8d640acc717726d0043b3bd2c` (PR #70)
+- Runbook baseline on `main`: `27634ef9d971dfc204607b2ff8a0500e8bd4c4f0` (PR #73)
+- Applied Production migration: `20260818154406_line_webhook_event_reliability`
+- Active Edge Function: `line-todo-webhook` v22
+- Function bundle SHA-256: `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa`
+- Function setting: `verify_jwt=false` by design; LINE HMAC is verified on the
+  untouched raw body at both Netlify and Supabase.
+- Runtime rollback: captured v21 bundle
+  `a32064244b6faf3d419f9cc5c6b9d9fea981159b3cecd8f5d838aaef53629bc7`.
 
 ## Owner architecture decision
 
@@ -66,8 +72,9 @@ The Netlify forwarder times out after 8 seconds. A timeout can therefore leave a
 ledger row in `processing` for up to roughly another 22 seconds. Redeliveries in
 that interval receive `busy` and remain retryable. The original 120-second lease
 was reduced because it could consume too much of LINE's finite retry window.
-The 30-second setting still requires provider-level redelivery verification
-before Production.
+The 30-second setting was verified with the Netlify 8-second timeout in an
+isolated replay test, and LINE webhook redelivery was Owner-confirmed enabled
+before Production activation.
 
 ### Mutation draft idempotency and client privilege correction
 
@@ -117,10 +124,11 @@ Because no durable internal retry worker exists:
 - the ledger prevents completed work and mutation-draft creation from being
   repeated.
 
-**This strategy requires webhook redelivery to be enabled in the LINE Developers
-Console.** If redelivery is disabled, a failed or busy event that receives a
-non-2xx response is permanently lost because no internal worker owns it. The
-setting has not yet been verified and is a Production stop gate.
+**This strategy requires webhook redelivery to remain enabled in the LINE
+Developers Console.** The Owner verified both `Use webhook = Enabled` and
+`Webhook redelivery = Enabled` before migration and v22 deployment. If that
+setting is later disabled, failed or busy events can again be lost because no
+internal retry worker owns them.
 
 ### Missing `webhookEventId`
 
@@ -219,88 +227,92 @@ The truthful guarantee is:
 - SECURITY DEFINER RPCs use empty `search_path` and qualified objects.
 - No secret, raw webhook payload, raw LINE user ID, reply token or planner
   content is written to the ledger, logs, status or source.
-- A recoverable Supabase backup/export remains mandatory before any future
-  Production migration application.
+- Encrypted logical backup `20260818T145008Z` passed export, decryption and
+  SHA-256 integrity verification before the Production migration. Owner accepted
+  the Personal-PC-only copy as a documented conditional risk.
 
 ## Verification evidence
 
-GitHub Actions workflow run `32043846970` / run #102 completed successfully at
-verified remediation code head `154c944eab5e28de0e46c8aed268fd024122f510`.
+### Independent review and exact-head CI
 
-### Main verification job — PASS
+- Claude final read-only review verdict: `PASS` at `73ad8b6a9815411364afeae34d9ce52418bd6967`.
+- GitHub Actions run #104 passed both `verify` and real PostgreSQL
+  SQL/RLS/concurrency jobs at that exact head.
+- PR #70 merged the reviewed source into `3cafa19aa56f89c8d640acc717726d0043b3bd2c` without changing the
+  reviewed implementation tree.
 
-- locked `npm ci`;
-- secret scanner self-test and repository scan — no credentials found;
-- Vite Production build;
-- browser harness `LEN 25129 / NODES 141`;
-- static audit `blockers=0`, pre-existing warnings `3`;
-- package/CSP verification `6/6`;
-- full regression suite;
-- `LINE bot logic: PASS`;
-- Cancel flow `6/6`;
-- `LINE event processing reliability: PASS`;
-- browser snapshot, auth-storage, LINE contract and health-check tests;
-- generated artifact byte parity;
-- ES2019 guard.
+### Isolated release gates
 
-### Real PostgreSQL 16 job — PASS
+- Evidence PR #71: signed duplicate replay, partial failure/retry behavior,
+  Netlify 8-second timeout versus 30-second lease, mutation idempotency, and
+  genuine concurrent claim testing passed against synthetic data only.
+- Evidence PR #72: logical `roles.sql`, `schema.sql`, and `data.sql` exports were
+  non-empty, hashed, encrypted with GPG AES256, decrypted, and re-verified.
+- Public endpoint evidence PR #74 and CI run #116 passed: direct Supabase GET
+  `405`, direct invalid signature `401`, Netlify configured GET `200`, and
+  Netlify invalid signature `401`.
 
-- repeatable baseline and L0a migrations executed;
-- lifecycle `claimed -> busy -> claimed_stale -> claimed_retry ->
-  duplicate_processed` verified against the real SQL;
-- stale attempt finalization rejected;
-- anon/authenticated table and RPC denial verified;
-- authenticated column-level mutation updates verified;
-- cleanup removes only old terminal rows;
-- two genuine concurrent sessions produced exactly
-  `claimed=1, busy=1`.
+### Production migration and RLS — PASS
 
-The first SQL run correctly exposed that a plain PostgreSQL test role did not
-match Supabase `service_role`'s `BYPASSRLS` property. The throwaway harness was
-corrected to mirror Supabase semantics and the full gate then passed. No
-Production database was contacted.
+- Provider migration version: `20260818154406_line_webhook_event_reliability`.
+- `mtp_line_events` exists with RLS enabled and zero client policies.
+- `anon` and `authenticated` have no ledger table/RPC access.
+- `service_role` has the required ledger table/RPC access.
+- Authenticated mutation updates are limited to `status`, `error_code`,
+  `applied_at`, and `updated_at`; protected identity/operation fields are denied.
+- Pre-existing mutation row count remained 17 and every existing
+  `source_event_id` remained null.
 
-### Supply-chain note
+### Production v22 and live LINE smoke — PASS
 
-`npm ci` reports three pre-existing development dependency advisories:
-`1 moderate`, `2 high`. This remediation changes neither `package.json`
-dependencies nor `package-lock.json`. The targeted 6D audit records the bounded
-acceptance and expiry; the advisories are not represented as zero.
+- `line-todo-webhook` v22 became ACTIVE with bundle `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa`.
+- Owner acceptance: `menu`, Edit -> Cancel, and `search week 49 2026` all passed.
+- Five resulting ledger events were `processed`; zero were `failed` or
+  `processing`; no row exceeded the 30-second lease; maximum attempt count was 1.
+- Mutation rows remained 17, with zero non-null `source_event_id` values.
+- Valid live POSTs returned HTTP 200; invalid signatures remained HTTP 401.
 
-## Not yet verified / Production stop gates
+## Production verification
 
-- LINE Developers Console: webhook redelivery is enabled;
-- signed event replay through the actual Netlify -> isolated Supabase path;
-- exact Netlify 8-second timeout / 30-second lease behavior under provider
-  retries;
-- Supabase-specific migration execution in a development branch (none exists);
-  PostgreSQL 16 execution passed as the available isolated gate;
-- Production backup/export;
-- Production migration application;
-- Production Edge Function deployment;
-- live LINE smoke;
-- scheduled retention cleanup.
+Completed gates:
+
+- [x] Final independent review and exact-head CI.
+- [x] PR #69 closed unmerged as superseded; PR #70 merged.
+- [x] Recoverable encrypted backup created and integrity-verified.
+- [x] LINE `Use webhook` and `Webhook redelivery` verified enabled.
+- [x] Signed duplicate replay and gateway-timeout/lease behavior tested in isolation.
+- [x] v21 source/version/bundle captured as rollback evidence.
+- [x] Exact additive migration applied and Production schema/RLS verified.
+- [x] Exact five-file package deployed as v22 with `verify_jwt=false`.
+- [x] Invalid-signature checks, menu, Cancel, and ISO-week search smoke passed.
+- [x] Ledger and mutation-state post-smoke verification passed.
+
+Intentionally deferred and not authorized by L0a:
+
+- retention scheduling or ledger cleanup;
+- normalized Todo tables or source-of-truth cutover (L0b);
+- direct Supabase Todo mutation or removal of Open Planner/Save to Cloud (L1);
+- Netlify, Rich Menu, LINE provider, or secret changes.
 
 ## Rollback
 
-Before any future deployment:
+Runtime rollback remains redeploying the captured `line-todo-webhook` v21 source
+and confirming invalid-signature rejection plus one controlled `menu` reply.
+The additive migration is compatible with v21 and should remain in place unless a
+separate destructive cleanup is reviewed and explicitly approved.
 
-1. verify and record active Production Edge Function version v21;
-2. take a recoverable Supabase backup/export;
-3. apply the additive migration before deploying code that requires it;
-4. retain v21 as the runtime rollback point.
+A database restore is reserved for verified data damage. L0a did not rewrite
+Todo/planner content, and Production verification found the pre-existing mutation
+row count unchanged.
 
-If runtime verification fails, redeploy v21. The additive ledger and nullable
-`source_event_id` can remain unused without changing planner behavior. L0a does
-not modify task/planner data.
+## Formal closure state
 
-## Current stop gate
-
-- PR #70 remains Draft and unmerged.
-- Migration remains unapplied.
-- Edge Function remains undeployed.
-- Netlify, LINE Console, Rich Menu, secrets and environment remain unchanged.
-- PR #69 must be closed as superseded before PR #70 can be considered for merge.
-- Next owner after final exact-head verification: Owner for gate decision, then
-  Claude for any requested independent re-review.
-- Merge, migration and Production deployment each require separate approval.
+- L0a runtime is Production verified on v22; rollback was not required.
+- This documentation-only closure updates the durable release, audit, KPI and
+  recurrence records.
+- Evidence-only PRs #71, #72 and #74 may be closed unmerged after this closure
+  evidence is committed; their branches and backup are not deleted.
+- Retention cleanup, provider/secrets changes, temporary-branch deletion, L0b and
+  L1 remain outside scope and require separate Owner approval.
+- Next product phase after formal closure: review and approve L0b normalized
+  Supabase data foundation; do not start it from this closure task.
