@@ -1,0 +1,77 @@
+name: L0a formal release closure PR trigger
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: l0a-formal-release-closure-pr
+  cancel-in-progress: false
+
+jobs:
+  apply-approved-doc-closure:
+    if: github.actor == 'champban' && github.head_ref == 'docs/l0a-formal-release-closure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact closure branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: docs/l0a-formal-release-closure
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply the embedded approved documentation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          test "$(git merge-base HEAD origin/main)" = "27634ef9d971dfc204607b2ff8a0500e8bd4c4f0"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/l0a-formal-release-closure.yml').read_text(encoding='utf-8')
+          marker_start = "          python3 - <<'PY'\n"
+          marker_end = "\n          PY\n"
+          start = source.find(marker_start)
+          if start < 0:
+              raise SystemExit('Embedded patch start marker not found')
+          start += len(marker_start)
+          end = source.find(marker_end, start)
+          if end < 0:
+              raise SystemExit('Embedded patch end marker not found')
+          lines = source[start:end].splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          Path('/tmp/l0a_closure.py').write_text(script, encoding='utf-8')
+          PY
+
+          python3 /tmp/l0a_closure.py
+          rm .github/workflows/l0a-formal-release-closure-pr.yml
+          git diff --check
+
+      - name: Commit exactly four documentation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "champban"
+          git config user.email "champbanyat@gmail.com"
+          git add PROJECT_CONTEXT.md \
+            docs/L0A_LINE_WEBHOOK_RELIABILITY.md \
+            docs/SECURITY_6D_AUDIT.md \
+            docs/PROJECT_PERFORMANCE_KPI.md \
+            .github/workflows/l0a-formal-release-closure.yml \
+            .github/workflows/l0a-formal-release-closure-pr.yml
+          git commit -m "docs(line): close L0a Production release"
+
+          actual="$(git diff --name-only 27634ef9d971dfc204607b2ff8a0500e8bd4c4f0...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            PROJECT_CONTEXT.md \
+            docs/L0A_LINE_WEBHOOK_RELIABILITY.md \
+            docs/PROJECT_PERFORMANCE_KPI.md \
+            docs/SECURITY_6D_AUDIT.md | sort)"
+          test "$actual" = "$expected"
+          git push origin HEAD:docs/l0a-formal-release-closure
