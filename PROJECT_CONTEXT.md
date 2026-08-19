@@ -5,30 +5,53 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production branch `main` is `7e18ae5` (merge of PR #66); it includes the
-  confirmed LINE Add/Edit/Delete mutation feature (PR #51/#52), the LINE
-  mutation UX follow-ups — relative dates, shorter `edit`, Open Planner link,
-  silent-rejection warning (PR #56/#57) — the desktop Save to Cloud header
-  button (PR #59), "mid of next N months" (PR #61), the add/edit/status date
-  and status pickers with clickable task-card buttons (PR #62), the Flex
-  footer-separator schema fix (PR #63), the picker-prompt exact-command
-  wording fix (PR #64), the 8-branch sync-mutation-skip fix (PR #65), and the
-  `search <text> <status>` filter (PR #66), on top of the LINE/auth hotfix,
-  bilingual command menu, task-detail cards, Search button, and temporal
-  search.
-- Supabase `line-todo-webhook` version 15 is ACTIVE, redeployed from this
-  exact `main` on `2026-08-11` (via `supabase functions deploy`); bundle
-  SHA-256 `f9f040e13c4907830439cd662d7a580697e206e52e94f4a8efce8edcc4f03710`.
-- Search-button release merged in PR #43 and deployed at
-  `2026-07-30T12:05:31+07:00`. Owner acceptance passed on LINE mobile and
-  LINE for PC on `2026-07-30`.
-- `APP_VERSION` in `src/App.jsx` is the Full version source; it flows into the
-  UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
+- Production GitHub baseline before this documentation-only closure is
+  `main@27634ef9d971dfc204607b2ff8a0500e8bd4c4f0` (PR #73, L0a Production Deployment Runbook).
+- The exact L0a runtime source package is pinned to merge commit `3cafa19aa56f89c8d640acc717726d0043b3bd2c`,
+  which contains independently reviewed implementation head `73ad8b6a9815411364afeae34d9ce52418bd6967`.
+- Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
+  migration `20260818154406_line_webhook_event_reliability`, mapped to repository file
+  `supabase/migrations/20260817150000_line_webhook_event_reliability.sql`.
+- Supabase Edge Function `line-todo-webhook` version **22** is `ACTIVE`, keeps
+  `verify_jwt=false` by design, and has bundle SHA-256 `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa`.
+- Verified live path: `LINE @103rexjo -> Netlify line-app-public-line-webhook
+  -> Supabase line-todo-webhook v22 -> LINE Reply API`.
+- L0a Production acceptance passed on 2026-08-19: `menu`, Edit -> Cancel, and
+  `search week 49 2026`; five ledger events were `processed`, zero were
+  `failed`/`processing`, maximum attempt count was 1, and mutation rows stayed
+  at 17 with no new `source_event_id` values.
+- `APP_VERSION` in `src/App.jsx` remains the Full version source; it flows into
+  the UI and filenames. `BUILD-MANIFEST.json` records the packaged Full/Mobile
   artifacts.
-- Full application: `index.html` — **generated, do not edit directly**
+- Full application: `index.html` — **generated, do not edit directly**.
 - Mobile application: `mobile/index.html` (separate hand-written vanilla-JS
-  app, task-details candidate v3.75.2)
-- Live: https://champban.github.io/dashboard/
+  app, task-details candidate v3.75.2).
+- Live planner: https://champban.github.io/dashboard/
+
+### L0a webhook reliability Production release
+
+- PR #70 merged the exact reviewed L0a source; PR #69 was closed unmerged as
+  superseded. PR #73 merged the deployment runbook.
+- LINE Developers Console was Owner-verified with `Use webhook = Enabled` and
+  `Webhook redelivery = Enabled` before migration/deployment.
+- Encrypted logical backup `20260818T145008Z` passed export, decryption and
+  SHA-256 integrity checks. Owner accepted the single-copy Personal-PC risk.
+- Production migration verification confirmed RLS enabled, no client ledger
+  access, service-role-only RPC access, authenticated mutation updates limited
+  to `status`, `error_code`, `applied_at`, and `updated_at`, and no change to
+  the 17 pre-existing mutation rows.
+- Runtime rollback remains captured Edge Function v21, bundle
+  `a32064244b6faf3d419f9cc5c6b9d9fea981159b3cecd8f5d838aaef53629bc7`.
+  The additive ledger schema may remain in place during runtime rollback.
+- Evidence-only PRs #71 (isolated replay/timeout), #72 (encrypted backup), and
+  #74 (post-deploy public endpoint smoke) are intentionally closed unmerged
+  after this closure record is committed.
+- No Netlify code/configuration, LINE Rich Menu, provider secret, retention
+  cleanup, Todo source-of-truth cutover, L0b, or L1 change is part of L0a.
+- Current Todo source of truth remains browser + Google Drive. The approved
+  future sequence remains `L0a -> L0b normalized Supabase data -> L1 direct
+  Supabase Todo`; only after L1 is Production-verified does Drive become
+  backup/export/archive only.
 
 ## LINE Official read-only bot activation
 
@@ -198,6 +221,7 @@ Targeted 6D audit:
 |---|---|---|---|---|---|---|---|---|---|---|
 | 2026-07-30 | `bf47521` / merge `ad3067f` | Supabase Production v3 | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-07-30 | merge `e7ea377` (PRs #45 and #46) | Docs, assets and CI only — no runtime change | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-08-19 | source `3cafa19` / Production v22 | Supabase Production L0a webhook reliability | Pass | Pass | Pass | Pass | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
 
 The second row covers Rich Menu asset versioning, the project-context
 corrections, and the scheduled health check. `index.html` and
@@ -807,6 +831,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | ID | Incident / trigger | Root cause | Permanent prevention | Verification / release gate |
 |---|---|---|---|---|
 | LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |
+| LINE-WEBHOOK-1 | LINE redelivery or partial batch failure could duplicate drafts and reprocess completed events | No persistent webhook event identity/state, batch-level failure handling, and an 8-second gateway timeout | Service-role-only `mtp_line_events` ledger, atomic claim/finalize RPCs, per-event isolation, 30-second lease, `source_event_id` mutation idempotency, and provider redelivery enabled | Final review PASS at `73ad8b6`; CI #104/#116; isolated replay/timeout PASS; migration `20260818154406`; v22 live smoke: 5 processed, 0 failed/processing, max attempt 1, no new mutation |
 
 ## Open backlog
 
@@ -900,8 +925,9 @@ Branch: `codex/troubleshoot-search-results-in-line-krwxqs`, merged via PR #51
   commits their payload to browser storage only after Drive accepts the upload.
   This prevents an unuploaded LINE change from appearing locally or forcing a
   false conflict dialog.
-- `search week36 2026` includes Tasks and Events from ISO week 36 through week
-  45 inclusive (the requested week plus nine following weeks).
+- `search week36 2026` now covers ISO week 36 only, Monday through
+  Sunday. L0a corrected the former 69-day end-date defect to a 7-day
+  inclusive range and added exact week 1/week 53 boundary tests.
 
 Production activation, `2026-08-11` (Claude Code handover, taken over after the
 owner could not complete the Supabase backup manually):
