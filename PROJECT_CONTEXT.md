@@ -47,8 +47,15 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   snapshot/mutation queue or Drive save paths.
 - `RISK-L0A-ACL-1` remains open and out of L0b scope. A separate Owner decision
   is required before the next Production database change.
-- Next critical gate: one Final Exact-HEAD 6D Review #2 after tests/CI, before
-  merge or any provider/Production action. No additional full review is planned.
+- Final Exact-HEAD 6D Review #2 returned `REQUIRED CHANGES` at
+  `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`. F1-F5 were remediated without
+  widening scope: default-privilege simulation, Phase-B rollback evidence,
+  lease/generation fencing, incomplete-stream cases, and two NULL-safe staging
+  predicates. The source/test remediation commit is
+  `14d67b2d2cea69bb16cf78e1d4d54732ca5d93c0`, tree
+  `85ed997abb74a3a02ee14cdb7dbce24329500fab`; CI run #124 passed all three jobs.
+- Next critical gate is one targeted re-review of the remediation at the final
+  PR HEAD. Review #1 stays closed and no third full review is planned.
 
 ### L0a webhook reliability Production release
 
