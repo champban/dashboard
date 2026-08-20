@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — L0b normalized data foundation — 2026-08-20
+
+- Added an unapplied nine-table Supabase migration with owner-composite foreign
+  keys, SELECT-only RLS, explicit default-privilege revocation, stable source
+  identity, lease/generation fencing, exact-byte chunk idempotency, server-side
+  reconciliation, and tombstone/reactivation semantics.
+- Added one explicit manual import control to Full and Mobile. It is isolated
+  from Save to Cloud, Auto-sync, LINE snapshots, and mutation handling; Google
+  Drive remains authoritative.
+- Added throwaway PostgreSQL 17 lifecycle/security tests, static SQL scope
+  checks, and browser exact-byte/projection tests.
+- No migration, backfill, data copy, merge, deployment, dependency, lockfile,
+  provider, secret, LINE, Netlify, or Google Drive change is authorized by this
+  source increment.
+
 ## Unreleased — confirmed LINE changes and 10-week search — 2026-08-02
 
 - Added Confirm/Cancel guarded Add/Edit/Delete commands queued separately from

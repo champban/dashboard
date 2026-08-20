@@ -104,3 +104,36 @@ jobs:
 
       - name: Execute repeatable ledger migration, RLS and concurrency gate
         run: bash supabase/tests/run_line_event_ledger_tests.sh
+
+  l0b-data-foundation-sql:
+    name: L0b schema / RLS / identity / reconciliation
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: l0b_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d l0b_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/l0b_test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure PostgreSQL client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Execute unapplied L0b migration and security lifecycle gate
+        run: bash supabase/tests/run_l0b_data_foundation_tests.sh

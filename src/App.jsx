@@ -11309,6 +11309,7 @@ function SyncPanel({
   onConnect, onDisconnect, onSyncNow, onCheckNow, onSetAuto, onOpenFolder,
   onRename, onRelink, onUnlink, listFiles, onClose, minimized, onToggleMin,
   lineSync, lineSharing, onLineSharingChange, onLineCreateCode, onLineRefresh,
+  l0bState, onL0bImport,
 }) {
   const [pos, setPos] = React.useState(()=>({ x: Math.max(12, window.innerWidth - 372), y: 76 }));
   const [busy, setBusy] = React.useState(false);
@@ -11549,6 +11550,26 @@ function SyncPanel({
             {onSaveToDisk && <button onClick={onSaveToDisk} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>💾 Save a copy</button>}
             {onOpenFromDisk && <button onClick={onOpenFromDisk} style={smallBtn("var(--c-surface)","var(--c-text)","1px solid var(--c-border)")}>📂 Open a file</button>}
           </div>
+        </div>
+
+        {/* L0b is an explicit owner action. It is isolated from Drive save,
+            Auto-sync, LINE snapshots, and every timer-driven path. */}
+        <div style={box}>
+          <div style={label}>Database foundation · manual import</div>
+          <div style={{fontSize:10,color:"var(--c-text-muted)",lineHeight:1.5}}>
+            Copies the current planner projection into L0b for reconciliation.
+            Google Drive remains authoritative; Save to Cloud and LINE are unchanged.
+          </div>
+          <button id="l0bImportFull" onClick={onL0bImport} disabled={l0bState?.busy}
+            style={{width:"100%",marginTop:8,...smallBtn("#92400e","#fff"),padding:"9px 0"}}>
+            {l0bState?.busy?"Importing…":"Import current planner to L0b"}
+          </button>
+          {l0bState?.message && (
+            <div role="status" style={{marginTop:7,fontSize:10.5,fontWeight:700,lineHeight:1.45,
+              color:l0bState.kind==="success"?"#86efac":l0bState.kind==="error"?"#fca5a5":"#fcd34d"}}>
+              {l0bState.message}
+            </div>
+          )}
         </div>
 
         {/* LINE reads a privacy-minimised Supabase snapshot. Drive remains the
@@ -12117,6 +12138,7 @@ export default function App() {
     busy:false, error:"", linked:false, linkedAt:null, lastSeenAt:null,
     snapshotUpdatedAt:null, code:"", command:"", expiresAt:null,
   });
+  const [l0bState, setL0bState] = useState({busy:false,kind:"",message:""});
   const [gsyncConflict, setGsyncConflict] = useState(null); // {cloudText, cloudModified}
   // What the last sync actually DID, so pressing "Save to Cloud" always produces a
   // visible answer. "Synced · 25 min ago" alone could not distinguish a fresh
@@ -13471,6 +13493,29 @@ export default function App() {
     },
   });
 
+  const runL0bImport = async () => {
+    const bridge=window.__MTP_L0B__;
+    if(!bridge?.importNow){
+      const message="L0b import module is not ready. Reload and try again.";
+      setL0bState({busy:false,kind:"error",message}); showToast(message,"error"); return;
+    }
+    setL0bState({busy:true,kind:"",message:""});
+    try{
+      const result=await bridge.importNow(buildSavePayload());
+      const rejected=Number(result.reject_count)||0;
+      const status=String(result.status||"failed");
+      const success=status==="succeeded";
+      const message=success
+        ? "L0b import reconciled successfully. Drive remains authoritative."
+        : `L0b import ${status}: ${rejected} quarantined row${rejected===1?"":"s"}; normalized data was not changed.`;
+      setL0bState({busy:false,kind:success?"success":"warning",message});
+      showToast(message,success?"success":"error");
+    }catch(error){
+      const message=error?.message||"L0b import failed. Drive and LINE were not changed.";
+      setL0bState({busy:false,kind:"error",message}); showToast(message,"error");
+    }
+  };
+
   // ── "Does this screen hold anything the cloud file does not?" ────────────────
   //
   // Asked of the DATA. It used to be asked of a clock: `dataLastUpdated !==
@@ -14619,6 +14664,7 @@ export default function App() {
           setDataLastUpdated(new Date().toISOString());
         }}
         onLineCreateCode={createLineLinkCode} onLineRefresh={refreshLineStatus}
+        l0bState={l0bState} onL0bImport={runL0bImport}
         onClose={()=>setGsyncPanel(false)} />}
       {importConflict && <ImportDirectionDialog
         fileName={importConflict.fileName}

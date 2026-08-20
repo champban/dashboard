@@ -13,6 +13,12 @@ Search-button increment M0: `2026-07-30T11:49:49+07:00`
 Search-button increment M4: `2026-07-30T12:00:03+07:00`
 (`0.17` measured wall-clock hours from M0)
 
+L0b source-only M0: `2026-08-20T10:27:38+07:00` (`Asia/Bangkok`)
+
+L0b classification: `SEQUENTIAL_ONLY` — one database migration and one
+Auth/RLS policy set; Codex is the sole active writer and Claude is reserved for
+Final Exact-HEAD Review #2.
+
 ## Outcome
 
 The owner can link one LINE user to the signed-in My Todo Planner account and
@@ -284,3 +290,21 @@ Environment secrets and artifact cleanup remain separate approvals.
 - Dependency advisory review by `2026-09-17`; no forced upgrade.
 - L0b normalized Supabase data foundation requires a new approval and KPI record.
 - L1 direct Todo mutation and Drive export-only cutover remain unstarted.
+
+## L0b normalized data foundation — source-only record
+
+| Milestone | Timestamp (`Asia/Bangkok`) | Evidence / status |
+|---|---|---|
+| M0 activation | `2026-08-20T10:27:38+07:00` | Owner approved source-only Codex implementation after Review #1 closure; no provider action |
+| M1 branch/bootstrap | `2026-08-20T10:27:49+07:00` | `feature/l0b-data-foundation` created from exact `488d4a75`; `SEQUENTIAL_ONLY`; one active writer |
+| M2 source complete | `2026-08-20T11:00:35+07:00` | Nine-table migration, manual Full/Mobile client, shared JS/SQL vectors, CI/tests/docs complete locally |
+| M3 local verification | `2026-08-20T11:00:35+07:00` | Build/harness `LEN 25129 / NODES 141`, audit `0 blockers`, package/CSP `6/6`, full regression chain, secret scan, static SQL gate, and `git diff --check` passed; PostgreSQL 17 execution remains the Draft-PR CI gate because local `psql` is unavailable |
+| M4 Draft PR / CI | Pending | One Draft PR; standard verify + L0a SQL + L0b PostgreSQL 17 jobs |
+| M5 Final Exact-HEAD 6D | Pending | Claude Review #2 only; no repeated full review unless a blocking critical area changes |
+| M6 Production verified | Not authorized | Requires separate backup, migration, backfill/deployment approvals and smoke |
+
+Comparability: this database/data-architecture increment is not comparable to
+the earlier LINE feature increments. No speed, quality, or manual-step
+improvement is claimed before M3/M4 evidence exists. Review count target is
+exactly the approved two critical points: Review #1 is closed; Review #2 is the
+only remaining full independent review.

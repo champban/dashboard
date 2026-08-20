@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-dtkQkTdDGVlmMdOSKjYlSl66OnXJCewliYJY9voK8pw=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-ED5zHixFojYzSfkN/bQQ24F1RPudVZ8MkwwbQIySQCM=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -140,6 +140,7 @@ let state={
   lang:'EN',driveFiles:[],driveBusy:false,driveError:'',timer:{remaining:1500,running:false,mode:'focus',interval:null}
 };
 let lineSyncState={loaded:false,busy:false,error:'',linked:false,snapshotUpdatedAt:null,command:'',expiresAt:null};
+let l0bImportState={busy:false,kind:'',message:''};
 state.lang=(state.data.config&&state.data.config.lang)||'EN';
 if(!state.sync.clientId)state.sync.clientId=state.data.config.googleClientId||DEFAULT_CLIENT_ID;
 
@@ -309,6 +310,7 @@ function renderLineSyncCard(){
 function renderSync(){
   const file=state.sync.fileId?`<div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>${esc(state.sync.fileName||'Linked profile')}</strong><span>${state.sync.lastSyncAt?'Last sync '+new Date(state.sync.lastSyncAt).toLocaleString():'Not synced yet'}</span></div><button id="openFileList">Change</button></div>`:'';
   return `<div class="sync-card card"><h3>${tr('drive')}</h3><p>${tr('driveText')}</p>${file}<div class="sync-actions two" style="margin-top:12px"><button class="primary" id="connectDrive">${accessToken?tr('connected'):tr('connect')}</button><button class="secondary" id="syncNow" ${state.sync.fileId?'':'disabled'}>↻ ${tr('syncNow')}</button></div><div class="sync-actions two" style="margin-top:9px"><button class="secondary" id="selectCloud">${tr('selectFile')}</button><button class="secondary" id="createCloud">${tr('createCloud')}</button></div>${state.driveError?`<div class="note" style="color:var(--red)">${esc(state.driveError)}</div>`:''}</div>
+  <div class="sync-card card"><h3>Database foundation · manual import</h3><p>Copies the current planner projection into L0b for reconciliation. Google Drive remains authoritative; Save to Cloud and LINE are unchanged.</p><button class="secondary" id="l0bImportMobile" ${l0bImportState.busy?'disabled':''}>${l0bImportState.busy?'Importing…':'Import current planner to L0b'}</button>${l0bImportState.message?`<div class="note" style="color:${l0bImportState.kind==='success'?'var(--green)':l0bImportState.kind==='error'?'var(--red)':'var(--gold)'}">${esc(l0bImportState.message)}</div>`:''}</div>
   ${renderLineSyncCard()}
   <div class="sync-card card"><h3>${tr('localBackup')}</h3><p>JSON version 7 · compatible with the Full app.</p><div class="sync-actions two"><button class="secondary" id="exportJson">↓ ${tr('export')}</button><button class="secondary" id="importJson">↑ ${tr('import')}</button></div></div>
   ${renderStorageManager()}
@@ -448,11 +450,19 @@ function showConflict(meta){
 function bindSync(){
   $('#connectDrive').onclick=connectDrive;$('#syncNow').onclick=()=>syncNow(false);$('#selectCloud').onclick=showCloudFiles;$('#createCloud').onclick=beginCreateCloudFile;$('#openFileList')&&($('#openFileList').onclick=showCloudFiles);$('#exportJson').onclick=exportJSON;$('#importJson').onclick=()=>$('#fileInput').click();
   $('#createLineCode')&&($('#createLineCode').onclick=createLineLinkCode);$('#refreshLineStatus')&&($('#refreshLineStatus').onclick=()=>refreshLineStatus(true));$('#copyLineCode')&&($('#copyLineCode').onclick=copyLineCommand);if(!lineSyncState.loaded&&!lineSyncState.busy)setTimeout(()=>refreshLineStatus(),0);
+  $('#l0bImportMobile')&&($('#l0bImportMobile').onclick=runL0bImport);
   const saveLineSharing=()=>{pushHistory('Update LINE sharing');state.data.config={...(state.data.config||{}),lineShareSubtasks:$('#lineShareSubtasks').checked,lineShareAttachmentLinks:$('#lineShareAttachmentLinks').checked};saveLocal(true);toast(state.lang==='TH'?'✓ บันทึกแล้ว — กด Save to Cloud':'✓ Saved — press Save to Cloud');render()};
   $('#lineShareSubtasks')&&($('#lineShareSubtasks').onchange=saveLineSharing);$('#lineShareAttachmentLinks')&&($('#lineShareAttachmentLinks').onchange=saveLineSharing);
   $('#storageExport').onclick=exportJSON;$('#storageRefresh').onclick=render;$('#clearHistory').onclick=clearEditHistory;$('#archiveOld').onclick=archiveOldCompleted;$('#saveStorageLimit').onclick=saveStorageLimit;$('#ackStorage')&&($('#ackStorage').onclick=acknowledgeStorage);
   $('#saveSettings').onclick=()=>{pushHistory('Save settings');state.lang=$('#langSelect').value;state.sync.clientId=DEFAULT_CLIENT_ID;state.sync.autoSync=$('#autoSync').checked;state.data.config={...(state.data.config||{}),lang:state.lang,googleClientId:'',gsyncAuto:state.sync.autoSync};accessToken='';saveLocal(true);applyTranslations();toast('✓ '+tr('saveSettings'));render()};
   $('#saveProfileName').onclick=()=>{pushHistory('Rename profile');state.data.profile={...(state.data.profile||{}),name:$('#profileName').value.trim()||'My Profile'};saveLocal(true);toast('✓ '+tr('save'));render()};
+}
+async function runL0bImport(){
+  const bridge=window.__MTP_L0B__;if(!bridge?.importNow){toast('L0b import module is not ready.');return}
+  l0bImportState={busy:true,kind:'',message:''};render();
+  try{const result=await bridge.importNow(state.data),rejected=Number(result.reject_count)||0,status=String(result.status||'failed'),success=status==='succeeded',message=success?'L0b import reconciled. Drive remains authoritative.':`L0b import ${status}: ${rejected} quarantined row${rejected===1?'':'s'}; normalized data was not changed.`;l0bImportState={busy:false,kind:success?'success':'warning',message};toast(message)}
+  catch(error){const message=error?.message||'L0b import failed. Drive and LINE were not changed.';l0bImportState={busy:false,kind:'error',message};toast(message)}
+  render();
 }
 function downloadJSON(data,fileName){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=fileName;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function exportJSON(){downloadJSON(prepareForSave(),state.sync.fileName||'My-Todo-Planner-Mobile-Backup.json')}
@@ -489,4 +499,5 @@ guard();new MutationObserver(guard).observe(document.getElementById('app')||docu
 <script defer src="../vendor/supabase-2.110.7.js"></script>
 <script defer src="../auth.js"></script>
 <script defer src="../line-sync.js"></script>
+<script defer src="../l0b-import.js"></script>
 </body></html>
