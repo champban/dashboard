@@ -13,6 +13,12 @@ Search-button increment M0: `2026-07-30T11:49:49+07:00`
 Search-button increment M4: `2026-07-30T12:00:03+07:00`
 (`0.17` measured wall-clock hours from M0)
 
+L0b source-only M0: `2026-08-20T10:27:38+07:00` (`Asia/Bangkok`)
+
+L0b classification: `SEQUENTIAL_ONLY` — one database migration and one
+Auth/RLS policy set; Codex is the sole active writer and Claude is reserved for
+Final Exact-HEAD Review #2.
+
 ## Outcome
 
 The owner can link one LINE user to the signed-in My Todo Planner account and
@@ -284,3 +290,36 @@ Environment secrets and artifact cleanup remain separate approvals.
 - Dependency advisory review by `2026-09-17`; no forced upgrade.
 - L0b normalized Supabase data foundation requires a new approval and KPI record.
 - L1 direct Todo mutation and Drive export-only cutover remain unstarted.
+
+## L0b normalized data foundation — source-only record
+
+| Milestone | Timestamp (`Asia/Bangkok`) | Evidence / status |
+|---|---|---|
+| M0 activation | `2026-08-20T10:27:38+07:00` | Owner approved source-only Codex implementation after Review #1 closure; no provider action |
+| M1 branch/bootstrap | `2026-08-20T10:27:49+07:00` | `feature/l0b-data-foundation` created from exact `488d4a75`; `SEQUENTIAL_ONLY`; one active writer |
+| M2 source complete | `2026-08-20T11:00:35+07:00` | Nine-table migration, manual Full/Mobile client, shared JS/SQL vectors, CI/tests/docs complete locally |
+| M3 local verification | `2026-08-20T11:00:35+07:00` | Build/harness `LEN 25129 / NODES 141`, audit `0 blockers`, package/CSP `6/6`, full regression chain, secret scan, static SQL gate, and `git diff --check` passed; PostgreSQL 17 execution remains the Draft-PR CI gate because local `psql` is unavailable |
+| M4 Draft PR / CI re-verified | `2026-08-20T13:44:01+07:00` | PR #76 remains Draft. Remediation CI #124 passed `verify`, L0a SQL/RLS/concurrency, and L0b PostgreSQL 17 schema/RLS/identity/reconciliation at `14d67b2d`; no migration was applied outside the throwaway service |
+| M5 Final Exact-HEAD 6D | Remediation pending targeted re-review | Review #2 returned `REQUIRED CHANGES` at `749af1b4`; F1-F5 were remediated at source/test commit `14d67b2d`; only a targeted re-review is required, not a third full review |
+| M6 Production verified | Not authorized | Requires separate backup, migration, backfill/deployment approvals and smoke |
+
+Comparability: this database/data-architecture increment is not comparable to
+the earlier LINE feature increments. No speed, quality, or manual-step
+improvement is claimed. Review #1 is closed; Review #2 is complete with
+`REQUIRED CHANGES`; the remaining check is a targeted remediation re-review,
+not another full review.
+
+### L0b quality/rework record
+
+| KPI | Value | Evidence / caveat |
+|---|---:|---|
+| Rework cycles | `1` | Final Review #2 reopened F1-F5 once; remediation stayed within the approved source-only scope |
+| CI retries before Review #2 | `1` | Initial run #122 exposed the invalid schema-qualified lease clamp; corrected run #123 passed |
+| Remediation CI retries | `0` | Run #124 passed all three jobs on the first remediation attempt |
+| Failed deploys | `0` | No deployment was attempted or authorized |
+| Production escapes | `0` | L0b is not merged, applied, imported, or deployed |
+| Manual intervention batches | `1` | Owner transferred the Claude review result between panels; no provider action or secret entry |
+
+Comparability remains `Not comparable`. This is a database architecture and
+security-test increment on an existing application, so no speed-improvement
+percentage is published.

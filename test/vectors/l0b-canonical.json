@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "algorithm": "mtp-l0b-row-v1",
+  "assertions": [
+    "empty_set",
+    "task_personal_full",
+    "task_work_namespace",
+    "null_vs_empty",
+    "nfc_equals_nfd",
+    "delimiter_safe",
+    "set_order_independent",
+    "set_multiplicity_preserved",
+    "subtask_parent_scoped",
+    "event_window_reorder_changes",
+    "event_set_order_independent",
+    "bool_not_text",
+    "date_not_text",
+    "chunk_chain_omission_changes"
+  ],
+  "rows": {
+    "task_personal": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal4:id:1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"Café","status_text":"todo","category":"Home","priority":"High","due_date":"2026-01-05"}
+      },
+      "sha256": "7802114edc68c9afe796c2f5da345cfa21ce5a261677f0b3e36986aefd0d432f"
+    },
+    "task_work": {
+      "kind": "task",
+      "row": {
+        "source_key": "T4:work4:id:1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"work","title":"Café","status_text":"todo","category":"Home","priority":"High","due_date":"2026-01-05"}
+      },
+      "sha256": "954f2517b8e5ffc8105baf942769db90cf75151df2218a4d2e5089682fbf5623"
+    },
+    "task_null": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal4:id:1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"Café","status_text":null,"category":"Home","priority":"High","due_date":"2026-01-05"}
+      },
+      "sha256": "9480e1ee2861652efc59af0f1d54e4a461fca88479c3246c708eff5b201a6967"
+    },
+    "task_empty": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal4:id:1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"Café","status_text":"","category":"Home","priority":"High","due_date":"2026-01-05"}
+      },
+      "sha256": "c7b599ab9bd1233faf3c6537b4ca3008a9703814ea14d1f472e19524a6d6c7ef"
+    },
+    "task_nfc": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal4:id:1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"Café","status_text":"todo","category":"Home","priority":"High","due_date":"2026-01-05"}
+      },
+      "sha256": "7802114edc68c9afe796c2f5da345cfa21ce5a261677f0b3e36986aefd0d432f"
+    },
+    "task_nfd": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal4:id:1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"Cafe\u0301","status_text":"todo","category":"Home","priority":"High","due_date":"2026-01-05"}
+      },
+      "sha256": "7802114edc68c9afe796c2f5da345cfa21ce5a261677f0b3e36986aefd0d432f"
+    },
+    "delimiter_single": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal5:delim",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"a:b","status_text":null,"category":null,"priority":null,"due_date":null}
+      },
+      "sha256": "a0665b5b8112f7ca769c8267db963c6937f6a83a75ae95fe4bdfbaa44a271cdd"
+    },
+    "delimiter_split": {
+      "kind": "task",
+      "row": {
+        "source_key": "T8:personal5:delim",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"task_kind":"personal","title":"a","status_text":"b","category":null,"priority":null,"due_date":null}
+      },
+      "sha256": "ffd936495e21d161bee06cb69e5c651b54b03f63e2b60a806592d53c850ba144"
+    },
+    "subtask_parent_a": {
+      "kind": "subtask",
+      "row": {
+        "source_key": "S21:T8:personal8:parent-a2:42",
+        "parent_source_key": "T8:personal8:parent-a",
+        "ordinal": 0,
+        "is_active": true,
+        "projected": {"text":"same","done":true,"ordinal":0}
+      },
+      "sha256": "f8579135353d060cea1def94052f520e38a3eaf6f45ab790ea8e4987e42917f6"
+    },
+    "subtask_parent_b": {
+      "kind": "subtask",
+      "row": {
+        "source_key": "S21:T8:personal8:parent-b2:42",
+        "parent_source_key": "T8:personal8:parent-b",
+        "ordinal": 0,
+        "is_active": true,
+        "projected": {"text":"same","done":true,"ordinal":0}
+      },
+      "sha256": "574b052450407bb0df56fbdd22b07126ec430ea1e3447a081a760897a498578b"
+    },
+    "window_original_0": {
+      "kind": "event_window",
+      "row": {
+        "source_key": null,
+        "parent_source_key": "E5:evt-w",
+        "ordinal": 0,
+        "is_active": true,
+        "projected": {"window_start":"2026-01-01","window_end":"2026-01-02"}
+      },
+      "sha256": "4579316f36ef553632b2a86ec477a95a30c17563dad7633c2ca516d96c94e602"
+    },
+    "window_original_1": {
+      "kind": "event_window",
+      "row": {
+        "source_key": null,
+        "parent_source_key": "E5:evt-w",
+        "ordinal": 1,
+        "is_active": true,
+        "projected": {"window_start":"2026-02-01","window_end":"2026-02-02"}
+      },
+      "sha256": "13e8f0d785171fe4623a0257041bd915a88d2024e58632d33296e17225a8379d"
+    },
+    "window_reordered_0": {
+      "kind": "event_window",
+      "row": {
+        "source_key": null,
+        "parent_source_key": "E5:evt-w",
+        "ordinal": 0,
+        "is_active": true,
+        "projected": {"window_start":"2026-02-01","window_end":"2026-02-02"}
+      },
+      "sha256": "fe8ad9ba7152bc12b0cb45df464227b5af4ec7eca7150fc02eaccccdb62019ec"
+    },
+    "window_reordered_1": {
+      "kind": "event_window",
+      "row": {
+        "source_key": null,
+        "parent_source_key": "E5:evt-w",
+        "ordinal": 1,
+        "is_active": true,
+        "projected": {"window_start":"2026-01-01","window_end":"2026-01-02"}
+      },
+      "sha256": "bf1fed4a0f862ba2e88ea2de70db27f6f76fd977ec1321c7c65692203725513e"
+    },
+    "event_one": {
+      "kind": "event",
+      "row": {
+        "source_key": "E5:evt-1",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"title":"One","event_type":"meeting","category":"Work"}
+      },
+      "sha256": "7338dc6513b081e055d30a1054f4202fffe7beace0035162813aa394092be4b9"
+    },
+    "event_two": {
+      "kind": "event",
+      "row": {
+        "source_key": "E5:evt-2",
+        "parent_source_key": null,
+        "ordinal": null,
+        "is_active": true,
+        "projected": {"title":"Two","event_type":"meeting","category":"Work"}
+      },
+      "sha256": "9f1aac112a44723074ba3b443755cca75d55b4c787b6897bbe3487932a73e191"
+    }
+  },
+  "sets": {
+    "empty": {"members":[],"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+    "tasks_ab": {"members":["task_personal","task_work"],"sha256":"75475dd1f469e6b2a0378927036dead654f34f70b705d0865ec9e4f32e8b116b"},
+    "tasks_ba": {"members":["task_work","task_personal"],"sha256":"75475dd1f469e6b2a0378927036dead654f34f70b705d0865ec9e4f32e8b116b"},
+    "task_single": {"members":["task_personal"],"sha256":"7c5eb1a7ea540c4445aadeed9ce09dfc36abfce642b899a94b75762fd299d76e"},
+    "task_double": {"members":["task_personal","task_personal"],"sha256":"e805666a1f0570e6fe578eb965fa6e62eb7db9d18f7a993bd1a703347925daa5"},
+    "windows_original": {"members":["window_original_0","window_original_1"],"sha256":"f23585c150df8449666a39ee7996f79521430372533cb5f87ff2a69ddd79cc38"},
+    "windows_reordered": {"members":["window_reordered_0","window_reordered_1"],"sha256":"b2309f5dab492db6d9fc5611eaae0950cf6fcd87091747a719cebc6f38c940fc"},
+    "events_ab": {"members":["event_one","event_two"],"sha256":"9427ad3eb1899aa0b8f5c2ff0ac19e41c76e40f4f35df68a18ea09d74d5982a4"},
+    "events_ba": {"members":["event_two","event_one"],"sha256":"9427ad3eb1899aa0b8f5c2ff0ac19e41c76e40f4f35df68a18ea09d74d5982a4"}
+  },
+  "primitives": {
+    "bool_true_hex": "42313a31",
+    "text_one_hex": "53313a31",
+    "date_hex": "4431303a323032362d30312d3035",
+    "text_date_hex": "5331303a323032362d30312d3035"
+  },
+  "chunk_chains": {
+    "full": {"members":["chain_task","chain_emoji","chain_combining"],"sha256":"2937fd6a240557f2edfcbaeb31434a7805746ebdbcc9227cc60a8e96534dac5d"},
+    "omitted": {"members":["chain_task","chain_combining"],"sha256":"e384da85346bb351bd01346f3de39be3825e61dab8cd778d00633127163ae108"}
+  }
+}

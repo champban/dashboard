@@ -5,8 +5,8 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production GitHub baseline before this documentation-only closure is
-  `main@27634ef9d971dfc204607b2ff8a0500e8bd4c4f0` (PR #73, L0a Production Deployment Runbook).
+- Production GitHub baseline is
+  `main@488d4a75e73566284107cbe81e0362c2fa330f6b` (PR #75, L0a formal documentation closure).
 - The exact L0a runtime source package is pinned to merge commit `3cafa19aa56f89c8d640acc717726d0043b3bd2c`,
   which contains independently reviewed implementation head `73ad8b6a9815411364afeae34d9ce52418bd6967`.
 - Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
@@ -27,6 +27,35 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - Mobile application: `mobile/index.html` (separate hand-written vanilla-JS
   app, task-details candidate v3.75.2).
 - Live planner: https://champban.github.io/dashboard/
+
+### L0b normalized data foundation — source only
+
+- Owner approved D-1 `A + A1`, closed Review #1 without another Claude pass,
+  then separately approved Codex source-only implementation.
+- Branch `feature/l0b-data-foundation` starts from exact
+  `main@488d4a75e73566284107cbe81e0362c2fa330f6b` and is intended for one Draft PR.
+- Source adds exactly nine normalized/import tables, six authenticated manual
+  import RPCs, owner-composite foreign keys, SELECT-only RLS, explicit object
+  revocation, stable task/subtask/event/attachment identity, lease fencing,
+  exact-byte chunks, database reconciliation, tombstones, and manual controls in
+  Full/Mobile. See `docs/L0B_DATA_FOUNDATION.md`.
+- Migration `20260820032749_l0b_data_foundation.sql` is an unapplied repository
+  artifact. No backfill, Production data copy, shadow/dual write, merge, or
+  deployment has occurred.
+- Browser + Google Drive remain the Todo source of truth. L0b does not start L1,
+  does not make Supabase authoritative, and does not alter the LINE
+  snapshot/mutation queue or Drive save paths.
+- `RISK-L0A-ACL-1` remains open and out of L0b scope. A separate Owner decision
+  is required before the next Production database change.
+- Final Exact-HEAD 6D Review #2 returned `REQUIRED CHANGES` at
+  `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`. F1-F5 were remediated without
+  widening scope: default-privilege simulation, Phase-B rollback evidence,
+  lease/generation fencing, incomplete-stream cases, and two NULL-safe staging
+  predicates. The source/test remediation commit is
+  `14d67b2d2cea69bb16cf78e1d4d54732ca5d93c0`, tree
+  `85ed997abb74a3a02ee14cdb7dbce24329500fab`; CI run #124 passed all three jobs.
+- Next critical gate is one targeted re-review of the remediation at the final
+  PR HEAD. Review #1 stays closed and no third full review is planned.
 
 ### L0a webhook reliability Production release
 

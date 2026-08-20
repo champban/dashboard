@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "algorithm": "sha256(enc_int(seq)||enc_text(kind)||enc_bytes(utf8(payload)))",
+  "vectors": [
+    {"id":"chain_task","seq":0,"kind":"task","payload":"[{\"a\":1}]","sha256":"f51c07254d7bc591ee4ccbbff9d05959fd981454c8882ffcdbfe4f9a16b92115"},
+    {"id":"key_order_ab","seq":1,"kind":"event","payload":"[{\"a\":1,\"b\":2}]","sha256":"1602a82b4fd5466081e259866220408c15d243d17dbd15d472778632b40bb075"},
+    {"id":"key_order_ba","seq":1,"kind":"event","payload":"[{\"b\":2,\"a\":1}]","sha256":"e8ef67a919c98a00db569992b88d11e36e038b8cc25f825d1a7a54f600ace081"},
+    {"id":"whitespace","seq":0,"kind":"task","payload":"[{\"a\": 1}]","sha256":"8cfd96a45c78d6d55c0d49ef18533f2445b2c02295aff7420e913edfcbbfc98b"},
+    {"id":"chain_emoji","seq":1,"kind":"event","payload":"[{\"emoji\":\"😀\"}]","sha256":"5a4ca98012df53bffbfdb61d823ff478420afb6cf4ac70983ae0239d22a5a51b"},
+    {"id":"chain_combining","seq":2,"kind":"subtask","payload":"[{\"text\":\"Café\"}]","sha256":"2515f84a1a38c4a7e8040bfb6400db876047adab334ce5d1f0ac39b10eb46da7"},
+    {"id":"duplicate_keys","seq":0,"kind":"task","payload":"[{\"a\":1,\"a\":2}]","sha256":"6385544e0f08d49f99eb7d0c9a668e06ee0509b19043355bfdcaa124c103e47e"},
+    {"id":"numeric_lexical","seq":0,"kind":"task","payload":"[{\"n\":1.0}]","sha256":"ea1320b80fd9a7b53b0047ea58f3fedba106ba9f99ef6bd45e059da6d10f1d63"}
+  ]
+}

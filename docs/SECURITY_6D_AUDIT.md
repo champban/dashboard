@@ -1,4 +1,4 @@
-# Security 6D Audit — L0a LINE Webhook Reliability Hardening
+# Security 6D Audit — L0a Closure and L0b Source Gate
 
 Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
@@ -17,7 +17,46 @@ Production scope:
 - Owner-confirmed LINE webhook and redelivery enabled
 - Controlled live LINE smoke and Production ledger verification
 
-## Decision
+## L0b source-only pre-merge addendum
+
+**Decision: PENDING TARGETED REMEDIATION RE-REVIEW — NOT APPROVED FOR MERGE OR
+PRODUCTION.**
+
+Review #1 is closed with Owner-approved D-1 `A + A1`. The implementation branch
+is limited to an additive, unapplied migration, manual Full/Mobile import source,
+throwaway tests, and documentation. It does not apply a migration, copy planner
+data, backfill, merge, deploy, or change Drive/LINE/Netlify/provider/secrets.
+
+Final Review #2 returned `REQUIRED CHANGES` at `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`.
+The five findings were remediated at source/test commit
+`14d67b2d2cea69bb16cf78e1d4d54732ca5d93c0` without applying the migration:
+broad Supabase default privileges are now simulated in PostgreSQL 17 CI; table
+privilege assertions cover `REFERENCES`, `TRIGGER`, and `MAINTAIN`; rollback,
+fencing, heartbeat, stream-incomplete, and reject-classification paths are
+exercised; and the only migration edits are the two approved NULL-safe staging
+predicates. CI run #124 passed. A targeted re-review remains required, so this
+decision stays `PENDING`.
+
+| Dimension | Current source control | Remaining gate |
+|---|---|---|
+| 1. Identity and access | Stable source IDs for tasks/subtasks/events/attachments; no fallback; owner-composite FKs; nine RLS tables; authenticated SELECT-only; six definer RPCs derive `auth.uid()`; no direct service-role grant; broad default privileges simulated and revoked in CI | Targeted exact-head review of the remediation |
+| 2. Secrets and data | Publishable authenticated browser client only; attachment binary stripped before transport; staging transient; rejects store metadata only; failure evidence excludes database messages/content | Secret scan and exact-head data-boundary review |
+| 3. Input and content safety | 1 MiB/2,000-row chunk limits; exact UTF-8 byte hash before parse; stable-ID quarantine; HTTPS metadata only; D-1 shape anomalies preserved as counts; missing date/parent kind classification tested | Targeted exact-head review of the two NULL-safe predicates and assertions |
+| 4. Browser and network controls | Exactly one explicit import control in each client; no timer/config/Drive/LINE call path; failure contained to amber/toast feedback | Generated Full artifact parity and browser regression suite |
+| 5. Supply chain and deployment | No dependency/lockfile change; migration source only; Draft PR and CI required | CI green; exact-head SHA recorded; no merge without Owner approval |
+| 6. Operations and recovery | Lease/generation fence; server completeness; subtransaction rollback; tombstones; staging purge; rollback/fencing/incomplete-stream tests pass; stopping manual calls leaves Drive/snapshot path intact | Targeted remediation review, then fresh backup and separate migration/backfill/deployment approvals before Production |
+
+Open risks:
+
+- `RISK-L0A-ACL-1`: the existing Production default-privilege/L0a ACL finding
+  remains open, outside this migration, and separately gated before the next
+  Production database change.
+- Legacy subtask `Date.now()` collisions remain whole-batch identity quarantine
+  under D-1 A1. A subtask UUID migration is a later L1 prerequisite, not L0b.
+- Event windows are positional values and have no stable identity across reorder.
+- L0b is a partial projection and is not the planner source of truth.
+
+## L0a Decision
 
 **CONDITIONAL PASS — PRODUCTION VERIFIED**
 
