@@ -172,7 +172,10 @@ begin
       ('mtp_event_windows'),('mtp_task_attachments')
     ) as t(table_name)
     cross join (values ('anon'),('service_role')) as r(role_name)
-    cross join (values ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE')) as p(privilege_name)
+    cross join (values
+      ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),
+      ('REFERENCES'),('TRIGGER'),('MAINTAIN')
+    ) as p(privilege_name)
     where pg_catalog.has_table_privilege(r.role_name, 'public.'||t.table_name, p.privilege_name)
   ) then raise exception 'anon/service_role received a direct L0b table privilege'; end if;
 
@@ -186,7 +189,10 @@ begin
       ('mtp_task_attachments')
     ) as t(table_name)
     where not pg_catalog.has_table_privilege('authenticated','public.'||t.table_name,'SELECT')
-       or pg_catalog.has_table_privilege('authenticated','public.'||t.table_name,'INSERT,UPDATE,DELETE,TRUNCATE')
+       or pg_catalog.has_table_privilege(
+         'authenticated', 'public.'||t.table_name,
+         'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN'
+       )
   ) then raise exception 'authenticated readable-table privileges are not SELECT-only'; end if;
 end;
 $$;
@@ -380,6 +386,457 @@ begin
   if exists (select 1 from public.mtp_import_rejects
               where canonical_source_key is not null and reject_code <> 'duplicate_id') then
     raise exception 'reject identifier boundary violated';
+  end if;
+end;
+$$;
+
+-- Canonical byte snapshots make rollback assertions cover every column of all
+-- five entity tables, including timestamps, versions and tombstone state.
+create temporary table l0b_test_entity_snapshots (
+  case_name text primary key,
+  before_bytes bytea not null,
+  after_bytes bytea
+);
+
+create function pg_temp.l0b_entity_bytes()
+returns bytea
+language sql
+stable
+set search_path = ''
+as $$
+  select pg_catalog.convert_to(pg_catalog.jsonb_build_object(
+    'tasks', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) order by t.owner_id, t.id)
+      from public.mtp_tasks as t
+    ), '[]'::jsonb),
+    'subtasks', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(s) order by s.owner_id, s.id)
+      from public.mtp_subtasks as s
+    ), '[]'::jsonb),
+    'events', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(e) order by e.owner_id, e.id)
+      from public.mtp_events as e
+    ), '[]'::jsonb),
+    'event_windows', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(w) order by w.owner_id, w.event_id, w.ordinal)
+      from public.mtp_event_windows as w
+    ), '[]'::jsonb),
+    'task_attachments', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.to_jsonb(a) order by a.owner_id, a.id)
+      from public.mtp_task_attachments as a
+    ), '[]'::jsonb)
+  )::text, 'UTF8')
+$$;
+
+create function pg_temp.l0b_chunk_hash(p_seq integer, p_kind text, p_payload text)
+returns bytea
+language sql
+immutable
+set search_path = ''
+as $$
+  select extensions.digest(
+    public.mtp_enc_int(p_seq::bigint)
+    || public.mtp_enc_text(p_kind)
+    || public.mtp_enc_bytes(pg_catalog.convert_to(p_payload, 'UTF8')),
+    'sha256'
+  )
+$$;
+
+create temporary table l0b_test_failure_results (
+  case_name text primary key,
+  status text not null,
+  failure_code text,
+  failure_sqlstate text
+);
+
+-- Force post-apply evidence divergence. The implicit PL/pgSQL savepoint must
+-- roll back every entity byte while the outer function records L0B01.
+select $$[{"source_id":"task-1","task_kind":"personal","title":"Mismatch","status_text":"pending","category":"Home","priority":"High","due_date":"2026-08-20"}]$$ as mismatch_payload \gset
+select pg_catalog.encode(extensions.digest(
+  pg_temp.l0b_chunk_hash(0, 'task', :'mismatch_payload'), 'sha256'
+), 'hex') as mismatch_stream_hex \gset
+insert into l0b_test_entity_snapshots(case_name, before_bytes)
+values ('evidence_mismatch', pg_temp.l0b_entity_bytes());
+
+create function pg_temp.l0b_force_hash_mismatch()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.content_hash := extensions.digest(
+    pg_catalog.convert_to('forced-evidence-mismatch', 'UTF8'), 'sha256'
+  );
+  return new;
+end;
+$$;
+create trigger l0b_test_force_hash_mismatch
+before insert or update on public.mtp_tasks
+for each row execute function pg_temp.l0b_force_hash_mismatch();
+
+select pg_catalog.set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false);
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(pg_catalog.decode(:'mismatch_stream_hex','hex'),1,120) \gset mismatch_
+select * from public.mtp_import_stage(
+  :'mismatch_batch'::uuid, :'mismatch_generation'::bigint,
+  0, 'task', :'mismatch_payload', true
+);
+select status as result_status, failure_code as result_code, failure_sqlstate as result_sqlstate
+from public.mtp_import_finalize(
+  :'mismatch_batch'::uuid, :'mismatch_generation'::bigint
+) \gset mismatch_
+reset role;
+drop trigger l0b_test_force_hash_mismatch on public.mtp_tasks;
+drop function pg_temp.l0b_force_hash_mismatch();
+update l0b_test_entity_snapshots
+set after_bytes = pg_temp.l0b_entity_bytes()
+where case_name = 'evidence_mismatch';
+insert into l0b_test_failure_results(case_name,status,failure_code,failure_sqlstate)
+values ('evidence_mismatch', :'mismatch_result_status', :'mismatch_result_code', :'mismatch_result_sqlstate');
+
+do $$
+begin
+  if not exists (
+    select 1 from l0b_test_failure_results
+    where case_name = 'evidence_mismatch' and status = 'failed'
+      and failure_code = 'evidence_mismatch' and failure_sqlstate = 'L0B01'
+  ) then
+    raise exception 'evidence-mismatch failure classification was not persisted';
+  end if;
+  if exists (
+    select 1 from l0b_test_entity_snapshots
+    where case_name = 'evidence_mismatch' and before_bytes is distinct from after_bytes
+  ) then
+    raise exception 'evidence-mismatch rollback changed entity bytes';
+  end if;
+end;
+$$;
+
+-- Force a genuine constraint SQLSTATE inside Phase B and prove the same
+-- all-or-nothing boundary plus bounded apply_exception evidence.
+select $$[{"source_id":"task-1","task_kind":"personal","title":"Constraint fault","status_text":"pending","category":"Home","priority":"High","due_date":"2026-08-20"}]$$ as constraint_payload \gset
+select pg_catalog.encode(extensions.digest(
+  pg_temp.l0b_chunk_hash(0, 'task', :'constraint_payload'), 'sha256'
+), 'hex') as constraint_stream_hex \gset
+insert into l0b_test_entity_snapshots(case_name, before_bytes)
+values ('apply_exception', pg_temp.l0b_entity_bytes());
+
+create function pg_temp.l0b_force_constraint_fault()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'forced_constraint_fault' using errcode = '23514';
+end;
+$$;
+create trigger l0b_test_force_constraint_fault
+before insert or update on public.mtp_tasks
+for each row execute function pg_temp.l0b_force_constraint_fault();
+
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(pg_catalog.decode(:'constraint_stream_hex','hex'),1,120) \gset constraint_
+select * from public.mtp_import_stage(
+  :'constraint_batch'::uuid, :'constraint_generation'::bigint,
+  0, 'task', :'constraint_payload', true
+);
+select status as result_status, failure_code as result_code, failure_sqlstate as result_sqlstate
+from public.mtp_import_finalize(
+  :'constraint_batch'::uuid, :'constraint_generation'::bigint
+) \gset constraint_
+reset role;
+drop trigger l0b_test_force_constraint_fault on public.mtp_tasks;
+drop function pg_temp.l0b_force_constraint_fault();
+update l0b_test_entity_snapshots
+set after_bytes = pg_temp.l0b_entity_bytes()
+where case_name = 'apply_exception';
+insert into l0b_test_failure_results(case_name,status,failure_code,failure_sqlstate)
+values ('apply_exception', :'constraint_result_status', :'constraint_result_code', :'constraint_result_sqlstate');
+
+do $$
+begin
+  if not exists (
+    select 1 from l0b_test_failure_results
+    where case_name = 'apply_exception' and status = 'failed'
+      and failure_code = 'apply_exception' and failure_sqlstate = '23514'
+      and failure_sqlstate ~ '^[0-9A-Z]{5}$'
+  ) then
+    raise exception 'apply-exception failure classification was not persisted';
+  end if;
+  if exists (
+    select 1 from l0b_test_entity_snapshots
+    where case_name = 'apply_exception' and before_bytes is distinct from after_bytes
+  ) then
+    raise exception 'constraint-fault rollback changed entity bytes';
+  end if;
+  -- Phase-A duplicate evidence from the earlier partial batch must remain
+  -- intact across later Phase-B savepoint rollbacks.
+  if (select count(*) from public.mtp_import_rejects
+      where batch_id = pg_catalog.current_setting('mtp.test.dup_batch')::uuid) <> 2 then
+    raise exception 'Phase-A reject evidence was lost across Phase-B rollback';
+  end if;
+end;
+$$;
+
+-- Lease/generation fencing: active-claim denial, heartbeat, expired takeover,
+-- staging purge and stale writer denial are all exercised in one session.
+select pg_catalog.set_config('mtp.test.fence_stream_hex', :'task_stream_hex', false);
+set role authenticated;
+select batch_id as batch, generation as generation, lease_expires_at as lease_expires_at
+from public.mtp_import_claim(pg_catalog.decode(:'task_stream_hex','hex'),1,30) \gset fence_old_
+select pg_catalog.set_config('mtp.test.fence_old_batch', :'fence_old_batch', false);
+select pg_catalog.set_config('mtp.test.fence_old_generation', :'fence_old_generation', false);
+
+do $$
+begin
+  begin
+    perform * from public.mtp_import_claim(
+      pg_catalog.decode(pg_catalog.current_setting('mtp.test.fence_stream_hex'),'hex'), 1, 30
+    );
+    raise exception 'second active claim unexpectedly succeeded';
+  exception when others then
+    if sqlstate <> '55000' then raise; end if;
+  end;
+end;
+$$;
+
+select * from public.mtp_import_stage(
+  :'fence_old_batch'::uuid, :'fence_old_generation'::bigint,
+  0, 'task', :'task_payload', true
+);
+select generation as generation, lease_expires_at as lease_expires_at
+from public.mtp_import_heartbeat(
+  :'fence_old_batch'::uuid, :'fence_old_generation'::bigint
+) \gset fence_heartbeat_
+reset role;
+select pg_catalog.set_config('mtp.test.fence_heartbeat_generation', :'fence_heartbeat_generation', false);
+select pg_catalog.set_config('mtp.test.fence_heartbeat_expiry', :'fence_heartbeat_lease_expires_at', false);
+select pg_catalog.set_config('mtp.test.fence_old_expiry', :'fence_old_lease_expires_at', false);
+
+do $$
+begin
+  if pg_catalog.current_setting('mtp.test.fence_heartbeat_generation')::bigint
+       <> pg_catalog.current_setting('mtp.test.fence_old_generation')::bigint
+     or pg_catalog.current_setting('mtp.test.fence_heartbeat_expiry')::timestamptz
+       <= pg_catalog.current_setting('mtp.test.fence_old_expiry')::timestamptz then
+    raise exception 'heartbeat did not extend the active generation lease';
+  end if;
+end;
+$$;
+
+update public.mtp_import_batches
+set lease_expires_at = pg_catalog.now() - interval '1 second'
+where id = :'fence_old_batch'::uuid;
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(
+  pg_catalog.decode('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855','hex'),
+  0, 120
+) \gset fence_new_
+select pg_catalog.set_config('mtp.test.fence_new_generation', :'fence_new_generation', false);
+select pg_catalog.set_config('mtp.test.fence_new_batch', :'fence_new_batch', false);
+reset role;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.mtp_import_batches as old
+    join public.mtp_import_batches as new on new.takeover_of = old.id and new.owner_id = old.owner_id
+    where old.id = pg_catalog.current_setting('mtp.test.fence_old_batch')::uuid
+      and old.status = 'expired' and old.failure_code = 'lease_expired'
+      and old.staging_purged_at is not null
+      and new.id = pg_catalog.current_setting('mtp.test.fence_new_batch')::uuid
+      and new.generation = old.generation + 1
+  ) then
+    raise exception 'expired takeover evidence mismatch';
+  end if;
+  if exists (
+    select 1 from public.mtp_import_staging
+    where batch_id = pg_catalog.current_setting('mtp.test.fence_old_batch')::uuid
+  ) then
+    raise exception 'expired takeover retained stale staging';
+  end if;
+end;
+$$;
+
+set role authenticated;
+do $$
+begin
+  begin
+    perform * from public.mtp_import_stage(
+      pg_catalog.current_setting('mtp.test.fence_old_batch')::uuid,
+      pg_catalog.current_setting('mtp.test.fence_old_generation')::bigint,
+      1, 'task', '[]', false
+    );
+    raise exception 'stale stage unexpectedly succeeded';
+  exception when others then
+    if sqlstate <> '42501' then raise; end if;
+  end;
+  begin
+    perform * from public.mtp_import_finalize(
+      pg_catalog.current_setting('mtp.test.fence_old_batch')::uuid,
+      pg_catalog.current_setting('mtp.test.fence_new_generation')::bigint
+    );
+    raise exception 'stale finalize unexpectedly succeeded';
+  exception when others then
+    if sqlstate <> '42501' then raise; end if;
+  end;
+  begin
+    perform * from public.mtp_import_abort(
+      pg_catalog.current_setting('mtp.test.fence_old_batch')::uuid,
+      pg_catalog.current_setting('mtp.test.fence_old_generation')::bigint
+    );
+    raise exception 'stale abort unexpectedly succeeded';
+  exception when others then
+    if sqlstate <> '42501' then raise; end if;
+  end;
+  begin
+    perform * from public.mtp_import_heartbeat(
+      pg_catalog.current_setting('mtp.test.fence_old_batch')::uuid,
+      pg_catalog.current_setting('mtp.test.fence_old_generation')::bigint
+    );
+    raise exception 'stale heartbeat unexpectedly succeeded';
+  exception when others then
+    if sqlstate <> '42501' then raise; end if;
+  end;
+end;
+$$;
+select * from public.mtp_import_abort(
+  :'fence_new_batch'::uuid, :'fence_new_generation'::bigint
+);
+reset role;
+
+-- Stream completeness: a gap and a final chunk before n-1 must each fail
+-- without changing a single entity byte.
+select pg_catalog.encode(extensions.digest(
+  pg_temp.l0b_chunk_hash(0, 'task', '[]')
+  || pg_temp.l0b_chunk_hash(2, 'task', '[]'),
+  'sha256'
+), 'hex') as gap_stream_hex \gset
+insert into l0b_test_entity_snapshots(case_name,before_bytes)
+values ('stream_gap',pg_temp.l0b_entity_bytes());
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(pg_catalog.decode(:'gap_stream_hex','hex'),3,120) \gset gap_
+select * from public.mtp_import_stage(:'gap_batch'::uuid,:'gap_generation'::bigint,0,'task','[]',false);
+select * from public.mtp_import_stage(:'gap_batch'::uuid,:'gap_generation'::bigint,2,'task','[]',true);
+select status as result_status, failure_code as result_code
+from public.mtp_import_finalize(:'gap_batch'::uuid,:'gap_generation'::bigint) \gset gap_
+reset role;
+select pg_catalog.set_config('mtp.test.gap_status', :'gap_result_status', false);
+select pg_catalog.set_config('mtp.test.gap_code', :'gap_result_code', false);
+update l0b_test_entity_snapshots set after_bytes=pg_temp.l0b_entity_bytes()
+where case_name='stream_gap';
+
+select pg_catalog.encode(extensions.digest(
+  pg_temp.l0b_chunk_hash(0, 'task', '[]')
+  || pg_temp.l0b_chunk_hash(1, 'task', '[]'),
+  'sha256'
+), 'hex') as early_final_stream_hex \gset
+insert into l0b_test_entity_snapshots(case_name,before_bytes)
+values ('early_final',pg_temp.l0b_entity_bytes());
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(pg_catalog.decode(:'early_final_stream_hex','hex'),3,120) \gset early_final_
+select * from public.mtp_import_stage(:'early_final_batch'::uuid,:'early_final_generation'::bigint,0,'task','[]',false);
+select * from public.mtp_import_stage(:'early_final_batch'::uuid,:'early_final_generation'::bigint,1,'task','[]',true);
+select status as result_status, failure_code as result_code
+from public.mtp_import_finalize(:'early_final_batch'::uuid,:'early_final_generation'::bigint) \gset early_final_
+reset role;
+select pg_catalog.set_config('mtp.test.early_final_status', :'early_final_result_status', false);
+select pg_catalog.set_config('mtp.test.early_final_code', :'early_final_result_code', false);
+update l0b_test_entity_snapshots set after_bytes=pg_temp.l0b_entity_bytes()
+where case_name='early_final';
+
+do $$
+begin
+  if pg_catalog.current_setting('mtp.test.gap_status') <> 'failed'
+     or pg_catalog.current_setting('mtp.test.gap_code') <> 'stream_incomplete'
+     or pg_catalog.current_setting('mtp.test.early_final_status') <> 'failed'
+     or pg_catalog.current_setting('mtp.test.early_final_code') <> 'stream_incomplete' then
+    raise exception 'stream-incomplete failure classification mismatch';
+  end if;
+  if exists (
+    select 1 from l0b_test_entity_snapshots
+    where case_name in ('stream_gap','early_final')
+      and before_bytes is distinct from after_bytes
+  ) then
+    raise exception 'stream-incomplete path changed entity bytes';
+  end if;
+end;
+$$;
+
+-- Missing dates and missing parent_task_kind must be classified rejects, not
+-- NULL-swallowed constraint failures that abort mtp_import_stage.
+select $$[{"parent_source_id":"event-missing-date","ordinal":0,"window_end":"2026-08-21"}]$$ as missing_date_payload \gset
+select pg_catalog.encode(extensions.digest(
+  pg_temp.l0b_chunk_hash(0,'event_window',:'missing_date_payload'),'sha256'
+),'hex') as missing_date_stream_hex \gset
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(pg_catalog.decode(:'missing_date_stream_hex','hex'),1,120) \gset missing_date_
+select accepted as stage_accepted, rejected as stage_rejected
+from public.mtp_import_stage(
+  :'missing_date_batch'::uuid,:'missing_date_generation'::bigint,
+  0,'event_window',:'missing_date_payload',true
+) \gset missing_date_
+select status as result_status
+from public.mtp_import_finalize(
+  :'missing_date_batch'::uuid,:'missing_date_generation'::bigint
+) \gset missing_date_
+reset role;
+select pg_catalog.set_config('mtp.test.missing_date_batch', :'missing_date_batch', false);
+select pg_catalog.set_config('mtp.test.missing_date_accepted', :'missing_date_stage_accepted', false);
+select pg_catalog.set_config('mtp.test.missing_date_rejected', :'missing_date_stage_rejected', false);
+select pg_catalog.set_config('mtp.test.missing_date_status', :'missing_date_result_status', false);
+
+select $$[{"source_id":"sub-missing-kind","parent_source_id":"task-1","ordinal":0,"text":"Child","done":false}]$$ as missing_kind_payload \gset
+select pg_catalog.encode(extensions.digest(
+  pg_temp.l0b_chunk_hash(0,'subtask',:'missing_kind_payload'),'sha256'
+),'hex') as missing_kind_stream_hex \gset
+set role authenticated;
+select batch_id as batch, generation as generation
+from public.mtp_import_claim(pg_catalog.decode(:'missing_kind_stream_hex','hex'),1,120) \gset missing_kind_
+select accepted as stage_accepted, rejected as stage_rejected
+from public.mtp_import_stage(
+  :'missing_kind_batch'::uuid,:'missing_kind_generation'::bigint,
+  0,'subtask',:'missing_kind_payload',true
+) \gset missing_kind_
+select status as result_status
+from public.mtp_import_finalize(
+  :'missing_kind_batch'::uuid,:'missing_kind_generation'::bigint
+) \gset missing_kind_
+reset role;
+select pg_catalog.set_config('mtp.test.missing_kind_batch', :'missing_kind_batch', false);
+select pg_catalog.set_config('mtp.test.missing_kind_accepted', :'missing_kind_stage_accepted', false);
+select pg_catalog.set_config('mtp.test.missing_kind_rejected', :'missing_kind_stage_rejected', false);
+select pg_catalog.set_config('mtp.test.missing_kind_status', :'missing_kind_result_status', false);
+
+do $$
+begin
+  if pg_catalog.current_setting('mtp.test.missing_date_accepted')::integer <> 0
+     or pg_catalog.current_setting('mtp.test.missing_date_rejected')::integer <> 1
+     or pg_catalog.current_setting('mtp.test.missing_date_status') <> 'partial'
+     or not exists (
+       select 1 from public.mtp_import_rejects
+       where batch_id=pg_catalog.current_setting('mtp.test.missing_date_batch')::uuid
+         and kind='event_window'
+         and reject_code='field_invalid'
+     ) then
+    raise exception 'missing event-window date was not a field_invalid reject';
+  end if;
+  if pg_catalog.current_setting('mtp.test.missing_kind_accepted')::integer <> 0
+     or pg_catalog.current_setting('mtp.test.missing_kind_rejected')::integer <> 1
+     or pg_catalog.current_setting('mtp.test.missing_kind_status') <> 'partial'
+     or not exists (
+       select 1 from public.mtp_import_rejects
+       where batch_id=pg_catalog.current_setting('mtp.test.missing_kind_batch')::uuid
+         and kind='subtask'
+         and reject_code='parent_rejected'
+     ) then
+    raise exception 'missing parent_task_kind was not a parent_rejected row';
   end if;
 end;
 $$;

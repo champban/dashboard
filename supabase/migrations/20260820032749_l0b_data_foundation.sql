@@ -743,7 +743,7 @@ begin
         from public.mtp_canon_source_id(v_row->'parent_source_id');
       v_task_kind := v_row->>'parent_task_kind';
       if p_kind in ('subtask', 'task_attachment') then
-        if v_task_kind not in ('personal', 'work') then
+        if coalesce(v_task_kind, '') not in ('personal', 'work') then
           v_parent_reject := 'malformed_id';
         end if;
         if v_parent_reject is null then
@@ -833,10 +833,10 @@ begin
         'window_start', v_date_start, 'window_end', v_date_end, 'ordinal', v_ordinal
       );
       if v_reject_code is null and (
-        v_ordinal is null or v_date_start !~ '^\d{4}-\d{2}-\d{2}$'
-        or v_date_end !~ '^\d{4}-\d{2}-\d{2}$'
-        or not pg_catalog.pg_input_is_valid(v_date_start, 'date')
-        or not pg_catalog.pg_input_is_valid(v_date_end, 'date')
+        v_ordinal is null or coalesce(v_date_start, '') !~ '^\d{4}-\d{2}-\d{2}$'
+        or coalesce(v_date_end, '') !~ '^\d{4}-\d{2}-\d{2}$'
+        or not pg_catalog.pg_input_is_valid(coalesce(v_date_start, ''), 'date')
+        or not pg_catalog.pg_input_is_valid(coalesce(v_date_end, ''), 'date')
       ) then
         v_reject_code := 'field_invalid';
         v_reject_detail := pg_catalog.jsonb_build_object('field', 'event_window', 'reason', 'date', 'value_type', 'object');

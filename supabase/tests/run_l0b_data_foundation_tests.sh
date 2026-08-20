@@ -30,6 +30,13 @@ end;
 $$;
 alter role service_role bypassrls;
 
+-- Reproduce the broad defaults still present on the target Supabase project.
+-- The migration must close these grants per object instead of passing only
+-- because stock PostgreSQL starts with narrower table/sequence privileges.
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+
 create schema if not exists auth;
 create table if not exists auth.users (id uuid primary key);
 create or replace function auth.uid()
