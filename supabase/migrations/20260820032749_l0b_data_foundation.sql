@@ -534,7 +534,11 @@ begin
      or p_declared_chunk_count is null or p_declared_chunk_count not between 0 and 10000 then
     raise exception 'invalid_import_claim' using errcode = '22023';
   end if;
-  v_lease := pg_catalog.least(600, pg_catalog.greatest(30, coalesce(p_lease_seconds, 120)));
+  v_lease := case
+    when coalesce(p_lease_seconds, 120) < 30 then 30
+    when coalesce(p_lease_seconds, 120) > 600 then 600
+    else coalesce(p_lease_seconds, 120)
+  end;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_owner::text, 7640821));
 
   select * into v_running
