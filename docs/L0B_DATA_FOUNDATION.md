@@ -1,16 +1,20 @@
 # L0b Normalized Supabase Data Foundation
 
-Status: source-only implementation on `feature/l0b-data-foundation`; migration
-not applied, no backfill run, no source-of-truth cutover, no deployment.
+Status: source merged in PR #76 as `main@67fe86cac29b3facecd08290a3000ba23bc8a684`;
+migration not applied, no backfill/import run, and no source-of-truth cutover.
+The GitHub Pages path published the browser asset automatically after merge;
+Packet A keeps its Full/Mobile controls disabled in source until a separate
+backend-activation release.
 
 ## Purpose and boundary
 
 L0b adds an additive, owner-scoped normalized projection of the current planner
 data. It is a foundation and reconciliation exercise, not L1 direct Todo access.
-The browser plus Google Drive remain authoritative. The only L0b client entry is
-an explicit owner-initiated import button in Full and Mobile; Drive save,
-Auto-sync, LINE snapshots, mutation queues, timers, and provider configuration do
-not invoke it.
+The browser plus Google Drive remain authoritative. The reviewed manual importer
+is retained, but Packet A exposes `enabled=false`, hides both Full/Mobile
+controls, and makes their handlers fail closed. A later reviewed activation must
+deliberately enable it. Drive save, Auto-sync, LINE snapshots, mutation queues,
+timers, and provider configuration do not invoke it.
 
 The unapplied migration is
 `supabase/migrations/20260820032749_l0b_data_foundation.sql`. The local Supabase
@@ -107,10 +111,15 @@ empty `search_path`, fully qualify objects, carry explicit owner predicates, and
 return the same `42501 import_not_available` result for nonexistent, stale, or
 cross-owner batches. No service-role table or function grant is needed.
 
-The migration names every L0b object. It never uses schema-wide `ON ALL` grants
-or revokes and does not change the unrelated `aicc_*` product or existing L0a
-objects. `RISK-L0A-ACL-1` remains open and separately gated before the next
-Production database change.
+The L0b migration names every L0b object. It never uses schema-wide `ON ALL`
+object grants/revokes and does not change the unrelated `aicc_*` product or
+existing L0a objects. Packet A adds a separate, unapplied ACL-only migration for
+`postgres` default privileges and exact existing `mtp_line_*` grants. It does
+not alter existing `aicc_*` ACLs. The built-in future-function `PUBLIC EXECUTE`
+default is revoked globally for the `postgres` owner because PostgreSQL cannot
+remove that default per schema. `RISK-L0A-ACL-1` remains open in Production,
+including provider-owned `supabase_admin` defaults, until separate apply and
+provider-setting approvals are completed and verified.
 
 ## Manual import protocol
 
@@ -185,8 +194,9 @@ L0b does not:
 ## Verification and release gates
 
 `build/l0b-import.test.mjs` verifies projection boundaries, D-1 fidelity,
-exact-byte hashing, zero-chunk hashing, RPC order, and one manual control per
-client. Node and PostgreSQL both consume the committed
+exact-byte hashing, zero-chunk hashing, RPC order, and that the one reviewed
+manual control per client remains behind the disabled Packet A gate. Node and
+PostgreSQL both consume the committed
 `test/vectors/l0b-canonical.json` and `test/vectors/l0b-chunk-bytes.json` suites
 to detect row-encoder, source-key, set-order, multiplicity, Unicode, framing,
 and transport-byte drift. `static_l0b_data_foundation.sh` enforces scope and
@@ -196,9 +206,11 @@ PostgreSQL 17 service and exercises privileges, RLS, exact-byte idempotency,
 duplicate quarantine, empty traversal, tombstone/reactivation, evidence purge,
 and cross-owner denial.
 
-Before merge or any provider action, the exact implementation HEAD requires the
-single remaining independent gate: Final Exact-HEAD 6D Review #2. Production
-would additionally require an Owner-approved fresh recoverable backup, separate
-migration/backfill/deployment approvals, and post-deploy reconciliation smoke.
-Rollback for L0b writes is to stop invoking the manual importer; the new tables
-remain additive and the existing browser/Drive/LINE snapshot path stays usable.
+The PR #76 source gate is closed and source is merged. Packet A is a separate
+source-only Draft PR: CI must pass at exact HEAD, followed by one targeted
+critical review; no repeated full L0b review is required. Any Production change
+still requires an Owner-approved fresh recoverable backup, provider/default-ACL
+decision, separate migration/import/deployment approvals, and post-deploy
+reconciliation smoke. Rollback for L0b writes is to keep the importer disabled;
+the additive tables may remain and the browser/Drive/LINE snapshot path stays
+usable.

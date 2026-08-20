@@ -17,15 +17,17 @@ Production scope:
 - Owner-confirmed LINE webhook and redelivery enabled
 - Controlled live LINE smoke and Production ledger verification
 
-## L0b source-only pre-merge addendum
+## L0b source merge and Packet A addendum
 
-**Decision: PENDING TARGETED REMEDIATION RE-REVIEW — NOT APPROVED FOR MERGE OR
-PRODUCTION.**
+**Decision: PR #76 SOURCE MERGE COMPLETE; L0b DATABASE ACTIVATION NOT APPROVED.
+PACKET A SOURCE REMEDIATION IN PROGRESS — NOT APPROVED FOR MERGE, APPLY, OR
+DEPLOYMENT.**
 
-Review #1 is closed with Owner-approved D-1 `A + A1`. The implementation branch
-is limited to an additive, unapplied migration, manual Full/Mobile import source,
-throwaway tests, and documentation. It does not apply a migration, copy planner
-data, backfill, merge, deploy, or change Drive/LINE/Netlify/provider/secrets.
+Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
+PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
+`67fe86cac29b3facecd08290a3000ba23bc8a684` after exact-head CI #125 passed. No
+Supabase migration, planner data copy, backfill/import, provider change, or L1
+cutover followed.
 
 Final Review #2 returned `REQUIRED CHANGES` at `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`.
 The five findings were remediated at source/test commit
@@ -34,23 +36,34 @@ broad Supabase default privileges are now simulated in PostgreSQL 17 CI; table
 privilege assertions cover `REFERENCES`, `TRIGGER`, and `MAINTAIN`; rollback,
 fencing, heartbeat, stream-incomplete, and reject-classification paths are
 exercised; and the only migration edits are the two approved NULL-safe staging
-predicates. CI run #124 passed. A targeted re-review remains required, so this
-decision stays `PENDING`.
+predicates. CI #124 and exact-head CI #125 passed. The Owner's exact-head source
+merge approval closed that source gate; it did not authorize database activation.
+
+Read-only verification after merge found that the existing GitHub Pages path
+published `l0b-import.js` to the live planner without a separate manual deploy.
+No L0b tables/RPCs exist, so the exposed control cannot import and no data change
+was observed. Packet A makes both client controls fail closed and adds an
+ACL-only migration plus PostgreSQL 17 tests. It remains a Draft-PR source change.
 
 | Dimension | Current source control | Remaining gate |
 |---|---|---|
-| 1. Identity and access | Stable source IDs for tasks/subtasks/events/attachments; no fallback; owner-composite FKs; nine RLS tables; authenticated SELECT-only; six definer RPCs derive `auth.uid()`; no direct service-role grant; broad default privileges simulated and revoked in CI | Targeted exact-head review of the remediation |
-| 2. Secrets and data | Publishable authenticated browser client only; attachment binary stripped before transport; staging transient; rejects store metadata only; failure evidence excludes database messages/content | Secret scan and exact-head data-boundary review |
-| 3. Input and content safety | 1 MiB/2,000-row chunk limits; exact UTF-8 byte hash before parse; stable-ID quarantine; HTTPS metadata only; D-1 shape anomalies preserved as counts; missing date/parent kind classification tested | Targeted exact-head review of the two NULL-safe predicates and assertions |
-| 4. Browser and network controls | Exactly one explicit import control in each client; no timer/config/Drive/LINE call path; failure contained to amber/toast feedback | Generated Full artifact parity and browser regression suite |
-| 5. Supply chain and deployment | No dependency/lockfile change; migration source only; Draft PR and CI required | CI green; exact-head SHA recorded; no merge without Owner approval |
-| 6. Operations and recovery | Lease/generation fence; server completeness; subtransaction rollback; tombstones; staging purge; rollback/fencing/incomplete-stream tests pass; stopping manual calls leaves Drive/snapshot path intact | Targeted remediation review, then fresh backup and separate migration/backfill/deployment approvals before Production |
+| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revokes public-schema `postgres` table/sequence/API-role defaults, globally revokes its built-in future-function `PUBLIC EXECUTE`, and reconstructs exact browser/service `mtp_line_*` ACLs without changing RLS policies | PostgreSQL 17 CI, one targeted Packet A review, and separate provider/default-ACL decision |
+| 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change | Secret scan and exact-head diff |
+| 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
+| 4. Browser and network controls | Full/Mobile controls require `enabled===true`; bridge defaults false; handlers also reject disabled calls; Drive/LINE paths unchanged | Generated artifact parity and browser regression suite |
+| 5. Supply chain and deployment | No dependency/lockfile change; Packet A is one source branch/Draft PR | Exact-head CI and one targeted review; separate merge/deploy approval |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled | Fresh backup, 6D/provider decision, and separate migration/apply approval |
 
 Open risks:
 
-- `RISK-L0A-ACL-1`: the existing Production default-privilege/L0a ACL finding
-  remains open, outside this migration, and separately gated before the next
-  Production database change.
+- `RISK-L0A-ACL-1`: broad existing `mtp_line_*` ACLs and `postgres` defaults
+  have Packet A source remediation, but the Production risk remains open until
+  apply/verification. Provider-owned `supabase_admin` defaults require a
+  separate approved Supabase setting/action before the next database change.
+- `RISK-L0B-UI-1`: PR #76 source was automatically published by the current
+  GitHub Pages coupling. Impact is limited to a visible, failing import control;
+  no L0b backend/data existed. Packet A prevents recurrence by default-off UI
+  gating; future source merge and publication remain separate approvals.
 - Legacy subtask `Date.now()` collisions remain whole-batch identity quarantine
   under D-1 A1. A subtask UUID migration is a later L1 prerequisite, not L0b.
 - Event windows are positional values and have no stable identity across reorder.

@@ -137,3 +137,36 @@ jobs:
 
       - name: Execute unapplied L0b migration and security lifecycle gate
         run: bash supabase/tests/run_l0b_data_foundation_tests.sh
+
+  line-acl-hardening-sql:
+    name: LINE ACL / default privileges (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: line_acl_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d line_acl_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/line_acl_test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure PostgreSQL client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Execute repeatable ACL/default-privilege and RLS gate
+        run: bash supabase/tests/run_line_acl_hardening_tests.sh

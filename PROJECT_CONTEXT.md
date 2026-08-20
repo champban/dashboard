@@ -5,8 +5,11 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Production GitHub baseline is
-  `main@488d4a75e73566284107cbe81e0362c2fa330f6b` (PR #75, L0a formal documentation closure).
+- Current GitHub `main` is
+  `67fe86cac29b3facecd08290a3000ba23bc8a684`, the PR #76 source merge. Its
+  reviewed/Owner-approved source parent is
+  `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; the other parent is the prior
+  L0a baseline `488d4a75e73566284107cbe81e0362c2fa330f6b`.
 - The exact L0a runtime source package is pinned to merge commit `3cafa19aa56f89c8d640acc717726d0043b3bd2c`,
   which contains independently reviewed implementation head `73ad8b6a9815411364afeae34d9ce52418bd6967`.
 - Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
@@ -28,25 +31,35 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   app, task-details candidate v3.75.2).
 - Live planner: https://champban.github.io/dashboard/
 
-### L0b normalized data foundation — source only
+### L0b normalized data foundation — merged source, database inactive
 
 - Owner approved D-1 `A + A1`, closed Review #1 without another Claude pass,
   then separately approved Codex source-only implementation.
-- Branch `feature/l0b-data-foundation` starts from exact
-  `main@488d4a75e73566284107cbe81e0362c2fa330f6b` and is intended for one Draft PR.
+- PR #76 merged exact source head
+  `e3a52c5306e44856970eeb811dc52ecc9b8c3527` as
+  `main@67fe86cac29b3facecd08290a3000ba23bc8a684`. Exact-head CI #125 passed the
+  browser/build gate, L0a SQL/RLS/concurrency gate, and L0b PostgreSQL 17 gate.
 - Source adds exactly nine normalized/import tables, six authenticated manual
   import RPCs, owner-composite foreign keys, SELECT-only RLS, explicit object
   revocation, stable task/subtask/event/attachment identity, lease fencing,
   exact-byte chunks, database reconciliation, tombstones, and manual controls in
   Full/Mobile. See `docs/L0B_DATA_FOUNDATION.md`.
-- Migration `20260820032749_l0b_data_foundation.sql` is an unapplied repository
-  artifact. No backfill, Production data copy, shadow/dual write, merge, or
-  deployment has occurred.
+- Migration `20260820032749_l0b_data_foundation.sql` remains an unapplied
+  repository artifact. No L0b table exists in Production; no backfill/import,
+  Production data copy, shadow/dual write, or source-of-truth cutover occurred.
+- The existing GitHub Pages publication path exposed the merged browser asset
+  at the live planner without a separate manual deploy. The import control was
+  therefore visible even though its RPCs/tables do not exist and calls fail
+  without changing data. Packet A branch `feature/l0b-gate-hardening` now keeps
+  Full/Mobile controls fail-closed behind `enabled=false`; this remediation is
+  source-only and is not yet merged or deployed.
 - Browser + Google Drive remain the Todo source of truth. L0b does not start L1,
   does not make Supabase authoritative, and does not alter the LINE
   snapshot/mutation queue or Drive save paths.
-- `RISK-L0A-ACL-1` remains open and out of L0b scope. A separate Owner decision
-  is required before the next Production database change.
+- `RISK-L0A-ACL-1` remains open in Production. Owner approved source-only Packet
+  A to revoke broad `postgres` defaults and rebuild exact existing `mtp_line_*`
+  grants. Provider-owned `supabase_admin` defaults remain a separate Supabase
+  setting/approval gate before any Production database change.
 - Final Exact-HEAD 6D Review #2 returned `REQUIRED CHANGES` at
   `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`. F1-F5 were remediated without
   widening scope: default-privilege simulation, Phase-B rollback evidence,
@@ -54,8 +67,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   predicates. The source/test remediation commit is
   `14d67b2d2cea69bb16cf78e1d4d54732ca5d93c0`, tree
   `85ed997abb74a3a02ee14cdb7dbce24329500fab`; CI run #124 passed all three jobs.
-- Next critical gate is one targeted re-review of the remediation at the final
-  PR HEAD. Review #1 stays closed and no third full review is planned.
+- L0b Review #1 and source-merge review are closed. Packet A gets only one
+  targeted exact-head critical review after CI; no new full L0b design review is
+  planned. Packet A is not authorized for merge, migration apply, or deployment.
 
 ### L0a webhook reliability Production release
 
