@@ -1,65 +1,54 @@
-# CODEX STATUS — L0b Normalized Data Foundation
+# CODEX STATUS — Gate Hardening Packet A
 
-STATUS: LOCAL VERIFIED / SOURCE-ONLY / NOT APPLIED / NOT DEPLOYED
+STATUS: LOCAL VERIFIED / SOURCE-ONLY / NOT MERGED / NOT APPLIED / NOT DEPLOYED
 
-PROGRESS: source and local verification complete; Draft PR / PostgreSQL 17 CI pending
+PROGRESS: local verification complete; Draft PR and PostgreSQL 17 CI pending
 
 AGENT: Codex / ChatGPT
 
-TASK / LANE: L0b normalized Supabase data foundation
+TASK / LANE: L0b UI fail-closed gate + `RISK-L0A-ACL-1` source remediation
 
 CLASSIFICATION: `SEQUENTIAL_ONLY`
 
 ACTIVE WRITER: Codex only
 
-BRANCH: `feature/l0b-data-foundation`
+BRANCH: `feature/l0b-gate-hardening`
 
-BASE SHA: `488d4a75e73566284107cbe81e0362c2fa330f6b`
+BASE SHA: `67fe86cac29b3facecd08290a3000ba23bc8a684`
 
-M0: `2026-08-20T10:27:38+07:00` (`Asia/Bangkok`)
-
-M2/M3: `2026-08-20T11:00:35+07:00` — build/harness/audit/package, full
-browser regression chain, shared canonical/exact-byte vectors, secret scan,
-static SQL gate, and diff check passed. Local `psql` is unavailable; PostgreSQL
-17 migration execution is delegated to the Draft-PR CI service only.
+M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
 ## Authorized scope
 
-- Source-only implementation on one feature branch.
-- One Draft PR to `main`.
-- Local/build/CI tests and documentation.
-- Final Exact-HEAD 6D Review #2 after tests.
-
-## Binding design decisions
-
-- Review #1 is closed; no repeated Claude design review.
-- D-1 = `A + A1`: preserve source shape, record shape anomalies, and keep
-  identity collisions as whole-batch quarantine with manual planner repair.
-- Exactly nine L0b tables and six authenticated import RPCs.
-- Google Drive remains authoritative; L0b is a partial normalized projection.
-- Manual-only import in Full and Mobile; no automatic/shadow/dual-write path.
-- `RISK-L0A-ACL-1` remains open and outside L0b implementation.
+- Hide/disable the L0b Full/Mobile import controls until backend activation.
+- Add one unapplied ACL migration for `postgres` defaults and exact existing
+  `mtp_line_*` grants; do not alter existing `aicc_*` objects.
+- Add PostgreSQL 17 ACL/RLS/default/repeatability/no-data-change tests.
+- Correct PR #76 merge/publication documentation drift.
+- Run local gates, open one Draft PR, and request one targeted critical review.
 
 ## Hard stops
 
-- No Supabase migration apply or provider mutation.
-- No backfill, Production data copy, or dual write.
-- No merge, deployment, Netlify/LINE/Drive/provider/secret change.
-- No L1 direct Todo mutation or source-of-truth cutover.
-- No cleanup of backups, branches, environments, secrets, or ledger rows.
+- No merge, GitHub Pages publication, deployment, or Production migration apply.
+- No L0b import/backfill/data copy, shadow/dual write, or L1 work.
+- No Supabase/Netlify/LINE/Drive/secret/environment setting change.
+- No `supabase_admin` provider-default change without separate Owner approval.
+- No retention, destructive cleanup, backup/branch/environment/secret deletion,
+  dependency change, or unrelated refactor.
 
 ## Current source artifacts
 
-- `supabase/migrations/20260820032749_l0b_data_foundation.sql` — unapplied.
-- `l0b-import.js` — explicit browser import bridge.
-- Full/Mobile one-button manual controls.
-- PostgreSQL 17 SQL/RLS lifecycle, static SQL, and browser tests.
-- `docs/L0B_DATA_FOUNDATION.md` plus KPI/security/context updates.
+- `l0b-import.js`, `src/App.jsx`, `mobile/index.html` — fail-closed UI gate.
+- `supabase/migrations/20260820083714_line_acl_default_privilege_hardening.sql`
+  — unapplied ACL-only source artifact.
+- `supabase/tests/line_acl_hardening.test.sql` and runner — PostgreSQL 17 gate.
+- `.github/workflows/verify.yml` — dedicated ACL/default-privilege CI job.
 
-## Next gate
+## Remaining gates
 
-Complete local verification, open one Draft PR, wait for CI, then request the
-single remaining independent review: Final Exact-HEAD 6D Review #2. Stop before
-merge or any provider/Production action.
+1. Local build/tests/secret scan and generated-artifact parity.
+2. Draft PR exact-head CI, including PostgreSQL 17.
+3. One Claude targeted critical review only.
+4. Stop for separate Owner merge decision; merge does not authorize deploy/apply.
 
-OWNER ACTION: none while implementation/testing remains inside approved scope.
+OWNER ACTION: none until exact-head CI and targeted review complete.

@@ -3,6 +3,10 @@
 
 const KIND_ORDER=['task','subtask','event','event_window','task_attachment'];
 const CHUNK_ROWS=500;
+// Packet A keeps the importer source testable but makes every shipped UI
+// entry point fail closed until a separately reviewed backend-activation
+// change deliberately enables it.
+const UI_ENABLED=false;
 const encoder=new TextEncoder();
 
 function bytes(value){return encoder.encode(String(value))}
@@ -207,6 +211,7 @@ async function importNow(payload){
 }
 
 window.__MTP_L0B__=Object.freeze({
+  enabled:UI_ENABLED,
   importNow,
   projectPayload,
   planChunks,
