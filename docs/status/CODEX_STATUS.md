@@ -1,54 +1,72 @@
-# CODEX STATUS — Gate Hardening Packet A
+# CODEX STATUS — Provider Gate A / Packet A Readiness
 
-STATUS: LOCAL VERIFIED / SOURCE-ONLY / NOT MERGED / NOT APPLIED / NOT DEPLOYED
+STATUS: SOURCE-DOCUMENTATION VERIFIED / NOT MERGED / NO PRODUCTION CHANGE
 
-PROGRESS: local verification complete; Draft PR and PostgreSQL 17 CI pending
+PROGRESS: Provider Gate A decision and Production readiness packet complete;
+source PR/merge and every Production gate remain separate
 
 AGENT: Codex / ChatGPT
 
-TASK / LANE: L0b UI fail-closed gate + `RISK-L0A-ACL-1` source remediation
+TASK / LANE: Provider Gate A closure + Packet A Production readiness
 
 CLASSIFICATION: `SEQUENTIAL_ONLY`
 
 ACTIVE WRITER: Codex only
 
-BRANCH: `feature/l0b-gate-hardening`
+BRANCH: `docs/provider-gate-a-closure`
 
-BASE SHA: `67fe86cac29b3facecd08290a3000ba23bc8a684`
+BASE SHA: `9a5a95f5c9065214c0418def80a3086fdf79d323`
 
-M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
+## Verified baseline
+
+- PR #77 merged exact reviewed source head
+  `a9c99719e0e6abdf2a5f1fbedd282328f812577b`, tree
+  `6479a43d73b04351f842e985a538afada694ce5e`.
+- Exact-head CI #127 passed all four jobs.
+- Packet A migration is merged source but unapplied.
+- Production migrations stop at L0a
+  `20260818154406_line_webhook_event_reliability`; L0b table count is zero.
+- Provider Gate A is closed as an accepted provider-managed residual based on
+  current official Supabase documentation.
+- `RISK-L0A-ACL-1` remains open only for broad `postgres` defaults and existing
+  `mtp_line_*` grants until Packet A apply and verification.
 
 ## Authorized scope
 
-- Hide/disable the L0b Full/Mobile import controls until backend activation.
-- Add one unapplied ACL migration for `postgres` defaults and exact existing
-  `mtp_line_*` grants; do not alter existing `aicc_*` objects.
-- Add PostgreSQL 17 ACL/RLS/default/repeatability/no-data-change tests.
-- Correct PR #76 merge/publication documentation drift.
-- Run local gates, open one Draft PR, and request one targeted critical review.
+- Record the Provider Gate A decision in durable source documentation.
+- Add one Packet A Production readiness procedure.
+- Correct stale PR #77/CI/provider-gate status in existing docs.
+- Run documentation, diff, secret, and unchanged-runtime/SQL verification.
+- Open one source-documentation PR.
 
 ## Hard stops
 
-- No merge, GitHub Pages publication, deployment, or Production migration apply.
-- No L0b import/backfill/data copy, shadow/dual write, or L1 work.
-- No Supabase/Netlify/LINE/Drive/secret/environment setting change.
-- No `supabase_admin` provider-default change without separate Owner approval.
-- No retention, destructive cleanup, backup/branch/environment/secret deletion,
-  dependency change, or unrelated refactor.
+- No migration apply or migration-history mutation.
+- No generic `supabase db push`; it can also apply pending L0b.
+- No import/backfill/data copy, shadow/dual write, or L1.
+- No Supabase/Netlify/LINE/Drive/secret/environment change.
+- No deployment, cleanup, deletion, dependency change, or unrelated refactor.
+- Do not alter the exact reviewed Packet A migration bytes without targeted
+  review.
 
 ## Current source artifacts
 
-- `l0b-import.js`, `src/App.jsx`, `mobile/index.html` — fail-closed UI gate.
 - `supabase/migrations/20260820083714_line_acl_default_privilege_hardening.sql`
-  — unapplied ACL-only source artifact.
-- `supabase/tests/line_acl_hardening.test.sql` and runner — PostgreSQL 17 gate.
-- `.github/workflows/verify.yml` — dedicated ACL/default-privilege CI job.
+  — exact reviewed, unapplied migration; SHA-256
+  `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
+- `docs/PACKET_A_PRODUCTION_READINESS.md` — controlling preflight/apply/verify
+  gates; source documentation only.
 
-## Remaining gates
+## Remaining Production gates
 
-1. Local build/tests/secret scan and generated-artifact parity.
-2. Draft PR exact-head CI, including PostgreSQL 17.
-3. One Claude targeted critical review only.
-4. Stop for separate Owner merge decision; merge does not authorize deploy/apply.
+1. Merge this documentation only after its source PR is verified and approved.
+2. Create and restore-test a fresh recoverable Supabase backup.
+3. Re-run the read-only catalog/source preflight.
+4. Record a targeted pre-Production 6D decision.
+5. Obtain separate Owner approval for the exact targeted `apply_migration`
+   operation.
+6. Apply only Packet A and complete aggregate catalog/RLS/data-invariance plus
+   bounded functional verification.
 
-OWNER ACTION: none until exact-head CI and targeted review complete.
+OWNER ACTION: none during source-documentation preparation. Migration and
+Production approval will be requested separately, one decision at a time.

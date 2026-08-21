@@ -2,7 +2,8 @@
 
 Status: backend, bilingual command menu, task-details v2, Search button,
 confirmed-mutation UX, and L0a webhook reliability v22 are active in
-Production and owner-accepted on LINE.
+Production and owner-accepted on LINE. L0b and Packet A source are merged, but
+their database migrations remain unapplied.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -17,9 +18,10 @@ L0b source-only M0: `2026-08-20T10:27:38+07:00` (`Asia/Bangkok`)
 
 Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
-L0b classification: `SEQUENTIAL_ONLY` — one database migration and one
-Auth/RLS policy set; Codex is the sole active writer and Claude is reserved for
-Final Exact-HEAD Review #2.
+L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
+Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
+source gate are closed; any Production database action remains separately
+Owner-gated.
 
 ## Outcome
 
@@ -329,14 +331,15 @@ percentage is published.
 
 | KPI | Current value | Evidence / gate |
 |---|---:|---|
-| Scope approvals | `1` | Owner approved Packet A source-only; no merge/apply/deploy approval |
-| UI prevention | Implemented locally | Full/Mobile control render and handlers require a bridge whose default is `enabled=false` |
-| ACL prevention | Implemented locally | Transactional/repeatable migration targets public-schema `postgres` table/sequence/API-role defaults, its global built-in future-function `PUBLIC EXECUTE`, and exact `mtp_line_*` grants; existing `aicc_*` objects are canary-tested unchanged |
-| PostgreSQL 17 coverage | Pending CI | Exact eight table privileges including `MAINTAIN`, column grants, function execution, RLS, default probes, repeatability, and no-data-change assertions |
-| Provider residual | Open | `supabase_admin` defaults cannot be changed by Production `postgres`; separate Owner-approved Supabase setting/action required |
-| Review count | `0/1` complete | One targeted critical review only after exact-head CI; no repeated full L0b review |
+| Source gate | Complete | PR #77 merged exact reviewed head `a9c99719` as `main@9a5a95f5`; merge did not authorize database apply/deploy |
+| UI prevention | Merged | Full/Mobile control render and handlers require a bridge whose default is `enabled=false` |
+| ACL prevention | Merged, unapplied | Transactional/repeatable migration targets public-schema `postgres` table/sequence/API-role defaults, its global built-in future-function `PUBLIC EXECUTE`, and exact `mtp_line_*` grants; existing `aicc_*` objects are canary-tested unchanged |
+| PostgreSQL 17 coverage | PASS | Exact-head CI #127 passed all four jobs, including ACL/default-privilege, L0b, and L0a SQL gates |
+| Provider residual | Accepted; Gate A closed | Current Supabase documentation records `supabase_admin` defaults as intentional provider-managed state that does not bypass RLS by itself; Packet A does not alter that role |
+| Review count | Closed | Owner approved the exact reviewed PR #77 head; no repeated full L0b review while SQL/permission contract is unchanged |
 | Production changes | `0` | No migration apply, import/backfill, provider change, cleanup, or L1 action |
 
 Packet A is `Not comparable` to feature delivery. Prevention closure remains
-pending until CI, targeted review, later separately approved Production controls,
-and verification; no speed-improvement claim is made.
+pending until the fresh-backup, targeted 6D, ACL-only apply, catalog/RLS, and
+functional verification gates in `docs/PACKET_A_PRODUCTION_READINESS.md` pass;
+no speed-improvement claim is made.

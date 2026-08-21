@@ -3,8 +3,9 @@
 Status: source merged in PR #76 as `main@67fe86cac29b3facecd08290a3000ba23bc8a684`;
 migration not applied, no backfill/import run, and no source-of-truth cutover.
 The GitHub Pages path published the browser asset automatically after merge;
-Packet A keeps its Full/Mobile controls disabled in source until a separate
-backend-activation release.
+PR #77 then merged Packet A as
+`main@9a5a95f5c9065214c0418def80a3086fdf79d323`, keeping its Full/Mobile
+controls disabled in source until a separate backend-activation release.
 
 ## Purpose and boundary
 
@@ -117,9 +118,12 @@ existing L0a objects. Packet A adds a separate, unapplied ACL-only migration for
 `postgres` default privileges and exact existing `mtp_line_*` grants. It does
 not alter existing `aicc_*` ACLs. The built-in future-function `PUBLIC EXECUTE`
 default is revoked globally for the `postgres` owner because PostgreSQL cannot
-remove that default per schema. `RISK-L0A-ACL-1` remains open in Production,
-including provider-owned `supabase_admin` defaults, until separate apply and
-provider-setting approvals are completed and verified.
+remove that default per schema. Provider Gate A closed on `2026-08-21`:
+Supabase documents `supabase_admin` defaults as intentional provider-managed
+state that does not bypass RLS by itself, and the internal role cannot
+authenticate through the Data API. `RISK-L0A-ACL-1` remains open only for the
+`postgres` defaults and existing `mtp_line_*` grants until Packet A is applied
+and verified.
 
 ## Manual import protocol
 
@@ -206,11 +210,16 @@ PostgreSQL 17 service and exercises privileges, RLS, exact-byte idempotency,
 duplicate quarantine, empty traversal, tombstone/reactivation, evidence purge,
 and cross-owner denial.
 
-The PR #76 source gate is closed and source is merged. Packet A is a separate
-source-only Draft PR: CI must pass at exact HEAD, followed by one targeted
-critical review; no repeated full L0b review is required. Any Production change
-still requires an Owner-approved fresh recoverable backup, provider/default-ACL
-decision, separate migration/import/deployment approvals, and post-deploy
-reconciliation smoke. Rollback for L0b writes is to keep the importer disabled;
-the additive tables may remain and the browser/Drive/LINE snapshot path stays
-usable.
+The PR #76 source gate is closed and source is merged. Packet A source also
+merged in PR #77 from exact reviewed head
+`a9c99719e0e6abdf2a5f1fbedd282328f812577b` after CI #127 passed all four
+jobs. Its ACL migration remains unapplied. No repeated full L0b review is
+required while the reviewed SQL/permission contract remains unchanged.
+
+Any Production change still requires the gates in
+`docs/PACKET_A_PRODUCTION_READINESS.md`: a fresh restore-tested backup,
+read-only preflight, targeted 6D decision, exact ACL-only apply approval, and
+post-apply evidence. Generic `supabase db push` is prohibited because it can
+also apply the earlier pending L0b migration. Rollback for L0b writes is to keep
+the importer disabled; the additive tables may remain and the
+browser/Drive/LINE snapshot path stays usable.

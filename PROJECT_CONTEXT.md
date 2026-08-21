@@ -6,10 +6,11 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 ## Current release
 
 - Current GitHub `main` is
-  `67fe86cac29b3facecd08290a3000ba23bc8a684`, the PR #76 source merge. Its
-  reviewed/Owner-approved source parent is
-  `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; the other parent is the prior
-  L0a baseline `488d4a75e73566284107cbe81e0362c2fa330f6b`.
+  `9a5a95f5c9065214c0418def80a3086fdf79d323`, the PR #77 Packet A source
+  merge. Its reviewed/Owner-approved source parent is
+  `a9c99719e0e6abdf2a5f1fbedd282328f812577b`, tree
+  `6479a43d73b04351f842e985a538afada694ce5e`; the other parent is the PR #76
+  L0b source merge `67fe86cac29b3facecd08290a3000ba23bc8a684`.
 - The exact L0a runtime source package is pinned to merge commit `3cafa19aa56f89c8d640acc717726d0043b3bd2c`,
   which contains independently reviewed implementation head `73ad8b6a9815411364afeae34d9ce52418bd6967`.
 - Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
@@ -47,19 +48,23 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - Migration `20260820032749_l0b_data_foundation.sql` remains an unapplied
   repository artifact. No L0b table exists in Production; no backfill/import,
   Production data copy, shadow/dual write, or source-of-truth cutover occurred.
-- The existing GitHub Pages publication path exposed the merged browser asset
+- The existing GitHub Pages publication path exposed the PR #76 browser asset
   at the live planner without a separate manual deploy. The import control was
-  therefore visible even though its RPCs/tables do not exist and calls fail
-  without changing data. Packet A branch `feature/l0b-gate-hardening` now keeps
-  Full/Mobile controls fail-closed behind `enabled=false`; this remediation is
-  source-only and is not yet merged or deployed.
+  therefore visible even though its RPCs/tables do not exist and calls failed
+  without changing data. PR #77 merged the Packet A prevention: Full/Mobile
+  controls are fail-closed behind `enabled=false`, and handlers reject disabled
+  calls. No L0b backend/data was activated.
 - Browser + Google Drive remain the Todo source of truth. L0b does not start L1,
   does not make Supabase authoritative, and does not alter the LINE
   snapshot/mutation queue or Drive save paths.
-- `RISK-L0A-ACL-1` remains open in Production. Owner approved source-only Packet
-  A to revoke broad `postgres` defaults and rebuild exact existing `mtp_line_*`
-  grants. Provider-owned `supabase_admin` defaults remain a separate Supabase
-  setting/approval gate before any Production database change.
+- `RISK-L0A-ACL-1` remains open in Production only for broad `postgres`
+  defaults and existing `mtp_line_*` object/function grants until Packet A is
+  separately applied and catalog-verified. Provider Gate A closed on
+  `2026-08-21`: current Supabase documentation identifies the remaining
+  `supabase_admin` default ACL entries as intentional provider-managed state
+  that does not bypass RLS by itself, and the internal role cannot authenticate
+  through the Data API. This accepted residual is not a claim of zero risk in
+  every channel; explicit grants/RLS/function execution remain required.
 - Final Exact-HEAD 6D Review #2 returned `REQUIRED CHANGES` at
   `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`. F1-F5 were remediated without
   widening scope: default-privilege simulation, Phase-B rollback evidence,
@@ -67,9 +72,18 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   predicates. The source/test remediation commit is
   `14d67b2d2cea69bb16cf78e1d4d54732ca5d93c0`, tree
   `85ed997abb74a3a02ee14cdb7dbce24329500fab`; CI run #124 passed all three jobs.
-- L0b Review #1 and source-merge review are closed. Packet A gets only one
-  targeted exact-head critical review after CI; no new full L0b design review is
-  planned. Packet A is not authorized for merge, migration apply, or deployment.
+- L0b Review #1 and the PR #76 source gate are closed. PR #77 merged exact head
+  `a9c99719e0e6abdf2a5f1fbedd282328f812577b` after exact-head CI #127 passed
+  all four jobs and the Owner approved that reviewed head only. Packet A source
+  is merged but its migration is unapplied; no additional full Claude review is
+  planned while the reviewed SQL/permission contract is unchanged.
+- Packet A Production readiness is controlled by
+  `docs/PACKET_A_PRODUCTION_READINESS.md`. A generic `supabase db push` is
+  prohibited because it can also apply the earlier pending L0b migration. Any
+  Production action still requires a fresh restore-tested backup, targeted 6D
+  decision, exact ACL-only apply approval, and post-apply verification. No
+  migration apply, import/backfill, provider change, deployment, cleanup, or L1
+  is authorized by the source merge or Provider Gate A closure.
 
 ### L0a webhook reliability Production release
 
