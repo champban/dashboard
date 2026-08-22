@@ -327,7 +327,7 @@ Comparability remains `Not comparable`. This is a database architecture and
 security-test increment on an existing application, so no speed-improvement
 percentage is published.
 
-### Gate Hardening Packet A — source-only record
+### Gate Hardening Packet A — source and backup/restore gate record
 
 | KPI | Current value | Evidence / gate |
 |---|---:|---|
@@ -337,9 +337,16 @@ percentage is published.
 | PostgreSQL 17 coverage | PASS | Exact-head CI #127 passed all four jobs, including ACL/default-privilege, L0b, and L0a SQL gates |
 | Provider residual | Accepted; Gate A closed | Current Supabase documentation records `supabase_admin` defaults as intentional provider-managed state that does not bypass RLS by itself; Packet A does not alter that role |
 | Review count | Closed | Owner approved the exact reviewed PR #77 head; no repeated full L0b review while SQL/permission contract is unchanged |
+| B-1 backup gate | PASS | Run `32149051510`, attempt 2, job `96681690187`; exact encrypted artifact/digests pinned; Owner confirmed downloaded custody |
+| B-2 isolated restore | PASS | Draft PR #79 exact head `796b42a`; run `32577304437`; source-safety job `97041400164` and restore job `97041418226` passed |
+| B-2 final-run duration | `3m 50s` measured | GitHub run created `2026-08-22T13:58:10Z` and completed `2026-08-22T14:02:00Z`; this is run duration, not total B-1/B-2 wall-clock lead time |
+| B-2 failed/blocked workflow attempts | `4` | Attempts 1-3 failed closed before final reconciliation; attempt 4 was rejected by the Environment branch policy with zero restore steps; attempt 5 passed |
+| Output artifacts from B-2 | `0` | Successful run produced no artifact; private plaintext and logs were cleanup-scoped to the runner |
 | Production changes | `0` | No migration apply, import/backfill, provider change, cleanup, or L1 action |
 
 Packet A is `Not comparable` to feature delivery. Prevention closure remains
-pending until the fresh-backup, targeted 6D, ACL-only apply, catalog/RLS, and
-functional verification gates in `docs/PACKET_A_PRODUCTION_READINESS.md` pass;
-no speed-improvement claim is made.
+pending until the read-only preflight, targeted 6D, ACL-only apply, catalog/RLS,
+and functional verification gates in `docs/PACKET_A_PRODUCTION_READINESS.md`
+pass; no speed-improvement claim is made. Total B-1/B-2 wall-clock time and
+manual-intervention count were not captured consistently and remain `N/A`
+rather than reconstructed.

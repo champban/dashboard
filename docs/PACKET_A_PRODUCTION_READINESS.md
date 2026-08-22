@@ -1,9 +1,9 @@
 # Packet A Production Readiness
 
-Status: **SOURCE MERGED / PROVIDER GATE A CLOSED / PRODUCTION APPLY NOT
+Status: **BACKUP AND ISOLATED RESTORE GATES CLOSED / PRODUCTION APPLY NOT
 AUTHORIZED**
 
-Decision date: `2026-08-21` (`Asia/Bangkok`)
+Decision date: `2026-08-22` (`Asia/Bangkok`)
 
 This packet records the remaining controls for the LINE ACL/default-privilege
 hardening migration. It does not authorize a database write, migration-history
@@ -12,7 +12,10 @@ change, import, deployment, provider change, cleanup, or L1.
 ## Exact source
 
 - Repository: `champban/dashboard`
-- Current source merge: `main@9a5a95f5c9065214c0418def80a3086fdf79d323`
+- Current repository head: `main@15dcf50feff137df8d9fec1ac44dd2a611647981`
+  (documentation-only PR #78 closure)
+- Last source-changing Packet A merge:
+  `main@9a5a95f5c9065214c0418def80a3086fdf79d323`
 - PR #77 reviewed/Owner-approved source head:
   `a9c99719e0e6abdf2a5f1fbedd282328f812577b`
 - Exact reviewed tree: `6479a43d73b04351f842e985a538afada694ce5e`
@@ -71,6 +74,37 @@ Read-only Production evidence on `2026-08-21` confirmed:
 - broad `postgres` defaults and existing `mtp_line_*` grants remain; and
 - temporary Supabase support access remains outside this procedure.
 
+## Backup and isolated restore evidence
+
+- B-1 backup: run `32149051510`, attempt 2, job `96681690187` — `SUCCESS`.
+- Artifact: ID `9452687931`, name
+  `dashboard-supabase-backup-20260821T153930Z`, 30,451 bytes, ZIP SHA-256
+  `8e4ab3857f546e027df7b5ee7867e27070798fac3f77a292bbc8c92bef9812d8`.
+- Encrypted archive SHA-256:
+  `1f74262d1b341ed919b0a8f8fe29ffb852946cd5d6ab1700f13e97ede97c91e4`.
+- Backup source: `ops/l0a-one-time-production-backup@bb11eae5632cc615dff3029b87e6413caad3a279`.
+- Owner confirmed custody of a downloaded recoverable copy without disclosing
+  the passphrase. GitHub artifact expiry is `2026-08-22T15:40:38Z`; after
+  expiry, any new restore requires a separately approved B-1 run.
+- B-2 source: Draft PR #79 exact head
+  `796b42a41b5e33f96f2ecc0752baf691c645d35c`, tree
+  `d79ffb9b1eb3d5c6ed9380058aaedac1d9266b9f`.
+- B-2 result: run `32577304437`, source-safety job `97041400164`, isolated
+  restore job `97041418226` — all `SUCCESS`. The final log recorded
+  `Packet A Backup Gate B-2 isolated restore: PASS` at
+  `2026-08-22T14:01:43.5534694Z`.
+- The disposable target used the pinned PostgreSQL 17 image, network mode
+  `none`, no published port, a reviewed Storage 61-62 compatibility bridge,
+  atomic roles/schema/data restore, and exact reconciliation. It uploaded no
+  output artifact and never connected to Production.
+- The approval label was removed. PR #79 remains Draft and must not be merged.
+  Its restrictive Environment rule `refs/pull/79/merge` remains outside this
+  documentation-only closure and requires separate cleanup approval.
+
+B-2 proves logical recoverability of this backup. It does not prove Packet A
+hardened ACLs because the backup predates Packet A, and it does not claim exact
+migration-history identity because B-1 did not dump that ledger separately.
+
 ## Critical apply-path rule
 
 **Do not run `supabase db push` for Packet A.**
@@ -93,13 +127,15 @@ new Owner decision.
 
 ## Gates before any Production apply
 
-All boxes are required; none is satisfied by this document alone.
+All boxes are required. Only evidence-backed completed gates are marked.
 
 - [x] PR #77 source merged from exact reviewed head; CI #127 passed.
 - [x] Provider Gate A closed as an accepted provider-managed residual.
-- [ ] Fresh logical backup of roles, schema, and data created.
-- [ ] Backup decrypted/integrity-checked and restore-tested in isolation.
-- [ ] Owner confirms recoverable backup custody; no secret is posted to chat.
+- [x] Fresh logical backup of roles, schema, and data created — B-1 run
+      `32149051510`, attempt 2.
+- [x] Backup decrypted/integrity-checked and restore-tested in isolation — B-2
+      run `32577304437`.
+- [x] Owner confirms recoverable backup custody; no secret was posted to chat.
 - [ ] Read-only preflight re-verifies current `main`, migration SHA-256,
       Production migration list, required LINE objects/functions, row-count
       baselines, L0b table count `0`, and unrelated `aicc_*` ACL fingerprint.
