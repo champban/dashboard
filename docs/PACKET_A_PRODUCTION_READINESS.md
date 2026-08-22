@@ -1,7 +1,7 @@
 # Packet A Production Readiness
 
-Status: **BACKUP AND ISOLATED RESTORE GATES CLOSED / PRODUCTION APPLY NOT
-AUTHORIZED**
+Status: **READ-ONLY PREFLIGHT AND TARGETED 6D GATES CLOSED / PRODUCTION
+APPLY NOT AUTHORIZED**
 
 Decision date: `2026-08-22` (`Asia/Bangkok`)
 
@@ -12,8 +12,9 @@ change, import, deployment, provider change, cleanup, or L1.
 ## Exact source
 
 - Repository: `champban/dashboard`
-- Current repository head: `main@15dcf50feff137df8d9fec1ac44dd2a611647981`
-  (documentation-only PR #78 closure)
+- Read-only preflight base: `main@bc42edf5ecac980462d4e9def4cdd2d9078299dc`,
+  tree `17f0b4940b3f04c7f0daea0865645d0fe395488a`
+  (documentation-only PR #80 closure)
 - Last source-changing Packet A merge:
   `main@9a5a95f5c9065214c0418def80a3086fdf79d323`
 - PR #77 reviewed/Owner-approved source head:
@@ -136,17 +137,69 @@ All boxes are required. Only evidence-backed completed gates are marked.
 - [x] Backup decrypted/integrity-checked and restore-tested in isolation — B-2
       run `32577304437`.
 - [x] Owner confirms recoverable backup custody; no secret was posted to chat.
-- [ ] Read-only preflight re-verifies current `main`, migration SHA-256,
+- [x] Read-only preflight re-verifies current `main`, migration SHA-256,
       Production migration list, required LINE objects/functions, row-count
       baselines, L0b table count `0`, and unrelated `aicc_*` ACL fingerprint.
-- [ ] Targeted pre-Production 6D decision records no unresolved Critical/High
-      blocker and links this exact source/apply procedure.
+- [x] Targeted pre-Production 6D decision records no unresolved Critical/High
+      blocker to the exact ACL-only remediation and links this source/apply
+      procedure.
 - [ ] Owner separately approves the exact targeted migration operation.
 
 No further full Claude review is required while the reviewed SQL and permission
 contract remain unchanged. Request a targeted re-review only if schema,
 migration bytes, RLS, grants, identity, secrets, apply semantics, or release SHA
 changes.
+
+## Read-only preflight and targeted 6D evidence
+
+The Owner authorized read-only Production inspection and then separately
+authorized this targeted 6D review/documentation. Neither authorization included
+a migration apply.
+
+Read-only evidence on `2026-08-22` (`Asia/Bangkok`) was stable across repeated
+catalog reads:
+
+- GitHub base `main@bc42edf5ecac980462d4e9def4cdd2d9078299dc`, tree
+  `17f0b4940b3f04c7f0daea0865645d0fe395488a`; the migration remained blob
+  `3a6e760e183889b72c13df48bd72b10a9655c69f` and SHA-256
+  `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
+- Production project `qjaywadzvwvcspdsjxth` was `ACTIVE_HEALTHY` on
+  PostgreSQL 17.6. Applied migrations stopped at
+  `20260818154406_line_webhook_event_reliability`; Packet A and L0b were not
+  applied.
+- All five required `mtp_line_*` tables existed with RLS enabled, all four
+  required RPC signatures existed, and the ten-policy fingerprint was stable at
+  `2596ad76480f6484ae9ea0523eb4d674`.
+- Stable row counts were accounts `1`, events `5`, link codes `1`,
+  mutations `17`, and snapshots `1`. The pre-apply LINE ACL fingerprint was
+  `8e36fd84519a1aed7efb8ab52b03d14b` over 138 catalog parts.
+- All nine L0b tables were absent. The unrelated `aicc_*` ACL/catalog/policy/
+  function canary was stable across two reads at
+  `1a120bb49bdf81711391bc8a45abbd88` over 409 parts. No earlier digest
+  had been stored, so this two-read-stable value is the authoritative pre-apply
+  canary for later comparison.
+- Exact reviewed Packet A source head
+  `a9c99719e0e6abdf2a5f1fbedd282328f812577b` retained successful verify run
+  `32352059807` (#127). Repository tests/build/release checks and secret scans
+  previously passed; the later `main` changes were documentation-only.
+- Supabase security advisors reported one informational expected
+  `mtp_line_events` RLS-without-policy finding and one pre-existing warning
+  that leaked-password protection is disabled. The former is intentional
+  default-deny client state; the latter is an Auth hardening follow-up outside
+  this ACL-only migration.
+
+**Targeted 6D decision: CONDITIONAL PASS FOR THE EXACT ACL-ONLY APPLY GATE.**
+There is no unresolved Critical/High blocker to applying the exact reviewed
+remediation through targeted `apply_migration`. `RISK-L0A-ACL-1` remains open
+until that apply and the required post-apply checks succeed. The Auth warning is
+a non-blocking follow-up owned by P'Boy, due `2026-09-22` or before any Auth
+configuration change, whichever comes first.
+
+This decision does not approve the targeted operation itself. Generic
+`supabase db push`, L0b, data movement, deployment, provider/environment
+changes, cleanup, and L1 remain prohibited. Stop if `main`, migration bytes,
+project identity, backup custody, targeted-operation semantics, or any baseline
+fingerprint/count differs.
 
 ## Required post-apply verification
 
