@@ -8,6 +8,8 @@ Packet A backup/restore update: `2026-08-22` (`Asia/Bangkok`)
 
 Packet A targeted pre-Production decision: `2026-08-22` (`Asia/Bangkok`)
 
+Packet A Production ACL closure: `2026-08-22` (`Asia/Bangkok`)
+
 Repository: `champban/dashboard`
 
 Production scope:
@@ -171,9 +173,64 @@ change is in scope.
   operation semantics differ. Do not fall back to `db push`, manual ledger
   edits, broad grants, L0b, deployment or data movement.
 
-This 6D decision closes only the review gate. It is **not** approval to apply the
-migration. Exact targeted Production apply still requires a separate Owner
-approval.
+This was the pre-apply decision. The later exact apply and its closure decision
+are recorded below.
+
+## Packet A Production ACL closure
+
+**Decision: CONDITIONAL PASS — CATALOG VERIFICATION PASS; FUNCTIONAL SMOKE
+OWNER-WAIVED / NOT EXECUTED.**
+
+Supabase recorded
+`20260822162710_line_acl_default_privilege_hardening` from exact apply base
+`main@a061319cc6762fe58243f1e10a40e0737489aa2e`, tree
+`d18a9f466f1ee62021a9d41541cfd0fcbe14b73e`, and migration SHA-256
+`554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
+
+| Dimension | Closure | Evidence / residual |
+|---|---|---|
+| 1. Identity and access | PASS | Exact target/default ACL matrix matched the reviewed migration; client RPC execution stayed denied; service-role RPC execution stayed present; RLS and ten policies were unchanged. |
+| 2. Secrets and data | PASS | ACL-only transaction used no data DML. Exact counts stayed `1/5/1/17/1`; no secret or customer content was read or recorded. |
+| 3. Input and content safety | NO CHANGE | No runtime, input, HTML, URL, attachment or import code changed. |
+| 4. Browser and network controls | CONDITIONAL PASS | No browser/network/provider configuration changed. Functional browser/LINE smoke was Owner-waived and not executed. |
+| 5. Supply chain and deployment | PASS | Exact frozen migration bytes were used through targeted `apply_migration`; ledger gained one provider version only; `db push` and L0b remained blocked. |
+| 6. Operations and recovery | CONDITIONAL PASS | B-1 custody and B-2 isolated restore passed; catalog/count/canary verification passed and no rollback was required. Functional smoke assurance was explicitly waived. |
+
+### Post-apply evidence
+
+- Applied version:
+  `20260822162710_line_acl_default_privilege_hardening`.
+- Future defaults retained only `postgres` owner privileges; global future
+  function `PUBLIC EXECUTE` was removed.
+- `anon` had no target access. `authenticated` and `service_role` matched
+  the exact reviewed table/column/RPC matrix.
+- Five target tables remained RLS-enabled with policy distribution
+  `1/0/4/2/3`; total `10`.
+- Counts remained accounts/events/link-codes/mutations/snapshots =
+  `1/5/1/17/1`.
+- L0b remained `0/9`.
+- Unrelated `aicc_*` v2 canary remained
+  `848e24b1452c3c4e5ff6b7b9ce308044` / 218 parts.
+- Post-apply LINE v2 fingerprint was stable twice at
+  `f939987598538c846c82d85942a37037` / 61 parts.
+- Advisors added no finding. The intentional LINE-events INFO and pre-existing
+  Auth WARN remain as previously classified.
+
+### Owner waiver and residual
+
+The Owner directed that authenticated snapshot/save, LINE `menu`, and Edit ->
+Cancel be skipped and assumed successful. The audit does not convert an
+unexecuted check into evidence: all three are recorded as **NOT EXECUTED**.
+
+Residual `PACKET-A-R1`: a legitimate application permission regression could
+remain undetected until normal use. Severity: Low-to-Medium given the exact ACL
+simulation, catalog matrix, unchanged rows/policies and passing source CI.
+Owner: P'Boy. Status: accepted. Reopen immediately on any LINE/snapshot/save
+permission symptom or before the next Auth/ACL/LINE change.
+
+`RISK-L0A-ACL-1` is closed for the broad-grant/default-privilege defect. This
+closure does not authorize L0b, data movement, deployment, provider/Auth
+changes, cleanup, PR #79 merge, or L1.
 
 ## L0a Decision
 
