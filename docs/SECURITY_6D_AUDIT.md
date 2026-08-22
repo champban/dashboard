@@ -4,6 +4,8 @@ Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
 Post-deploy targeted closure: `2026-08-19` (`Asia/Bangkok`)
 
+Packet A backup/restore update: `2026-08-22` (`Asia/Bangkok`)
+
 Repository: `champban/dashboard`
 
 Production scope:
@@ -19,9 +21,10 @@ Production scope:
 
 ## L0b source merge and Packet A addendum
 
-**Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; L0b DATABASE ACTIVATION
-AND PACKET A PRODUCTION APPLY NOT APPROVED. PROVIDER GATE A CLOSED AS AN
-ACCEPTED PROVIDER-MANAGED RESIDUAL.**
+**Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP AND
+ISOLATED RESTORE GATES COMPLETE; L0b DATABASE ACTIVATION AND PACKET A
+PRODUCTION APPLY NOT APPROVED. PROVIDER GATE A CLOSED AS AN ACCEPTED
+PROVIDER-MANAGED RESIDUAL.**
 
 Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
 PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
@@ -59,12 +62,33 @@ A hardening of `postgres` defaults and existing objects.
 
 | Dimension | Current source control | Remaining gate |
 |---|---|---|
-| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revokes public-schema `postgres` table/sequence/API-role defaults, globally revokes its built-in future-function `PUBLIC EXECUTE`, and reconstructs exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Fresh backup, exact ACL-only apply approval, and post-apply catalog/RLS verification |
+| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revokes public-schema `postgres` table/sequence/API-role defaults, globally revokes its built-in future-function `PUBLIC EXECUTE`, and reconstructs exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Read-only preflight, exact ACL-only apply approval, and post-apply catalog/RLS verification |
 | 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change | Secret scan and exact-head diff |
 | 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
 | 4. Browser and network controls | Full/Mobile controls require `enabled===true`; bridge defaults false; handlers also reject disabled calls; Drive/LINE paths unchanged | Generated artifact parity and browser regression suite |
 | 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 | Freeze the reviewed migration hash; separate Production approval; never use generic `supabase db push` |
-| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled | Fresh restore-tested backup, targeted 6D decision, targeted `apply_migration` approval, and aggregate post-apply evidence |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Fresh encrypted backup and isolated restore/reconciliation passed in B-1/B-2 | Targeted 6D decision, targeted `apply_migration` approval, and aggregate post-apply evidence |
+
+### Packet A Backup Gate B-1/B-2 evidence
+
+- B-1 run `32149051510`, attempt 2, job `96681690187` created the exact pinned
+  encrypted backup; artifact/ZIP/archive metadata and SHA-256 values are recorded
+  in `docs/PACKET_A_PRODUCTION_READINESS.md`. Owner confirmed downloaded backup
+  custody without exposing the passphrase.
+- B-2 Draft PR #79 exact head
+  `796b42a41b5e33f96f2ecc0752baf691c645d35c`, tree
+  `d79ffb9b1eb3d5c6ed9380058aaedac1d9266b9f`, passed source-safety and isolated
+  restore in run `32577304437`, jobs `97041400164` and `97041418226`.
+- The disposable PostgreSQL 17 target had network mode `none` and no published
+  port. The reviewed Storage 61-62 compatibility bridge ran before decryption;
+  atomic restore and exact table/RPC/RLS/policy/index/owner-orphan/count
+  reconciliation passed. No output artifact or Production connection was used.
+- Post-run read-only Production table counts matched the pre-run snapshot. The
+  approval label was removed and PR #79 remains Draft/unmerged.
+
+This evidence closes only the backup and recovery-readiness portion of
+dimension 6. It is not the targeted pre-Production 6D decision and does not
+authorize Packet A apply, L0b activation, deployment, cleanup, or L1.
 
 Open risks:
 

@@ -6,8 +6,11 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 ## Current release
 
 - Current GitHub `main` is
-  `9a5a95f5c9065214c0418def80a3086fdf79d323`, the PR #77 Packet A source
-  merge. Its reviewed/Owner-approved source parent is
+  `15dcf50feff137df8d9fec1ac44dd2a611647981`, the documentation-only PR #78
+  merge that closed Provider Gate A and recorded Packet A readiness. The last
+  source-changing Packet A merge remains
+  `9a5a95f5c9065214c0418def80a3086fdf79d323`. Its reviewed/Owner-approved
+  source parent is
   `a9c99719e0e6abdf2a5f1fbedd282328f812577b`, tree
   `6479a43d73b04351f842e985a538afada694ce5e`; the other parent is the PR #76
   L0b source merge `67fe86cac29b3facecd08290a3000ba23bc8a684`.
@@ -80,10 +83,44 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - Packet A Production readiness is controlled by
   `docs/PACKET_A_PRODUCTION_READINESS.md`. A generic `supabase db push` is
   prohibited because it can also apply the earlier pending L0b migration. Any
-  Production action still requires a fresh restore-tested backup, targeted 6D
-  decision, exact ACL-only apply approval, and post-apply verification. No
+  Production action still requires the remaining read-only preflight, targeted
+  6D decision, exact ACL-only apply approval, and post-apply verification. No
   migration apply, import/backfill, provider change, deployment, cleanup, or L1
-  is authorized by the source merge or Provider Gate A closure.
+  is authorized by the source merge, Provider Gate A closure, or completed
+  backup/restore gates.
+
+### Packet A backup gates B-1/B-2 — completed, Production apply inactive
+
+- B-1 created the pinned encrypted logical backup in run `32149051510`, attempt
+  2, job `96681690187` — `SUCCESS`. Artifact `9452687931`,
+  `dashboard-supabase-backup-20260821T153930Z`, was 30,451 bytes with ZIP
+  SHA-256 `8e4ab3857f546e027df7b5ee7867e27070798fac3f77a292bbc8c92bef9812d8`;
+  the encrypted archive SHA-256 was
+  `1f74262d1b341ed919b0a8f8fe29ffb852946cd5d6ab1700f13e97ede97c91e4`.
+  Owner confirmed custody of a downloaded copy. The GitHub artifact expiry is
+  `2026-08-22T15:40:38Z`; a future restore after expiry requires a separately
+  approved fresh B-1 run, never a substitute artifact.
+- B-2 completed at Draft PR #79 exact head
+  `796b42a41b5e33f96f2ecc0752baf691c645d35c`, tree
+  `d79ffb9b1eb3d5c6ed9380058aaedac1d9266b9f`. Run `32577304437`, source-safety
+  job `97041400164`, and isolated restore job `97041418226` all passed. The
+  final job log recorded `Packet A Backup Gate B-2 isolated restore: PASS` at
+  `2026-08-22T14:01:43.5534694Z`.
+- The successful target used the pinned PostgreSQL 17 image with network mode
+  `none` and no published port. A reviewed Storage compatibility bridge applied
+  upstream migrations 61-62 only to the disposable target before decryption,
+  while retaining the target service ledger at 0-60. Atomic roles, schema and
+  data restore plus exact table/RPC/RLS/policy/index/owner-orphan/count
+  reconciliation passed.
+- The successful run produced no output artifact and used no Production
+  connection. Post-run read-only Production table counts matched the pre-run
+  snapshot. The consumed approval label was removed; the restrictive
+  Environment rule `refs/pull/79/merge` remains pending separately approved
+  cleanup. PR #79 remains Draft and must not be merged.
+- B-2 proves logical recoverability of the approved backup. It does not assert
+  Packet A hardened ACLs because the backup predates Packet A, and it does not
+  claim migration-history identity because B-1 did not dump that ledger
+  separately. The Production ACL migration remains unapplied.
 
 ### L0a webhook reliability Production release
 
@@ -889,6 +926,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 |---|---|---|---|---|
 | LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |
 | LINE-WEBHOOK-1 | LINE redelivery or partial batch failure could duplicate drafts and reprocess completed events | No persistent webhook event identity/state, batch-level failure handling, and an 8-second gateway timeout | Service-role-only `mtp_line_events` ledger, atomic claim/finalize RPCs, per-event isolation, 30-second lease, `source_event_id` mutation idempotency, and provider redelivery enabled | Final review PASS at `73ad8b6`; CI #104/#116; isolated replay/timeout PASS; migration `20260818154406`; v22 live smoke: 5 processed, 0 failed/processing, max attempt 1, no new mutation |
+| PACKET-A-B2-1 | Pinned logical backup failed in the data phase on the disposable CLI target | Supabase CLI `2.111.0` bootstrapped Storage through migration 60 while the Production-shaped dump expected migration-62 columns; zero-row COPY headers still resolve every named column | Fail-closed network-isolated compatibility bridge pins reviewed upstream migrations 61-62, exact pre/post catalog state and immutable source hashes; it never edits the dump or records false Storage migration history | PR #79 exact head `796b42a`; source-safety and restore run `32577304437` PASS; no output artifact or Production connection |
 
 ## Open backlog
 
