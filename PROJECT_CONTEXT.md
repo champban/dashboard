@@ -6,8 +6,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 ## Current release
 
 - Current GitHub `main` is
-  `15dcf50feff137df8d9fec1ac44dd2a611647981`, the documentation-only PR #78
-  merge that closed Provider Gate A and recorded Packet A readiness. The last
+  `bc42edf5ecac980462d4e9def4cdd2d9078299dc`, tree
+  `17f0b4940b3f04c7f0daea0865645d0fe395488a`, the documentation-only PR #80
+  merge that recorded Packet A B-2 restore completion. The last
   source-changing Packet A merge remains
   `9a5a95f5c9065214c0418def80a3086fdf79d323`. Its reviewed/Owner-approved
   source parent is
@@ -82,12 +83,13 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   planned while the reviewed SQL/permission contract is unchanged.
 - Packet A Production readiness is controlled by
   `docs/PACKET_A_PRODUCTION_READINESS.md`. A generic `supabase db push` is
-  prohibited because it can also apply the earlier pending L0b migration. Any
-  Production action still requires the remaining read-only preflight, targeted
-  6D decision, exact ACL-only apply approval, and post-apply verification. No
+  prohibited because it can also apply the earlier pending L0b migration. The
+  read-only Production preflight and targeted pre-Production 6D decision are
+  complete at the exact base/hash recorded below. Production still requires a
+  separate exact ACL-only apply approval and post-apply verification. No
   migration apply, import/backfill, provider change, deployment, cleanup, or L1
-  is authorized by the source merge, Provider Gate A closure, or completed
-  backup/restore gates.
+  is authorized by the source merge, Provider Gate A closure, backup/restore,
+  preflight, or 6D gates.
 
 ### Packet A backup gates B-1/B-2 — completed, Production apply inactive
 
@@ -121,6 +123,42 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   Packet A hardened ACLs because the backup predates Packet A, and it does not
   claim migration-history identity because B-1 did not dump that ledger
   separately. The Production ACL migration remains unapplied.
+
+### Packet A read-only preflight and targeted 6D — complete, apply inactive
+
+- Owner authorized read-only Production inspection, then separately authorized
+  targeted 6D review/documentation. The exact base was
+  `main@bc42edf5ecac980462d4e9def4cdd2d9078299dc`, tree
+  `17f0b4940b3f04c7f0daea0865645d0fe395488a`; migration blob
+  `3a6e760e183889b72c13df48bd72b10a9655c69f` and SHA-256
+  `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`
+  matched the reviewed source.
+- Production `qjaywadzvwvcspdsjxth` was `ACTIVE_HEALTHY` on PostgreSQL
+  17.6. Applied migrations stopped at
+  `20260818154406_line_webhook_event_reliability`; Packet A and L0b were not
+  applied. All required LINE tables/functions existed, five target tables had
+  RLS enabled, total policies were ten, and row counts were
+  accounts/events/link-codes/mutations/snapshots = `1/5/1/17/1`.
+- Frozen pre-apply fingerprints: LINE policies
+  `2596ad76480f6484ae9ea0523eb4d674`; LINE ACL
+  `8e36fd84519a1aed7efb8ab52b03d14b` over 138 parts; unrelated `aicc_*`
+  canary `1a120bb49bdf81711391bc8a45abbd88` over 409 parts. The
+  `aicc_*` value was identical across two reads; no prior digest existed, so
+  it is the authoritative pre-apply baseline for post-apply equality checking.
+  All nine L0b tables remained absent.
+- Targeted 6D decision:
+  `CONDITIONAL PASS — EXACT ACL-ONLY APPLY GATE`. No Critical/High blocker
+  remains for applying the exact remediation. Existing
+  `RISK-L0A-ACL-1` remains open until apply and verification.
+- Supabase security advisors reported an expected informational
+  `mtp_line_events` no-policy state and a pre-existing leaked-password
+  protection warning. The Auth warning is a Medium follow-up owned by P'Boy,
+  due `2026-09-22` or before any Auth configuration change; no Auth/provider
+  setting change is authorized here.
+- Separate Owner exact-operation approval remains mandatory. Only targeted
+  `apply_migration` may be considered; `supabase db push`, L0b, data
+  movement, deployment, provider/environment changes, cleanup and L1 remain
+  prohibited.
 
 ### L0a webhook reliability Production release
 

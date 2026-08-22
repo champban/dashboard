@@ -6,6 +6,8 @@ Post-deploy targeted closure: `2026-08-19` (`Asia/Bangkok`)
 
 Packet A backup/restore update: `2026-08-22` (`Asia/Bangkok`)
 
+Packet A targeted pre-Production decision: `2026-08-22` (`Asia/Bangkok`)
+
 Repository: `champban/dashboard`
 
 Production scope:
@@ -111,6 +113,67 @@ The exact Production procedure and stop conditions are in
 `docs/PACKET_A_PRODUCTION_READINESS.md`. Generic `supabase db push` is blocked:
 it can also apply the earlier pending L0b migration. This addendum is a source
 and provider-decision record only; it is not a new Production 6D pass.
+
+## Packet A targeted pre-Production 6D decision
+
+**Decision: CONDITIONAL PASS — EXACT ACL-ONLY APPLY GATE.**
+
+Scope is frozen to `champban/dashboard` base
+`main@bc42edf5ecac980462d4e9def4cdd2d9078299dc`, tree
+`17f0b4940b3f04c7f0daea0865645d0fe395488a`, Supabase Production project
+`qjaywadzvwvcspdsjxth`, and migration
+`supabase/migrations/20260820083714_line_acl_default_privilege_hardening.sql`
+(blob `3a6e760e183889b72c13df48bd72b10a9655c69f`, SHA-256
+`554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`).
+No browser, Netlify, Edge Function, secret, provider setting, or dependency
+change is in scope.
+
+| Dimension | Decision | Evidence and residual |
+|---|---|---|
+| 1. Identity and access | CONDITIONAL PASS | The reviewed migration reduces `postgres` defaults and reconstructs exact browser/service-role table, column and RPC grants while leaving ten RLS policies unchanged. Preflight confirmed all five target tables have RLS, the four exact RPCs exist, `anon` executes none, `authenticated` executes none, and `service_role` executes all four. Existing broad grants are the risk being remediated, not a reason to substitute a broader operation. |
+| 2. Secrets and data | PASS | ACL-only, transactional SQL contains no data DML and no secret. Stable target counts were `1/5/1/17/1`; backup B-1 and isolated restore B-2 passed, and Owner retains a downloaded encrypted copy. No customer content or identifier was inspected or recorded. |
+| 3. Input and content safety | PASS / NO CHANGE | No browser input, imported JSON, HTML, URL, attachment, webhook, or runtime path changes. Existing generated-artifact, regression, PostgreSQL and release verification at exact reviewed source run #127 remained the applicable source evidence. |
+| 4. Browser and network controls | PASS / NO CHANGE | No CSP, header, CORS, OAuth redirect, gateway, Netlify or Edge Function change. Browser/Drive remains authoritative and the L0b controls remain fail-closed. |
+| 5. Supply chain and deployment | CONDITIONAL PASS | Migration bytes and Git blob are frozen; exact reviewed source run `32352059807` (#127) passed. Only targeted Supabase `apply_migration` may be considered later; generic `supabase db push` is blocked because it could also apply L0b. Current `main` changes after the source review were documentation-only. |
+| 6. Operations and recovery | CONDITIONAL PASS | B-1 backup custody and B-2 isolated restore/reconciliation passed. Post-apply checks freeze row counts, policy/ACL fingerprints, L0b absence and the unrelated `aicc_*` canary; unexpected permission loss uses a separately approved least-privilege forward fix. GitHub artifact expiry does not replace the Owner-held copy and any new restore run requires a new B-1 approval. |
+
+### Read-only Production baseline
+
+- Applied migration ledger stopped at
+  `20260818154406_line_webhook_event_reliability`; Packet A and L0b were
+  absent.
+- Five LINE tables had RLS enabled; total policies `10`; policy fingerprint
+  `2596ad76480f6484ae9ea0523eb4d674`.
+- Pre-apply LINE ACL fingerprint
+  `8e36fd84519a1aed7efb8ab52b03d14b` over 138 parts.
+- Stable row counts: accounts `1`, events `5`, link codes `1`, mutations
+  `17`, snapshots `1`.
+- L0b tables present: `0/9`.
+- Unrelated `aicc_*` canary
+  `1a120bb49bdf81711391bc8a45abbd88` over 409 parts, identical on two
+  reads. No older digest existed in project documentation, so this verified
+  value is the pre-apply baseline for later equality checking.
+
+### Findings and stop conditions
+
+- No Critical or High blocker remains for the exact targeted remediation.
+  `RISK-L0A-ACL-1` remains open in Production until apply and post-apply
+  catalog/functional verification complete.
+- Supabase advisor `rls_enabled_no_policy` on `mtp_line_events` is
+  informational and intentional: client roles have no table/RPC access and the
+  service-role contract is explicit.
+- Supabase advisor `auth_leaked_password_protection` is a pre-existing Auth
+  warning, outside this ACL-only change. Track as a Medium follow-up owned by
+  P'Boy, due `2026-09-22` or before any Auth configuration change. It does not
+  authorize an Auth/provider setting change here.
+- Stop before apply if the source SHA/tree/hash, project, migration ledger,
+  object signatures, counts, fingerprints, backup custody, or targeted
+  operation semantics differ. Do not fall back to `db push`, manual ledger
+  edits, broad grants, L0b, deployment or data movement.
+
+This 6D decision closes only the review gate. It is **not** approval to apply the
+migration. Exact targeted Production apply still requires a separate Owner
+approval.
 
 ## L0a Decision
 
