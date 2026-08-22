@@ -1,20 +1,20 @@
 # Packet A Production Readiness
 
-Status: **READ-ONLY PREFLIGHT AND TARGETED 6D GATES CLOSED / PRODUCTION
-APPLY NOT AUTHORIZED**
+Status: **PRODUCTION ACL APPLY CATALOG-VERIFIED / FUNCTIONAL SMOKE
+OWNER-WAIVED**
 
 Decision date: `2026-08-22` (`Asia/Bangkok`)
 
-This packet records the remaining controls for the LINE ACL/default-privilege
-hardening migration. It does not authorize a database write, migration-history
-change, import, deployment, provider change, cleanup, or L1.
+This packet records the completed exact LINE ACL/default-privilege hardening
+apply and its verification. It does not authorize any further database write,
+rerun, import, deployment, provider change, cleanup, or L1.
 
 ## Exact source
 
 - Repository: `champban/dashboard`
-- Read-only preflight base: `main@bc42edf5ecac980462d4e9def4cdd2d9078299dc`,
-  tree `17f0b4940b3f04c7f0daea0865645d0fe395488a`
-  (documentation-only PR #80 closure)
+- Production apply base: `main@a061319cc6762fe58243f1e10a40e0737489aa2e`,
+  tree `d18a9f466f1ee62021a9d41541cfd0fcbe14b73e`
+  (documentation-only PR #81 preflight/6D closure)
 - Last source-changing Packet A merge:
   `main@9a5a95f5c9065214c0418def80a3086fdf79d323`
 - PR #77 reviewed/Owner-approved source head:
@@ -54,17 +54,18 @@ This is not a claim of zero risk in every channel. `service_role` remains
 privileged, functions require explicit `EXECUTE` control, and whole-table
 operations such as `TRUNCATE` are not governed by RLS.
 
-## Risk that remains open
+## Risk disposition
 
-`RISK-L0A-ACL-1` remains open in Production only for:
+`RISK-L0A-ACL-1` is **CLOSED WITH AN OWNER-ACCEPTED FUNCTIONAL-ASSURANCE
+RESIDUAL**. The exact ACL migration was applied and catalog-verified. Broad
+`postgres` defaults and existing `mtp_line_*` grants were removed and rebuilt
+to the reviewed least-privilege contract.
 
-1. broad `postgres` defaults for future tables, sequences, and functions; and
-2. broad existing grants on the exact `mtp_line_*` tables/functions.
-
-The Dashboard setting for automatic exposure affects future defaults and does
-not repair existing object grants. Packet A is still required. The risk closes
-only after the exact ACL migration is separately approved, applied, catalog-
-verified, and functionally smoke-tested.
+The Owner explicitly waived the three bounded functional smoke checks on
+`2026-08-22`. They were **NOT EXECUTED** and must not be represented as PASS.
+The residual is reduced assurance that the browser snapshot/save and LINE
+`menu` / Edit -> Cancel paths still behave after the privilege reduction. Any
+permission symptom or future LINE/Auth/ACL change reopens this smoke gate.
 
 Read-only Production evidence on `2026-08-21` confirmed:
 
@@ -143,7 +144,8 @@ All boxes are required. Only evidence-backed completed gates are marked.
 - [x] Targeted pre-Production 6D decision records no unresolved Critical/High
       blocker to the exact ACL-only remediation and links this source/apply
       procedure.
-- [ ] Owner separately approves the exact targeted migration operation.
+- [x] Owner approved the exact targeted operation; Supabase recorded
+      `20260822162710_line_acl_default_privilege_hardening`.
 
 No further full Claude review is required while the reviewed SQL and permission
 contract remain unchanged. Request a targeted re-review only if schema,
@@ -201,6 +203,44 @@ changes, cleanup, and L1 remain prohibited. Stop if `main`, migration bytes,
 project identity, backup custody, targeted-operation semantics, or any baseline
 fingerprint/count differs.
 
+## Production apply and catalog verification
+
+The Owner approved only the exact targeted operation after the final lock
+recheck. Supabase applied migration
+`20260822162710_line_acl_default_privilege_hardening` on
+`2026-08-22` (`Asia/Bangkok`) from the exact migration bytes above.
+
+Post-apply evidence:
+
+- migration ledger gained exactly one record; L0b and no other migration were
+  applied;
+- `postgres` future defaults now contain only owner privileges for public
+  tables, sequences, and functions, including a global function default with no
+  `PUBLIC EXECUTE`;
+- `anon` has no target table or RPC access;
+- `authenticated` has only the reviewed SELECT/INSERT/UPDATE table contract,
+  with `mtp_line_mutations` UPDATE limited to `applied_at`, `error_code`,
+  `status`, and `updated_at`;
+- `service_role` has only the reviewed table contract and executes the four
+  target RPCs; client roles execute none;
+- all five target tables remained owned by `postgres`, RLS-enabled, with ten
+  policies unchanged;
+- row counts remained accounts/events/link-codes/mutations/snapshots =
+  `1/5/1/17/1`;
+- all nine L0b tables remained absent;
+- the reproducible `aicc_*` v2 canary remained
+  `848e24b1452c3c4e5ff6b7b9ce308044` over 218 parts;
+- the post-apply LINE v2 fingerprint was stable across two reads at
+  `f939987598538c846c82d85942a37037` over 61 parts; and
+- security advisors reported no new finding: the intentional
+  `mtp_line_events` no-policy INFO and pre-existing Auth leaked-password WARN
+  remained.
+
+The operation used no data DML and required no rollback. The Owner then directed
+that the three bounded functional smoke checks be skipped and assumed successful.
+For evidence accuracy, this packet records them as **OWNER-WAIVED / NOT
+EXECUTED**, never as verified PASS.
+
 ## Required post-apply verification
 
 Use catalog/aggregate evidence only; do not expose user content, LINE user IDs,
@@ -219,10 +259,11 @@ webhook bodies, tokens, URLs, or secrets.
    tables and the unrelated `aicc_*` ACL fingerprint is unchanged.
 6. Confirm the nine L0b tables are still absent and Google Drive/browser planner
    remains authoritative.
-7. Run bounded owner smoke: authenticated snapshot/save path, LINE `menu`, and
-   Edit -> Cancel. Verify no unexpected ledger/mutation change.
-8. Update `PROJECT_CONTEXT.md`, `docs/SECURITY_6D_AUDIT.md`, and this packet with
-   the applied version, aggregate evidence, decision, and rollback status.
+7. **OWNER-WAIVED / NOT EXECUTED:** authenticated snapshot/save path, LINE
+   `menu`, and Edit -> Cancel. This is an accepted assurance residual, not PASS.
+8. Record the applied version, aggregate evidence, waiver decision, and rollback
+   status in `PROJECT_CONTEXT.md`, `docs/SECURITY_6D_AUDIT.md`, KPI, and this
+   packet through the docs-only closure PR.
 
 ## Failure and recovery
 

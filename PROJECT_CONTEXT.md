@@ -5,10 +5,10 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ## Current release
 
-- Current GitHub `main` is
-  `bc42edf5ecac980462d4e9def4cdd2d9078299dc`, tree
-  `17f0b4940b3f04c7f0daea0865645d0fe395488a`, the documentation-only PR #80
-  merge that recorded Packet A B-2 restore completion. The last
+- Packet A Production apply base was
+  `main@a061319cc6762fe58243f1e10a40e0737489aa2e`, tree
+  `d18a9f466f1ee62021a9d41541cfd0fcbe14b73e`, after documentation-only PR #81
+  recorded the preflight/6D gate. The last
   source-changing Packet A merge remains
   `9a5a95f5c9065214c0418def80a3086fdf79d323`. Its reviewed/Owner-approved
   source parent is
@@ -18,8 +18,11 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - The exact L0a runtime source package is pinned to merge commit `3cafa19aa56f89c8d640acc717726d0043b3bd2c`,
   which contains independently reviewed implementation head `73ad8b6a9815411364afeae34d9ce52418bd6967`.
 - Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
-  migration `20260818154406_line_webhook_event_reliability`, mapped to repository file
-  `supabase/migrations/20260817150000_line_webhook_event_reliability.sql`.
+  migrations `20260818154406_line_webhook_event_reliability` and
+  `20260822162710_line_acl_default_privilege_hardening`. The latter maps to
+  `supabase/migrations/20260820083714_line_acl_default_privilege_hardening.sql`
+  at SHA-256
+  `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
 - Supabase Edge Function `line-todo-webhook` version **22** is `ACTIVE`, keeps
   `verify_jwt=false` by design, and has bundle SHA-256 `6cf913cd84e1c30c95d134e91060755be1bd8832b2d686ce213474f7421155aa`.
 - Verified live path: `LINE @103rexjo -> Netlify line-app-public-line-webhook
@@ -61,14 +64,12 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - Browser + Google Drive remain the Todo source of truth. L0b does not start L1,
   does not make Supabase authoritative, and does not alter the LINE
   snapshot/mutation queue or Drive save paths.
-- `RISK-L0A-ACL-1` remains open in Production only for broad `postgres`
-  defaults and existing `mtp_line_*` object/function grants until Packet A is
-  separately applied and catalog-verified. Provider Gate A closed on
-  `2026-08-21`: current Supabase documentation identifies the remaining
-  `supabase_admin` default ACL entries as intentional provider-managed state
-  that does not bypass RLS by itself, and the internal role cannot authenticate
-  through the Data API. This accepted residual is not a claim of zero risk in
-  every channel; explicit grants/RLS/function execution remain required.
+- `RISK-L0A-ACL-1` is closed for the broad `postgres` defaults and existing
+  `mtp_line_*` grant defect after exact targeted apply and catalog verification
+  on `2026-08-22`. Provider-owned `supabase_admin` defaults remain the accepted
+  provider-managed residual decided on `2026-08-21`. The Owner waived the three
+  functional smoke checks; that accepted assurance residual is tracked as
+  `PACKET-A-R1` and is not represented as PASS.
 - Final Exact-HEAD 6D Review #2 returned `REQUIRED CHANGES` at
   `749af1b4a2deeb7853b4a8aa564503e3b9fd5539`. F1-F5 were remediated without
   widening scope: default-privilege simulation, Phase-B rollback evidence,
@@ -159,6 +160,32 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   `apply_migration` may be considered; `supabase db push`, L0b, data
   movement, deployment, provider/environment changes, cleanup and L1 remain
   prohibited.
+
+### Packet A Production ACL apply — catalog verified, smoke waived
+
+- Owner approved the exact targeted operation only. Supabase recorded
+  `20260822162710_line_acl_default_privilege_hardening` from apply base
+  `main@a061319cc6762fe58243f1e10a40e0737489aa2e`, tree
+  `d18a9f466f1ee62021a9d41541cfd0fcbe14b73e`, migration blob
+  `3a6e760e183889b72c13df48bd72b10a9655c69f`, SHA-256
+  `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
+- Ledger gained exactly that one migration. L0b and no other migration were
+  applied. No data DML, import/backfill, deployment or provider change occurred.
+- Post-apply table/default/function/column ACLs matched the reviewed
+  least-privilege matrix. Five target tables remained RLS-enabled; ten policies
+  and row counts `1/5/1/17/1` were unchanged.
+- L0b remained `0/9`. The unrelated `aicc_*` v2 canary remained
+  `848e24b1452c3c4e5ff6b7b9ce308044` / 218 parts. The new LINE v2
+  fingerprint was stable twice at `f939987598538c846c82d85942a37037` /
+  61 parts.
+- No rollback was required. Security advisors added no finding.
+- Owner directed that authenticated snapshot/save, LINE `menu`, and Edit ->
+  Cancel be skipped and assumed successful. Evidence status is **OWNER-WAIVED /
+  NOT EXECUTED**, not PASS. Residual `PACKET-A-R1` is accepted and reopens on
+  any related permission symptom or before the next LINE/Auth/ACL change.
+- Packet A is management-closed with a `CONDITIONAL PASS`. Browser + Google
+  Drive remains authoritative; L0b, deployment, provider/Auth changes, cleanup,
+  PR #79 merge and L1 remain outside scope.
 
 ### L0a webhook reliability Production release
 
@@ -965,6 +992,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |
 | LINE-WEBHOOK-1 | LINE redelivery or partial batch failure could duplicate drafts and reprocess completed events | No persistent webhook event identity/state, batch-level failure handling, and an 8-second gateway timeout | Service-role-only `mtp_line_events` ledger, atomic claim/finalize RPCs, per-event isolation, 30-second lease, `source_event_id` mutation idempotency, and provider redelivery enabled | Final review PASS at `73ad8b6`; CI #104/#116; isolated replay/timeout PASS; migration `20260818154406`; v22 live smoke: 5 processed, 0 failed/processing, max attempt 1, no new mutation |
 | PACKET-A-B2-1 | Pinned logical backup failed in the data phase on the disposable CLI target | Supabase CLI `2.111.0` bootstrapped Storage through migration 60 while the Production-shaped dump expected migration-62 columns; zero-row COPY headers still resolve every named column | Fail-closed network-isolated compatibility bridge pins reviewed upstream migrations 61-62, exact pre/post catalog state and immutable source hashes; it never edits the dump or records false Storage migration history | PR #79 exact head `796b42a`; source-safety and restore run `32577304437` PASS; no output artifact or Production connection |
+| PACKET-A-ACL-1 | Broad existing LINE grants and `postgres` future defaults exposed privileges beyond the reviewed contract | Historical Supabase defaults plus explicit existing object grants were broader than RLS alone controls | Exact hash-pinned targeted ACL migration; never use `db push`; freeze before/after ledger, count, ACL/RLS and unrelated canaries | Migration `20260822162710`; catalog/default/RLS/count/canary PASS; functional smoke Owner-waived / NOT EXECUTED |
 
 ## Open backlog
 

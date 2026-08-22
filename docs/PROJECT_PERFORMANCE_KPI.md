@@ -239,6 +239,32 @@ landed on `main` after a merge; do not infer it from the branch that was
 pushed.**
 
 
+## Packet A ACL hardening — Production catalog closure
+
+Technical Production apply and catalog verification completed on `2026-08-22`
+(`Asia/Bangkok`). Packet A M0 was not captured as a comparable timed milestone,
+so end-to-end elapsed hours and speed-improvement percentages are **N/A**, not
+reconstructed.
+
+| KPI / gate | Result |
+|---|---|
+| Exact targeted migration apply | PASS — provider version `20260822162710` |
+| Migration apply attempts | `1` successful attempt |
+| Unexpected migration records | `0`; L0b remained unapplied |
+| Target ACL/default/RPC matrix | PASS |
+| RLS/policy drift | `0`; five tables enabled, ten policies unchanged |
+| Target row-count delta | `0`; counts stayed `1/5/1/17/1` |
+| Unrelated `aicc_*` v2 canary drift | `0`; `848e24b1452c3c4e5ff6b7b9ce308044` |
+| Post-apply LINE v2 fingerprint stability | PASS twice; `f939987598538c846c82d85942a37037` |
+| L0b tables created | `0/9` |
+| Rollback / forward fix required | `0` |
+| Functional smoke coverage | `0/3` — Owner-waived / NOT EXECUTED |
+| Decision | CONDITIONAL PASS with accepted `PACKET-A-R1` assurance residual |
+
+Do not publish a 100% functional-verification claim. Management closure counts
+the explicit Owner waiver as a closed decision gate, while technical evidence
+continues to show the three smoke checks were not run.
+
 ## L0a webhook reliability release — M6 Production Verified
 
 Technical Production verification completed on `2026-08-19` (`Asia/Bangkok`).
