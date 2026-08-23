@@ -7,16 +7,20 @@ source-of-truth cutover occurred.
 The GitHub Pages path published the browser asset automatically after merge;
 PR #77 then merged Packet A as
 `main@9a5a95f5c9065214c0418def80a3086fdf79d323`, keeping its Full/Mobile
-controls disabled in source until a separate backend-activation release.
+controls disabled in Production source. Draft PR #86 now stages the separate
+Gate 4 source candidate at exact reviewed source head
+`db3c8cded9359b402eb6316bb4c21067db8195d4`; it is not merged or published and
+no import has run.
 
 ## Purpose and boundary
 
 L0b adds an additive, owner-scoped normalized projection of the current planner
 data. It is a foundation and reconciliation exercise, not L1 direct Todo access.
 The browser plus Google Drive remain authoritative. The reviewed manual importer
-is retained, but Packet A exposes `enabled=false`, hides both Full/Mobile
-controls, and makes their handlers fail closed. A later reviewed activation must
-deliberately enable it. Drive save, Auto-sync, LINE snapshots, mutation queues,
+is retained. Production `main` still exposes `enabled=false`, hides both
+Full/Mobile controls, and makes their handlers fail closed. Draft PR #86
+deliberately changes only that bridge flag to `true`; the existing render and
+handler checks remain. Drive save, Auto-sync, LINE snapshots, mutation queues,
 timers, and provider configuration do not invoke it.
 
 The applied migration is
@@ -225,8 +229,11 @@ SQL/permission contract remains unchanged.
 The qualifying restore-tested backup, custody, read-only preflight, targeted 6D,
 exact L0b-only apply, and catalog verification gates in
 `docs/L0B_PRODUCTION_READINESS.md` are complete. The nine tables contain zero
-rows and both importers remain disabled. Manual enablement/import, acceptance,
-deployment, source-of-truth cutover, and L1 remain separately gated. Generic
+rows. Gate 4 Draft PR #86 exact source head
+`db3c8cded9359b402eb6316bb4c21067db8195d4` passed GitHub Actions `verify`
+#150, run `32623877211`, and targeted 6D for a separate merge/publication
+decision. Production remains disabled. Merge/publication, first import,
+acceptance, source-of-truth cutover and L1 remain separately gated. Generic
 `supabase db push` is prohibited. Rollback before any import is to keep the
 importer disabled; the additive tables may remain and the browser/Drive/LINE
 snapshot path stays usable.

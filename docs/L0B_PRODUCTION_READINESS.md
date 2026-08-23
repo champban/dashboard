@@ -1,14 +1,15 @@
 # L0b Production Readiness
 
 Status: **SCHEMA-ONLY PRODUCTION APPLY AND CATALOG VERIFICATION COMPLETE /
-IMPORTER DISABLED / MANUAL IMPORT NOT EXECUTED**
+GATE 4 MANUAL-CONTROL SOURCE STAGED IN DRAFT PR #86 / PRODUCTION IMPORTER
+STILL DISABLED / MANUAL IMPORT NOT EXECUTED**
 
 Decision date: `2026-08-23` (`Asia/Bangkok`)
 
 This packet records the exact, separately approved L0b schema-only Production
-apply after Packet A. It does not authorize planner-data read/copy, import,
-source enablement, deployment, provider/Auth/secret change, cleanup, merge, or
-L1. Browser + Google Drive remain authoritative.
+apply after Packet A and the later Gate 4 source-only candidate. It does not
+authorize planner-data read/copy, import, publication, provider/Auth/secret
+change, cleanup, merge, or L1. Browser + Google Drive remain authoritative.
 
 ## Exact source boundary
 
@@ -160,11 +161,20 @@ change.
 
 ### Gate 4 — manual import enablement and acceptance
 
-- [ ] Create a separate source PR that deliberately enables only the reviewed
-      manual controls in both Full and Mobile. Keep Drive-save, Auto-sync, LINE,
-      and mutation paths isolated from the importer.
-- [ ] Run full build, package, secret, browser, PostgreSQL 17, and negative-gate
-      verification at exact head; obtain separate merge/deploy approval.
+- [x] Create a separate source PR that deliberately enables only the reviewed
+      manual controls in both Full and Mobile. Draft PR #86 exact source head
+      `db3c8cded9359b402eb6316bb4c21067db8195d4`, tree
+      `9cb2bad40bd18f249aa2ad25903c2c50e351dd56`, changes only
+      `l0b-import.js` and `build/l0b-import.test.mjs`. Drive-save, Auto-sync,
+      LINE and mutation paths remain isolated from the importer.
+- [x] Run full build, package, secret, browser, PostgreSQL 17, and negative-gate
+      verification at exact source head. GitHub Actions `verify` #150, run
+      `32623877211`, passed all four jobs. Targeted 6D found no new
+      Critical/High issue and returned `CONDITIONAL PASS` for a separate
+      merge/publication decision.
+- [ ] Obtain separate exact-head merge/publication approval. PR #86 remains
+      Draft; `main` and the live GitHub Pages planner still carry
+      `UI_ENABLED=false`.
 - [ ] Obtain a separate exact approval before reading/projecting owner planner
       data or starting the first authenticated import.
 - [ ] Owner initiates the import from the signed-in planner. Verify only bounded

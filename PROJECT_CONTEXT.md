@@ -253,6 +253,41 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   acceptance remain separately Owner-gated; this documentation closure is not
   import acceptance or L0b/L1 source-of-truth cutover.
 
+### L0b Gate 4 manual-control source — Draft, not published
+
+- Draft PR #86 is the separately staged manual-control source packet. Its exact
+  reviewed source head is
+  `db3c8cded9359b402eb6316bb4c21067db8195d4`, tree
+  `9cb2bad40bd18f249aa2ad25903c2c50e351dd56`, based directly on
+  `main@167b84cfdfeedd19c0396b2f520e9806244eec3b`, tree
+  `f53963dc82e088c0805cc8da94653352695c7865`.
+- The source diff is exactly one commit and two modified files:
+  `l0b-import.js` changes `UI_ENABLED=false` to `true`, and
+  `build/l0b-import.test.mjs` updates the corresponding reviewed-control
+  assertions. Full/Mobile keep their existing `enabled===true` render checks
+  and fail-closed handlers. No timer, Auto-sync, Drive or LINE path invokes
+  `importNow`.
+- Exact-head GitHub Actions `verify` #150, run `32623877211`, passed all four
+  jobs, including pinned install, full build/harness/audit/package/regression/
+  secret/parity checks, PostgreSQL 17 L0b/ACL gates and the L0a SQL gate.
+- Targeted 6D decision at the exact source head is **CONDITIONAL PASS — READY
+  FOR A SEPARATE MERGE/PUBLICATION DECISION; IMPORT REMAINS BLOCKED**. No
+  Critical/High finding was introduced. See `docs/SECURITY_6D_AUDIT.md`.
+- `main` and the live GitHub Pages planner still carry the disabled importer.
+  PR #86 remains Draft. This source/audit closure performs no merge,
+  publication, planner-content read, import, Supabase write, provider/Auth/
+  secret change, cleanup or L1 action.
+- Read-only provider recheck on `2026-08-23` found Production
+  `qjaywadzvwvcspdsjxth` `ACTIVE_HEALTHY`, PostgreSQL `17.6.1.147`, migration
+  tail `20260823055451_l0b_data_foundation`, all nine L0b tables RLS-enabled
+  and all nine row counts still zero. Advisor findings match the documented
+  six intended importer WARNs, one intentional LINE INFO and one pre-existing
+  Auth WARN.
+- The next gate is an exact-head merge/publication decision after this
+  documentation-only closure and its CI pass. The first authenticated import,
+  bounded aggregate reconciliation and Owner acceptance remain a later,
+  separate exact approval and explicit signed-in Owner action.
+
 ### L0a webhook reliability Production release
 
 - PR #70 merged the exact reviewed L0a source; PR #69 was closed unmerged as
@@ -447,6 +482,7 @@ Targeted 6D audit:
 | 2026-07-30 | `bf47521` / merge `ad3067f` | Supabase Production v3 | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-07-30 | merge `e7ea377` (PRs #45 and #46) | Docs, assets and CI only — no runtime change | Pass | Pass | Pass | Pass | Pass | Pass | PASS | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-08-19 | source `3cafa19` / Production v22 | Supabase Production L0a webhook reliability | Pass | Pass | Pass | Pass | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-08-23 | source `db3c8cde` / Draft PR #86 | L0b Gate 4 source candidate; not merged/published/imported | Pass | Pass | Pass | Conditional | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
 
 The second row covers Rich Menu asset versioning, the project-context
 corrections, and the scheduled health check. `index.html` and
@@ -1072,7 +1108,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
-| L0b | Normalized Supabase projection — Production activation | **Schema gate complete; import gate next.** Source/reviews/CI, qualifying backup custody, targeted 6D, exact schema-only apply, and catalog verification are closed. Production has `9/9` tables and `6/6` reviewed RPCs with zero rows; importer remains disabled. Follow `docs/L0B_PRODUCTION_READINESS.md` for separately approved enablement, first manual import, reconciliation, and acceptance. |
+| L0b | Normalized Supabase projection — Production activation | **Schema gate complete; Gate 4 source candidate is Draft.** PR #86 exact source head `db3c8cde` enables only the reviewed manual controls and passed CI #150 plus targeted 6D. Production `main`/GitHub Pages remain disabled; all `9/9` L0b tables remain empty. Next is a separate exact-head merge/publication decision, followed by a later separately approved first manual import, reconciliation and acceptance. |
 | L1 | Direct Supabase Todo / Drive export-only cutover | Unstarted and blocked on L0b Production verification plus schema completion for operational fields, opaque LINE reference design, full-owner reconciliation, and a separate cutover/rollback approval. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
