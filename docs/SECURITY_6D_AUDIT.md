@@ -12,6 +12,9 @@ Packet A Production ACL closure: `2026-08-22` (`Asia/Bangkok`)
 
 L0b schema-only Production closure: `2026-08-23` (`Asia/Bangkok`)
 
+L0b Gate 4 targeted source decision: `2026-08-23T14:00:10+07:00`
+(`Asia/Bangkok`)
+
 Repository: `champban/dashboard`
 
 Production scope:
@@ -163,6 +166,45 @@ COMPLETE; MANUAL IMPORT / ACCEPTANCE NOT EXECUTED.**
 - Both Full/Mobile importers remain disabled. Browser + Google Drive remain
   authoritative. Manual enablement/import and acceptance require a new exact
   approval and are not implied by this documentation-only PR.
+
+## L0b Gate 4 targeted source closure
+
+**Decision: CONDITIONAL PASS — EXACT SOURCE HEAD IS READY FOR A SEPARATE
+MERGE/PUBLICATION DECISION; IMPORT AND OWNER-DATA PROJECTION REMAIN BLOCKED.**
+
+Scope is limited to Draft PR #86 source head
+`db3c8cded9359b402eb6316bb4c21067db8195d4`, tree
+`9cb2bad40bd18f249aa2ad25903c2c50e351dd56`, based directly on
+`main@167b84cfdfeedd19c0396b2f520e9806244eec3b`, tree
+`f53963dc82e088c0805cc8da94653352695c7865`. The one source commit changes
+only `l0b-import.js` and `build/l0b-import.test.mjs`: it deliberately changes
+`UI_ENABLED` from `false` to `true` and updates the matching regression
+assertions. Migration, RPC, RLS, ACL, Auth, CSP, dependency, Drive, LINE and
+provider configuration source is unchanged.
+
+| Dimension | Decision | Exact-head evidence / remaining condition |
+|---|---|---|
+| 1. Identity and access | PASS FOR SOURCE | The button remains an explicit signed-in browser action. `importNow` requires the existing authenticated Supabase client; the six reviewed RPCs continue to bind every operation to `auth.uid()`, use empty `search_path`, owner predicates, RLS and generation/lease fencing. PostgreSQL 17 cross-owner/direct-write/function-security gates passed. |
+| 2. Secrets and data | PASS FOR SOURCE | The two-file diff contains no credential or planner content; repository secret scan passed. This source PR performed no Supabase write or planner-data read. A later click would project owner data and therefore remains behind a separate exact approval. |
+| 3. Input and content safety | PASS | Projection allowlists, binary exclusion, canonical identity, exact-byte chunking, bounded JSON/chunk limits, duplicate quarantine, rejection and reconciliation logic are unchanged. Focused and full regression tests passed. |
+| 4. Browser and network controls | CONDITIONAL PASS | Full and Mobile retain exactly one manual control, their `enabled===true` render checks and fail-closed handlers. Static tests confirm no timer, Auto-sync, Drive or LINE path invokes `importNow`. No CSP, origin, redirect or network allowlist change exists. Publication remains a separate decision because this repository's `main` is coupled to GitHub Pages. |
+| 5. Supply chain and deployment | CONDITIONAL PASS | No package/lockfile/workflow change. Exact-head GitHub Actions `verify` #150, run `32623877211`, completed successfully on all four jobs, including pinned `npm ci`, build/harness/audit/package, full regression, secret scan, generated-artifact parity, PostgreSQL 17 L0b/ACL and L0a SQL gates. PR #86 remains Draft and `main` remains unchanged. |
+| 6. Operations and recovery | CONDITIONAL PASS | Production project `qjaywadzvwvcspdsjxth` remains `ACTIVE_HEALTHY`; migration tail is `20260823055451_l0b_data_foundation`; all nine L0b tables remain RLS-enabled with zero rows. Before any import, rollback is to leave `main` on the current disabled source or revert the future merge; the additive empty schema may remain. No automatic retry, shadow/dual write, destructive rollback or L1 action is allowed. |
+
+No Critical or High finding was introduced by the exact two-file source change.
+The [official Supabase 2026 Data API default-grant change](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically)
+does not invalidate the reviewed contract: the applied migration already uses
+explicit grants and RLS.
+The six expected authenticated `SECURITY DEFINER` advisor WARNs, intentional
+`mtp_line_events` no-policy INFO, and pre-existing leaked-password-protection
+WARN are unchanged.
+
+This decision does not approve merge, GitHub Pages publication, planner-data
+read/projection, first import, provider/Auth/secret change, cleanup, deployment
+verification, acceptance or L1. Any change to the exact source bytes, importer
+contract, migration/RPC/RLS/ACL source, dependency lockfile, workflow, Auth,
+network controls or provider baseline invalidates the applicable evidence and
+requires targeted re-audit.
 
 ## Packet A targeted pre-Production 6D decision
 
