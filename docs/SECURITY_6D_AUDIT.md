@@ -1,4 +1,4 @@
-# Security 6D Audit — L0a Closure and L0b Source Gate
+# Security 6D Audit — L0a Closure and L0b Gate 4 Publication Closure
 
 Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
@@ -13,6 +13,9 @@ Packet A Production ACL closure: `2026-08-22` (`Asia/Bangkok`)
 L0b schema-only Production closure: `2026-08-23` (`Asia/Bangkok`)
 
 L0b Gate 4 targeted source decision: `2026-08-23T14:00:10+07:00`
+(`Asia/Bangkok`)
+
+L0b Gate 4 publication closure: `2026-08-23T19:29:26+07:00`
 (`Asia/Bangkok`)
 
 Repository: `champban/dashboard`
@@ -33,8 +36,9 @@ Production scope:
 **Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP,
 ISOLATED RESTORE, TARGETED PRODUCTION APPLY, AND CATALOG GATES COMPLETE;
 FUNCTIONAL SMOKE OWNER-WAIVED / NOT EXECUTED. L0b SCHEMA-ONLY APPLY AND CATALOG
-GATES ARE COMPLETE; IMPORT REMAINS DISABLED AND NOT EXECUTED. PROVIDER GATE A
-IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED RESIDUAL.**
+GATES ARE COMPLETE; GATE 4 MANUAL CONTROLS ARE PUBLISHED; FIRST IMPORT REMAINS
+NOT EXECUTED. PROVIDER GATE A IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED
+RESIDUAL.**
 
 Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
 PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
@@ -76,9 +80,9 @@ A hardening of `postgres` defaults and existing objects.
 | 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revoked public-schema `postgres` table/sequence/API-role defaults, globally revoked its built-in future-function `PUBLIC EXECUTE`, and reconstructed exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Packet A catalog gate closed; L0b has a separate preflight/apply/import gate |
 | 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change | Secret scan and exact-head diff |
 | 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
-| 4. Browser and network controls | Full/Mobile controls require `enabled===true`; bridge defaults false; handlers also reject disabled calls; Drive/LINE paths unchanged | Generated artifact parity and browser regression suite |
+| 4. Browser and network controls | Packet A first made the Full/Mobile controls default-off; the separately approved Gate 4 publication later set the reviewed bridge to `enabled=true`. Existing signed-in render checks and fail-closed handlers remain; Drive/LINE paths are unchanged | Exact-head/post-merge generated-artifact parity and browser regression passed; first import remains a separate gate |
 | 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 and the frozen migration was applied through targeted `apply_migration` | Packet A closed; never use generic `supabase db push` for L0b |
-| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody was confirmed for the exact L0b schema gate; later import/recovery gates remain separately controlled |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented with no cleanup/rollback DDL. The importer was disabled through the schema-only closure; Gate 4 later published the manual controls without executing an import. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody was confirmed for the exact L0b schema gate; first import/recovery gates remain separately controlled |
 
 ### Packet A Backup Gate B-1/B-2 evidence
 
@@ -123,7 +127,8 @@ Open risks:
 - `RISK-L0B-UI-1`: PR #76 source was automatically published by the current
   GitHub Pages coupling. Impact is limited to a visible, failing import control;
   no L0b backend/data existed. Packet A prevents recurrence by default-off UI
-  gating; future source merge and publication remain separate approvals.
+  gating. The later Gate 4 source merge/publication was separately approved and
+  completed; first owner-data projection/import remains separately gated.
 - Legacy subtask `Date.now()` collisions remain whole-batch identity quarantine
   under D-1 A1. A subtask UUID migration is a later L1 prerequisite, not L0b.
 - Event windows are positional values and have no stable identity across reorder.
@@ -163,9 +168,10 @@ COMPLETE; MANUAL IMPORT / ACCEPTANCE NOT EXECUTED.**
   `search_path`, RLS, and fencing all passed. Any drift reopens the gate. The
   pre-existing leaked-password-protection WARN and default-deny LINE INFO remain
   outside this schema-only closure.
-- Both Full/Mobile importers remain disabled. Browser + Google Drive remain
-  authoritative. Manual enablement/import and acceptance require a new exact
-  approval and are not implied by this documentation-only PR.
+- At this schema-only closure point both Full/Mobile importers remained
+  disabled. The later separately reviewed Gate 4 publication is recorded below;
+  browser + Google Drive still remain authoritative and first import/acceptance
+  still require a new exact approval.
 
 ## L0b Gate 4 targeted source closure
 
@@ -205,6 +211,32 @@ verification, acceptance or L1. Any change to the exact source bytes, importer
 contract, migration/RPC/RLS/ACL source, dependency lockfile, workflow, Auth,
 network controls or provider baseline invalidates the applicable evidence and
 requires targeted re-audit.
+
+## L0b Gate 4 merge/publication closure
+
+**Decision: PASS FOR THE EXACT APPROVED MERGE/PUBLICATION BOUNDARY — FIRST
+IMPORT AND OWNER-DATA PROJECTION REMAIN BLOCKED.**
+
+Owner approval was frozen to PR #86 exact head
+`4830b6cf82aa1ff65306b775e2382d84e96af21e`, tree
+`34f3859b997a530d80c4387bca0212388b731dc7`, and exact base
+`main@167b84cfdfeedd19c0396b2f520e9806244eec3b`. GitHub merged that unchanged
+tree as `main@8fc88a8a94017eadb58b98adecbb87e22d65496c`; its two parents are the exact
+approved base and head. The merge commit signature is valid.
+
+| Dimension | Decision | Post-merge evidence / remaining boundary |
+|---|---|---|
+| 1. Identity and access | PASS FOR PUBLICATION | No Auth, RPC, RLS, policy or privilege bytes changed after the targeted review. The published controls still require the signed-in browser client and explicit Owner action. |
+| 2. Secrets and data | PASS FOR PUBLICATION | Exact-head and post-merge secret scans passed. Publication read no planner content and performed no Supabase write; all nine L0b tables remain empty. |
+| 3. Input and content safety | PASS / NO DRIFT | The approved PR-head tree equals the merge tree. Projection allowlists, binary exclusion, chunk bounds, identity, rejection and reconciliation logic are unchanged from the targeted source decision. |
+| 4. Browser and network controls | PASS FOR PUBLICATION | `UI_ENABLED=true` exposes only the reviewed manual controls behind existing render/fail-closed checks. Static tests still prove no timer, Auto-sync, Drive or LINE path invokes `importNow`; no CSP/origin/redirect change exists. |
+| 5. Supply chain and deployment | PASS | Exact PR-head `verify` #151 (`32624687421`) and post-merge push `verify` #152 (`32639538682`) passed all four jobs. Pages #117 (`32639537950`) completed build, report and deploy for exact merge `8fc88a8a`; artifact `9493226035` digest is `sha256:cdc5c5ba6fd15897240d61a12dd650c188d337938d693eda2e8debdcf5cbee92`. |
+| 6. Operations and recovery | PASS FOR PUBLICATION | Read-only Production recheck found project `qjaywadzvwvcspdsjxth` `ACTIVE_HEALTHY`, migration tail `20260823055451_l0b_data_foundation`, RLS `9/9`, and zero rows in all nine L0b tables. Before any import, rollback is a reviewed source revert; no destructive database rollback is allowed. |
+
+This closes only the approved GitHub merge/publication boundary. It does not
+authorize planner-data read/projection, first import, bounded reconciliation,
+acceptance, provider/Auth/secret change, cleanup, source-of-truth cutover or L1.
+Those actions require a separate exact Owner gate.
 
 ## Packet A targeted pre-Production 6D decision
 

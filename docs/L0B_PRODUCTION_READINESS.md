@@ -1,15 +1,15 @@
 # L0b Production Readiness
 
 Status: **SCHEMA-ONLY PRODUCTION APPLY AND CATALOG VERIFICATION COMPLETE /
-GATE 4 MANUAL-CONTROL SOURCE STAGED IN DRAFT PR #86 / PRODUCTION IMPORTER
-STILL DISABLED / MANUAL IMPORT NOT EXECUTED**
+GATE 4 MANUAL-CONTROL PUBLICATION COMPLETE / FIRST MANUAL IMPORT NOT EXECUTED**
 
 Decision date: `2026-08-23` (`Asia/Bangkok`)
 
 This packet records the exact, separately approved L0b schema-only Production
-apply after Packet A and the later Gate 4 source-only candidate. It does not
-authorize planner-data read/copy, import, publication, provider/Auth/secret
-change, cleanup, merge, or L1. Browser + Google Drive remain authoritative.
+apply after Packet A and the separately approved Gate 4 merge/publication. It
+does not authorize planner-data read/copy, first import, provider/Auth/secret
+change, cleanup, source-of-truth cutover, or L1. Browser + Google Drive remain
+authoritative.
 
 ## Exact source boundary
 
@@ -46,8 +46,9 @@ Verified through the authenticated Supabase connector on `2026-08-23`:
 - Reviewed triggers are present `5/5`, indexes `8/8`, unvalidated constraints
   `0`, owner-orphans `0`, table ACL differences `0`, function ACL differences
   `0`, `PUBLIC` RPC grants `0`, and sequence API-role grants `0`.
-- All nine L0b tables contain zero rows. Both Full/Mobile import controls remain
-  disabled (`UI_ENABLED=false`); no planner content was read or imported.
+- All nine L0b tables contain zero rows. PR #86 later published the reviewed
+  Full/Mobile signed-in manual controls (`UI_ENABLED=true`), but no planner
+  content was read or imported and no automatic path invokes the importer.
 - Frozen LINE canaries were unchanged before/after: tables `5` / RLS `5`,
   columns `38`, policies `10`, functions `4`, row counts `1/5/1/17/1`; digests
   `f1f54e4e92976f3d85b5ff55a1e6a0f9`,
@@ -104,7 +105,8 @@ change.
 
 ### Gate 0 — source and scope lock
 
-- [x] L0b source is merged and remains disabled in Full and Mobile.
+- [x] At Gate 0, L0b source was merged and both Full/Mobile controls were
+      disabled. The separately approved Gate 4 publication is recorded below.
 - [x] Migration blob and SHA-256 are frozen above.
 - [x] Pre-apply Production project, PostgreSQL major version, ledger tail, and
       L0b absence were verified read-only.
@@ -156,13 +158,14 @@ change.
       sequence/function/table/column privileges match the frozen migration.
 - [x] Run aggregate-only owner-orphan, FK, function-security, policy, ACL,
       default-privilege, ledger, Packet A, and unrelated `aicc_*` canaries.
-- [x] Confirm no planner rows were imported and Full/Mobile importer controls
-      remain disabled. A schema-only apply is not an import or M6 acceptance.
+- [x] Confirm no planner rows were imported and, at schema-only closure, the
+      Full/Mobile controls remained disabled. Gate 4 publication is recorded
+      separately below; a schema-only apply is not an import or M6 acceptance.
 
 ### Gate 4 — manual import enablement and acceptance
 
 - [x] Create a separate source PR that deliberately enables only the reviewed
-      manual controls in both Full and Mobile. Draft PR #86 exact source head
+      manual controls in both Full and Mobile. PR #86 runtime source commit
       `db3c8cded9359b402eb6316bb4c21067db8195d4`, tree
       `9cb2bad40bd18f249aa2ad25903c2c50e351dd56`, changes only
       `l0b-import.js` and `build/l0b-import.test.mjs`. Drive-save, Auto-sync,
@@ -172,9 +175,12 @@ change.
       `32623877211`, passed all four jobs. Targeted 6D found no new
       Critical/High issue and returned `CONDITIONAL PASS` for a separate
       merge/publication decision.
-- [ ] Obtain separate exact-head merge/publication approval. PR #86 remains
-      Draft; `main` and the live GitHub Pages planner still carry
-      `UI_ENABLED=false`.
+- [x] Obtain and execute the separate exact-head merge/publication approval.
+      PR #86 exact head `4830b6cf82aa1ff65306b775e2382d84e96af21e`,
+      tree `34f3859b997a530d80c4387bca0212388b731dc7`, merged into exact base
+      `main@167b84cfdfeedd19c0396b2f520e9806244eec3b` as
+      `main@8fc88a8a94017eadb58b98adecbb87e22d65496c` with the same tree.
+      Exact-head CI #151, post-merge CI #152 and Pages deployment #117 passed.
 - [ ] Obtain a separate exact approval before reading/projecting owner planner
       data or starting the first authenticated import.
 - [ ] Owner initiates the import from the signed-in planner. Verify only bounded
@@ -188,19 +194,19 @@ change.
 ### Gate 5 — L0b closure
 
 - [x] Record the schema-only migration version, exact source, backup custody,
-      aggregate catalog, RLS/ACL, zero-row state, rollback status, and residuals
-      in context/security/KPI documentation. Import reconciliation and Owner
-      acceptance remain pending Gate 4.
+      aggregate catalog, RLS/ACL, zero-row state, Gate 4 publication, rollback
+      status, and residuals in context/security/KPI documentation. Import
+      reconciliation and Owner acceptance remain pending Gate 4.
 - [x] Keep browser + Google Drive authoritative. L0b remains a partial projection
       and does not authorize direct Supabase Todo mutation or L1 cutover.
 
 ## Rollback and stop conditions
 
-The migration is additive. Before any import, the safe rollback is to keep both
-client controls disabled and leave the unused schema in place while a separately
-approved least-privilege forward fix is prepared. Do not drop tables, rewrite
-migration history, restore Production, or delete evidence as an automatic
-response.
+The migration is additive. Before any import, the safe rollback is to revert the
+manual-control publication and leave the unused schema in place while a
+separately approved least-privilege forward fix is prepared. Do not drop tables,
+rewrite migration history, restore Production, or delete evidence as an
+automatic response.
 
 After an import, no automatic destructive rollback is allowed. Preserve Drive as
 the source of truth, stop further imports, retain batch evidence, and require a
