@@ -25,10 +25,10 @@ Production scope:
 
 ## L0b source merge and Packet A addendum
 
-**Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP AND
-ISOLATED RESTORE GATES COMPLETE; L0b DATABASE ACTIVATION AND PACKET A
-PRODUCTION APPLY NOT APPROVED. PROVIDER GATE A CLOSED AS AN ACCEPTED
-PROVIDER-MANAGED RESIDUAL.**
+**Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP,
+ISOLATED RESTORE, TARGETED PRODUCTION APPLY, AND CATALOG GATES COMPLETE;
+FUNCTIONAL SMOKE OWNER-WAIVED / NOT EXECUTED. L0b DATABASE ACTIVATION IS NOT
+APPROVED. PROVIDER GATE A IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED RESIDUAL.**
 
 Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
 PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
@@ -54,7 +54,8 @@ ACL-only migration plus PostgreSQL 17 tests. PR #77 merged exact reviewed head
 `a9c99719e0e6abdf2a5f1fbedd282328f812577b`, tree
 `6479a43d73b04351f842e985a538afada694ce5e`, as
 `main@9a5a95f5c9065214c0418def80a3086fdf79d323`. Exact-head CI #127 passed all
-four jobs. The ACL migration remains unapplied.
+four jobs. The exact ACL migration was later applied once and catalog-verified
+as provider version `20260822162710`; the closure is recorded below.
 
 Provider Gate A closed on `2026-08-21`. Supabase's current official API-security
 documentation and merged PR #47952 state that `supabase_admin` default ACLs are
@@ -66,12 +67,12 @@ A hardening of `postgres` defaults and existing objects.
 
 | Dimension | Current source control | Remaining gate |
 |---|---|---|
-| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revokes public-schema `postgres` table/sequence/API-role defaults, globally revokes its built-in future-function `PUBLIC EXECUTE`, and reconstructs exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Read-only preflight, exact ACL-only apply approval, and post-apply catalog/RLS verification |
+| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revoked public-schema `postgres` table/sequence/API-role defaults, globally revoked its built-in future-function `PUBLIC EXECUTE`, and reconstructed exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Packet A catalog gate closed; L0b has a separate preflight/apply/import gate |
 | 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change | Secret scan and exact-head diff |
 | 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
 | 4. Browser and network controls | Full/Mobile controls require `enabled===true`; bridge defaults false; handlers also reject disabled calls; Drive/LINE paths unchanged | Generated artifact parity and browser regression suite |
-| 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 | Freeze the reviewed migration hash; separate Production approval; never use generic `supabase db push` |
-| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Fresh encrypted backup and isolated restore/reconciliation passed in B-1/B-2 | Targeted 6D decision, targeted `apply_migration` approval, and aggregate post-apply evidence |
+| 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 and the frozen migration was applied through targeted `apply_migration` | Packet A closed; never use generic `supabase db push` for L0b |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody remains unconfirmed; any future schema gate requires qualifying backup evidence |
 
 ### Packet A Backup Gate B-1/B-2 evidence
 
@@ -89,19 +90,28 @@ A hardening of `postgres` defaults and existing objects.
   reconciliation passed. No output artifact or Production connection was used.
 - Post-run read-only Production table counts matched the pre-run snapshot. The
   approval label was removed and PR #79 remains Draft/unmerged.
+- After Packet A apply, refreshed B-1 run `32587955307`, job `97067096268`,
+  produced artifact `9479566992`; Owner custody of that refreshed artifact is
+  not confirmed and its expiry is `2026-08-23T17:33:07Z`.
+- Refreshed B-2 Draft PR #83 exact remote head
+  `48aaa7968ab76946095207d919a1db29cc3c7f05`, tree
+  `c573d02e52aae7613724b874bd3dd7e7ba6736bf`, passed verify run
+  `32616039132`, source-safety run `32616039104`, and the separately approved
+  isolated restore run `32618003121` (jobs `97141728425` / `97141748031`).
+  Exact Packet A ACL/default/catalog reconciliation and cleanup passed; output
+  artifacts were zero and Production remained unchanged.
+- PR #83 remains Draft/unmerged. Its label and exact Environment rule remain
+  present but authorize no new event or run without a separate exact-head gate.
 
-This evidence closes only the backup and recovery-readiness portion of
-dimension 6. It is not the targeted pre-Production 6D decision and does not
-authorize Packet A apply, L0b activation, deployment, cleanup, or L1.
+The original evidence closed the pre-apply recovery gate; the refreshed evidence
+validates recoverability and Packet A ACL reconciliation after apply. Neither
+authorizes L0b activation, deployment, cleanup, or L1.
 
 Open risks:
 
-- `RISK-L0A-ACL-1`: broad existing `mtp_line_*` ACLs and `postgres` defaults
-  have Packet A source remediation, but the Production risk remains open until
-  apply/verification. Provider-owned `supabase_admin` defaults are an accepted
-  provider-managed residual and no longer part of this risk. Whole-table
-  operations such as `TRUNCATE` remain outside RLS, so existing broad grants are
-  still material until Packet A is applied.
+- `RISK-L0A-ACL-1`: **closed** after exact apply/catalog verification. The
+  remaining `PACKET-A-R1` assurance residual is the Owner-waived functional
+  smoke; provider-owned `supabase_admin` defaults remain an accepted residual.
 - `RISK-L0B-UI-1`: PR #76 source was automatically published by the current
   GitHub Pages coupling. Impact is limited to a visible, failing import control;
   no L0b backend/data existed. Packet A prevents recurrence by default-off UI
@@ -111,10 +121,10 @@ Open risks:
 - Event windows are positional values and have no stable identity across reorder.
 - L0b is a partial projection and is not the planner source of truth.
 
-The exact Production procedure and stop conditions are in
-`docs/PACKET_A_PRODUCTION_READINESS.md`. Generic `supabase db push` is blocked:
-it can also apply the earlier pending L0b migration. This addendum is a source
-and provider-decision record only; it is not a new Production 6D pass.
+Packet A's completed procedure is in `docs/PACKET_A_PRODUCTION_READINESS.md`.
+The next database procedure is `docs/L0B_PRODUCTION_READINESS.md`. Generic
+`supabase db push` remains blocked; L0b requires a targeted operation and its
+own exact approval.
 
 ## Packet A targeted pre-Production 6D decision
 
@@ -230,7 +240,7 @@ permission symptom or before the next Auth/ACL/LINE change.
 
 `RISK-L0A-ACL-1` is closed for the broad-grant/default-privilege defect. This
 closure does not authorize L0b, data movement, deployment, provider/Auth
-changes, cleanup, PR #79 merge, or L1.
+changes, cleanup, PR #79/#83 merge, or L1.
 
 ## L0a Decision
 

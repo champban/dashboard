@@ -99,15 +99,37 @@ Read-only Production evidence on `2026-08-21` confirmed:
   `none`, no published port, a reviewed Storage 61-62 compatibility bridge,
   atomic roles/schema/data restore, and exact reconciliation. It uploaded no
   output artifact and never connected to Production.
-- The approval label was removed. PR #79 remains Draft and must not be merged.
-  Its restrictive Environment rule `refs/pull/79/merge` remains outside this
-  documentation-only closure and requires separate cleanup approval.
+- The approval label and exact Environment rule were removed. PR #79 remains
+  Draft and must not be merged.
 
 B-2 proves logical recoverability of this backup. It does not prove Packet A
 hardened ACLs because the backup predates Packet A, and it does not claim exact
 migration-history identity because B-1 did not dump that ledger separately.
 
-## Critical apply-path rule
+### Post-apply refreshed recovery evidence
+
+- Refreshed B-1 run `32587955307`, job `97067096268`, artifact `9479566992`
+  (`dashboard-supabase-backup-20260822T173203Z`) passed after Packet A apply.
+  ZIP size/digest: 30,428 bytes /
+  `d771caa09a77e3b5e6f558dcdda155410c21ebadc786ec6434b1336791ce4d8d`;
+  encrypted archive digest:
+  `b7f651d32b7ac31225839484736e0c8d926e65523120bcc94924c5520a166807`.
+- Its GitHub expiry is `2026-08-23T17:33:07Z`; Owner custody of this refreshed
+  artifact is **not confirmed**. It cannot silently replace a future required
+  fresh backup.
+- Refreshed B-2 source remains isolated in Draft PR #83 at exact remote head
+  `48aaa7968ab76946095207d919a1db29cc3c7f05`, tree
+  `c573d02e52aae7613724b874bd3dd7e7ba6736bf`, based on
+  `main@eeac0ba1c542a17e3d9570f34dba936a20416c6e`.
+- Verify run `32616039132` and source-safety run `32616039104` passed. The
+  separately approved corrected-head isolated restore run `32618003121` passed
+  source job `97141728425` and restore job `97141748031` in 2m36s, including
+  Packet A table/column/function/default ACL reconciliation and fail-closed
+  cleanup. Output artifacts: zero; Production connection/write: none.
+- PR #83 remains Draft and must not be merged. Its label and Environment rule
+  remain present but authorize no further run without a new exact-head gate.
+
+## Historical critical apply-path rule
 
 **Do not run `supabase db push` for Packet A.**
 
@@ -115,17 +137,17 @@ Repository order contains the still-unapplied earlier migration
 `20260820032749_l0b_data_foundation.sql`. A normal push can apply L0b together
 with Packet A and would violate the separate L0b approval boundary.
 
-The only candidate execution path for a later approval is a targeted Supabase
-`apply_migration` operation that receives the exact SQL bytes and migration name
-`line_acl_default_privilege_hardening`. It must apply only that supplied query
-and return a migration record. Capture the provider-assigned migration version
-and map it to the repository filename in `PROJECT_CONTEXT.md` immediately after
-verification.
+The executed path was a targeted Supabase `apply_migration` operation that
+received the exact SQL bytes and migration name
+`line_acl_default_privilege_hardening`. It applied only that supplied query and
+returned provider version `20260822162710`; the mapping is recorded in
+`PROJECT_CONTEXT.md`.
 
-If the targeted operation is unavailable, its behavior has changed, the file
-hash differs, or it would include another migration, stop. Do not fall back to
-`db push`, bulk grants, manual migration-history edits, or copied SQL without a
-new Owner decision.
+This remains the prevention rule for future database work: if a targeted
+operation is unavailable, its behavior has changed, the file hash differs, or it
+would include another migration, stop. Do not fall back to `db push`, bulk
+grants, manual migration-history edits, or copied SQL without a new Owner
+decision.
 
 ## Gates before any Production apply
 
@@ -276,4 +298,5 @@ before smoke/import and keep L0b disabled.
 
 The current browser/Google Drive and LINE snapshot/mutation paths remain the
 recovery path. No L0b import, source-of-truth cutover, queue retirement, provider
-change, cleanup, or L1 work is part of Packet A.
+change, cleanup, or L1 work is part of Packet A. The next staged database gate is
+documented separately in `docs/L0B_PRODUCTION_READINESS.md`.

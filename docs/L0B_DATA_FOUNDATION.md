@@ -114,16 +114,16 @@ cross-owner batches. No service-role table or function grant is needed.
 
 The L0b migration names every L0b object. It never uses schema-wide `ON ALL`
 object grants/revokes and does not change the unrelated `aicc_*` product or
-existing L0a objects. Packet A adds a separate, unapplied ACL-only migration for
+existing L0a objects. Packet A added a separate ACL-only migration for
 `postgres` default privileges and exact existing `mtp_line_*` grants. It does
 not alter existing `aicc_*` ACLs. The built-in future-function `PUBLIC EXECUTE`
 default is revoked globally for the `postgres` owner because PostgreSQL cannot
 remove that default per schema. Provider Gate A closed on `2026-08-21`:
 Supabase documents `supabase_admin` defaults as intentional provider-managed
 state that does not bypass RLS by itself, and the internal role cannot
-authenticate through the Data API. `RISK-L0A-ACL-1` remains open only for the
-`postgres` defaults and existing `mtp_line_*` grants until Packet A is applied
-and verified.
+authenticate through the Data API. `RISK-L0A-ACL-1` closed after exact targeted
+apply and catalog verification on `2026-08-22`; functional smoke remains an
+Owner-accepted / not-executed assurance residual.
 
 ## Manual import protocol
 
@@ -213,13 +213,14 @@ and cross-owner denial.
 The PR #76 source gate is closed and source is merged. Packet A source also
 merged in PR #77 from exact reviewed head
 `a9c99719e0e6abdf2a5f1fbedd282328f812577b` after CI #127 passed all four
-jobs. Its ACL migration remains unapplied. No repeated full L0b review is
-required while the reviewed SQL/permission contract remains unchanged.
+jobs. Its ACL migration was applied and catalog-verified as provider version
+`20260822162710`. No repeated full L0b review is required while the reviewed
+SQL/permission contract remains unchanged.
 
 Any Production change still requires the gates in
-`docs/PACKET_A_PRODUCTION_READINESS.md`: a fresh restore-tested backup,
-read-only preflight, targeted 6D decision, exact ACL-only apply approval, and
-post-apply evidence. Generic `supabase db push` is prohibited because it can
-also apply the earlier pending L0b migration. Rollback for L0b writes is to keep
-the importer disabled; the additive tables may remain and the
-browser/Drive/LINE snapshot path stays usable.
+`docs/L0B_PRODUCTION_READINESS.md`: a qualifying restore-tested backup with
+confirmed custody, read-only preflight, targeted 6D decision, exact L0b-only
+apply approval, catalog verification, and a separately approved manual import.
+Generic `supabase db push` is prohibited. Rollback for L0b writes is to keep the
+importer disabled; the additive tables may remain and the browser/Drive/LINE
+snapshot path stays usable.
