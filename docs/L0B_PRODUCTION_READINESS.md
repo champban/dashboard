@@ -105,7 +105,8 @@ change.
 
 ### Gate 0 — source and scope lock
 
-- [x] L0b source is merged and remains disabled in Full and Mobile.
+- [x] At Gate 0, L0b source was merged and both Full/Mobile controls were
+      disabled. The separately approved Gate 4 publication is recorded below.
 - [x] Migration blob and SHA-256 are frozen above.
 - [x] Pre-apply Production project, PostgreSQL major version, ledger tail, and
       L0b absence were verified read-only.
@@ -157,8 +158,9 @@ change.
       sequence/function/table/column privileges match the frozen migration.
 - [x] Run aggregate-only owner-orphan, FK, function-security, policy, ACL,
       default-privilege, ledger, Packet A, and unrelated `aicc_*` canaries.
-- [x] Confirm no planner rows were imported and Full/Mobile importer controls
-      remain disabled. A schema-only apply is not an import or M6 acceptance.
+- [x] Confirm no planner rows were imported and, at schema-only closure, the
+      Full/Mobile controls remained disabled. Gate 4 publication is recorded
+      separately below; a schema-only apply is not an import or M6 acceptance.
 
 ### Gate 4 — manual import enablement and acceptance
 

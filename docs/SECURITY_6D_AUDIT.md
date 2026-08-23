@@ -1,4 +1,4 @@
-# Security 6D Audit — L0a Closure and L0b Source Gate
+# Security 6D Audit — L0a Closure and L0b Gate 4 Publication Closure
 
 Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
@@ -13,6 +13,9 @@ Packet A Production ACL closure: `2026-08-22` (`Asia/Bangkok`)
 L0b schema-only Production closure: `2026-08-23` (`Asia/Bangkok`)
 
 L0b Gate 4 targeted source decision: `2026-08-23T14:00:10+07:00`
+(`Asia/Bangkok`)
+
+L0b Gate 4 publication closure: `2026-08-23T19:29:26+07:00`
 (`Asia/Bangkok`)
 
 Repository: `champban/dashboard`
@@ -33,8 +36,9 @@ Production scope:
 **Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP,
 ISOLATED RESTORE, TARGETED PRODUCTION APPLY, AND CATALOG GATES COMPLETE;
 FUNCTIONAL SMOKE OWNER-WAIVED / NOT EXECUTED. L0b SCHEMA-ONLY APPLY AND CATALOG
-GATES ARE COMPLETE; IMPORT REMAINS DISABLED AND NOT EXECUTED. PROVIDER GATE A
-IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED RESIDUAL.**
+GATES ARE COMPLETE; GATE 4 MANUAL CONTROLS ARE PUBLISHED; FIRST IMPORT REMAINS
+NOT EXECUTED. PROVIDER GATE A IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED
+RESIDUAL.**
 
 Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
 PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
@@ -76,9 +80,9 @@ A hardening of `postgres` defaults and existing objects.
 | 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revoked public-schema `postgres` table/sequence/API-role defaults, globally revoked its built-in future-function `PUBLIC EXECUTE`, and reconstructed exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Packet A catalog gate closed; L0b has a separate preflight/apply/import gate |
 | 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change | Secret scan and exact-head diff |
 | 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
-| 4. Browser and network controls | Full/Mobile controls require `enabled===true`; bridge defaults false; handlers also reject disabled calls; Drive/LINE paths unchanged | Generated artifact parity and browser regression suite |
+| 4. Browser and network controls | Packet A first made the Full/Mobile controls default-off; the separately approved Gate 4 publication later set the reviewed bridge to `enabled=true`. Existing signed-in render checks and fail-closed handlers remain; Drive/LINE paths are unchanged | Exact-head/post-merge generated-artifact parity and browser regression passed; first import remains a separate gate |
 | 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 and the frozen migration was applied through targeted `apply_migration` | Packet A closed; never use generic `supabase db push` for L0b |
-| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody was confirmed for the exact L0b schema gate; later import/recovery gates remain separately controlled |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented with no cleanup/rollback DDL. The importer was disabled through the schema-only closure; Gate 4 later published the manual controls without executing an import. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody was confirmed for the exact L0b schema gate; first import/recovery gates remain separately controlled |
 
 ### Packet A Backup Gate B-1/B-2 evidence
 
@@ -123,7 +127,8 @@ Open risks:
 - `RISK-L0B-UI-1`: PR #76 source was automatically published by the current
   GitHub Pages coupling. Impact is limited to a visible, failing import control;
   no L0b backend/data existed. Packet A prevents recurrence by default-off UI
-  gating; future source merge and publication remain separate approvals.
+  gating. The later Gate 4 source merge/publication was separately approved and
+  completed; first owner-data projection/import remains separately gated.
 - Legacy subtask `Date.now()` collisions remain whole-batch identity quarantine
   under D-1 A1. A subtask UUID migration is a later L1 prerequisite, not L0b.
 - Event windows are positional values and have no stable identity across reorder.
