@@ -41,7 +41,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   app, task-details candidate v3.75.2).
 - Live planner: https://champban.github.io/dashboard/
 
-### L0b normalized data foundation — manual controls published, import not executed
+### L0b normalized data foundation — first manual import accepted
 
 - Owner approved D-1 `A + A1`, closed Review #1 without another Claude pass,
   then separately approved Codex source-only implementation.
@@ -78,6 +78,16 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   successfully to https://champban.github.io/dashboard/. This publication
   enables only the reviewed signed-in manual controls; it does not read planner
   data or start an import.
+- Owner later approved the exact first owner-data projection/manual-import
+  operation at `main@fe6547513111657b5554c58eb715354f4c408130`, tree
+  `d936d14b756e39eaa193c2d6948a7ea4fc324ff1`, against Production project
+  `qjaywadzvwvcspdsjxth`. Batch `07021dad-c25d-40dc-a722-b405c8b2a5c7`
+  started at `2026-08-23T21:29:12+07:00` and finished successfully at
+  `21:29:13+07:00`: chunks `4/4`, final chunks `1`, rejects `0`, staging `0`,
+  traversal complete, and client/stream plus payload/stored hashes matched.
+  Aggregate active counts are tasks `105`, subtasks `17`, events `6`, event
+  windows `15`, attachments `0`; tombstoned and anomaly counts are all zero.
+  No raw planner content was read into evidence or chat, and no retry ran.
 - Browser + Google Drive remain the Todo source of truth. L0b does not start L1,
   does not make Supabase authoritative, and does not alter the LINE
   snapshot/mutation queue or Drive save paths.
@@ -264,7 +274,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   acceptance remain separately Owner-gated; this documentation closure is not
   import acceptance or L0b/L1 source-of-truth cutover.
 
-### L0b Gate 4 manual-control publication — complete; first import blocked
+### L0b Gate 4 manual-control publication — complete; historical pre-import gate
 
 - PR #86 was approved only at exact head
   `4830b6cf82aa1ff65306b775e2382d84e96af21e`, tree
@@ -291,9 +301,38 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   `qjaywadzvwvcspdsjxth` `ACTIVE_HEALTHY` on PostgreSQL `17.6.1.147`, migration
   tail `20260823055451_l0b_data_foundation`, all nine L0b tables RLS-enabled and
   all nine row counts still zero. Browser + Google Drive remain authoritative.
-- The next gate is a separate exact approval for owner-data projection and the
-  first authenticated manual import. The Owner must explicitly initiate that
-  action; aggregate reconciliation and acceptance follow only if it succeeds.
+- At publication closure, the next gate was a separate exact approval for
+  owner-data projection and the first authenticated manual import. The M6b
+  section below records the later approved action and aggregate acceptance.
+
+### L0b M6b first manual import — aggregate acceptance passed
+
+- The separate exact approval covered one authenticated owner-initiated import,
+  aggregate-only reconciliation and stop-on-drift controls. It excluded Mobile
+  duplication, automatic retry, migration/schema/Auth/secret/provider change,
+  cleanup, source-of-truth cutover and L1.
+- Revalidation immediately before acceptance found exact
+  `main@fe6547513111657b5554c58eb715354f4c408130`, healthy Production,
+  migration tail `20260823055451_l0b_data_foundation`, and qualifying encrypted
+  backup artifact `9479566992` still inside its expiry window. Exactly one batch
+  then existed and reached `succeeded`; no running, failed, partial or expired
+  batch existed.
+- Bounded evidence passed: declared/received chunks `4/4`, final chunk sequence
+  `3`, reject count/classes `0/{}`, traversal and hash comparison true,
+  stream hash equal to the client claim, normalized payload hash equal to the
+  stored hash, staging rows `0`, owner-orphans `0`, and unvalidated constraints
+  `0`. Recorded and actual active/tombstone aggregates matched exactly.
+- Post-import catalog checks retained tables/owner/RLS/policies `9/9`, reviewed
+  RPCs `6/6`, authenticated execute `6`, anon/PUBLIC execute `0`, empty
+  `search_path` `6/6`, authenticated table writes `0`, staging client grants
+  `0`, and sequence API-role grants `0`. LINE remained `5` tables / `5` RLS /
+  `38` columns / `10` policies / `4` functions with row counts `1/5/1/17/1`;
+  unrelated `aicc_*` remained `9` relations / `123` columns / `14` policies /
+  `6` functions.
+- Security advisors remain the documented six intentional importer WARNs, one
+  default-deny LINE INFO and one pre-existing Auth warning; no new Critical or
+  High issue appeared. Browser + Google Drive remain authoritative. M6b closes
+  first-import acceptance only and does not authorize a second import or L1.
 
 ### L0a webhook reliability Production release
 
@@ -491,6 +530,7 @@ Targeted 6D audit:
 | 2026-08-19 | source `3cafa19` / Production v22 | Supabase Production L0a webhook reliability | Pass | Pass | Pass | Pass | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-08-23 | source `db3c8cde` / Draft PR #86 | L0b Gate 4 source candidate; not merged/published/imported | Pass | Pass | Pass | Conditional | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-08-23 | PR head `4830b6cf` / merge `8fc88a8a` | L0b Gate 4 GitHub Pages publication; import not executed | Pass | Pass | Pass | Pass | Pass | Pass | PASS FOR APPROVED PUBLICATION BOUNDARY | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-08-23 | `main@fe654751` / batch `07021dad` | L0b M6b first manual Full import; aggregate-only acceptance | Pass | Pass | Pass | Pass | Pass | Pass | PASS FOR APPROVED FIRST-IMPORT BOUNDARY | `docs/SECURITY_6D_AUDIT.md` |
 
 The second row covers Rich Menu asset versioning, the project-context
 corrections, and the scheduled health check. `index.html` and
@@ -1116,7 +1156,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
-| L0b | Normalized Supabase projection — Production activation | **Schema and Gate 4 manual-control publication complete; first import blocked.** PR #86 exact head `4830b6cf` merged as `main@8fc88a8a`; post-merge CI #152 and Pages #117 passed. All `9/9` L0b tables remain RLS-enabled and empty. Next is a separately approved owner-data projection/first manual import, bounded reconciliation and acceptance. |
+| L0b | Normalized Supabase projection — Production activation | **M6b first manual import and bounded aggregate acceptance complete.** Exactly one batch succeeded from `main@fe654751`; chunks `4/4`, rejects `0`, hashes/counts reconciled, staging `0`, and catalog/canaries remained intact. Browser + Google Drive remain authoritative; another import and L1 remain separately gated. |
 | L1 | Direct Supabase Todo / Drive export-only cutover | Unstarted and blocked on L0b Production verification plus schema completion for operational fields, opaque LINE reference design, full-owner reconciliation, and a separate cutover/rollback approval. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
