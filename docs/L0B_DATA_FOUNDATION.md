@@ -1,7 +1,9 @@
 # L0b Normalized Supabase Data Foundation
 
 Status: source merged in PR #76 as `main@67fe86cac29b3facecd08290a3000ba23bc8a684`;
-migration not applied, no backfill/import run, and no source-of-truth cutover.
+the exact schema-only migration was applied and catalog-verified as provider
+version `20260823055451_l0b_data_foundation`; no backfill/import ran and no
+source-of-truth cutover occurred.
 The GitHub Pages path published the browser asset automatically after merge;
 PR #77 then merged Packet A as
 `main@9a5a95f5c9065214c0418def80a3086fdf79d323`, keeping its Full/Mobile
@@ -17,10 +19,13 @@ controls, and makes their handlers fail closed. A later reviewed activation must
 deliberately enable it. Drive save, Auto-sync, LINE snapshots, mutation queues,
 timers, and provider configuration do not invoke it.
 
-The unapplied migration is
-`supabase/migrations/20260820032749_l0b_data_foundation.sql`. The local Supabase
-CLI was unavailable when the file was authored, so the filename uses the
-recorded UTC creation timestamp. No remote migration command was run.
+The applied migration is
+`supabase/migrations/20260820032749_l0b_data_foundation.sql`, Git blob
+`59aad11b7b0d3761bc62d7673c7102f164e25f8a`, SHA-256
+`75d0794155cfcc4a3575868f92a16a5d670f6660787c30611e3955a98fe04e8c`.
+It was applied once through the targeted connector operation from
+`main@1ece60919d0a4ecdeafcfa4c05b509fc9543492a`; generic `supabase db push`
+was not used.
 
 ## Exact data model
 
@@ -217,10 +222,11 @@ jobs. Its ACL migration was applied and catalog-verified as provider version
 `20260822162710`. No repeated full L0b review is required while the reviewed
 SQL/permission contract remains unchanged.
 
-Any Production change still requires the gates in
-`docs/L0B_PRODUCTION_READINESS.md`: a qualifying restore-tested backup with
-confirmed custody, read-only preflight, targeted 6D decision, exact L0b-only
-apply approval, catalog verification, and a separately approved manual import.
-Generic `supabase db push` is prohibited. Rollback for L0b writes is to keep the
+The qualifying restore-tested backup, custody, read-only preflight, targeted 6D,
+exact L0b-only apply, and catalog verification gates in
+`docs/L0B_PRODUCTION_READINESS.md` are complete. The nine tables contain zero
+rows and both importers remain disabled. Manual enablement/import, acceptance,
+deployment, source-of-truth cutover, and L1 remain separately gated. Generic
+`supabase db push` is prohibited. Rollback before any import is to keep the
 importer disabled; the additive tables may remain and the browser/Drive/LINE
 snapshot path stays usable.

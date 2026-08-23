@@ -19,7 +19,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   which contains independently reviewed implementation head `73ad8b6a9815411364afeae34d9ce52418bd6967`.
 - Supabase project `Dashboard` (`qjaywadzvwvcspdsjxth`) records applied
   migrations `20260818154406_line_webhook_event_reliability` and
-  `20260822162710_line_acl_default_privilege_hardening`. The latter maps to
+  `20260822162710_line_acl_default_privilege_hardening`, followed by the
+  targeted L0b provider record `20260823055451_l0b_data_foundation`. Packet A
+  maps to
   `supabase/migrations/20260820083714_line_acl_default_privilege_hardening.sql`
   at SHA-256
   `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
@@ -39,7 +41,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   app, task-details candidate v3.75.2).
 - Live planner: https://champban.github.io/dashboard/
 
-### L0b normalized data foundation — merged source, database inactive
+### L0b normalized data foundation — schema active, importer disabled
 
 - Owner approved D-1 `A + A1`, closed Review #1 without another Claude pass,
   then separately approved Codex source-only implementation.
@@ -52,15 +54,20 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   revocation, stable task/subtask/event/attachment identity, lease fencing,
   exact-byte chunks, database reconciliation, tombstones, and manual controls in
   Full/Mobile. See `docs/L0B_DATA_FOUNDATION.md`.
-- Migration `20260820032749_l0b_data_foundation.sql` remains an unapplied
-  repository artifact. No L0b table exists in Production; no backfill/import,
-  Production data copy, shadow/dual write, or source-of-truth cutover occurred.
+- Migration `20260820032749_l0b_data_foundation.sql`, Git blob
+  `59aad11b7b0d3761bc62d7673c7102f164e25f8a`, SHA-256
+  `75d0794155cfcc4a3575868f92a16a5d670f6660787c30611e3955a98fe04e8c`,
+  was applied once through targeted `apply_migration` from
+  `main@1ece60919d0a4ecdeafcfa4c05b509fc9543492a`; provider version is
+  `20260823055451_l0b_data_foundation`. Catalog verification passed. No
+  backfill/import, Production planner-data copy, shadow/dual write, or
+  source-of-truth cutover occurred.
 - The existing GitHub Pages publication path exposed the PR #76 browser asset
-  at the live planner without a separate manual deploy. The import control was
-  therefore visible even though its RPCs/tables do not exist and calls failed
-  without changing data. PR #77 merged the Packet A prevention: Full/Mobile
-  controls are fail-closed behind `enabled=false`, and handlers reject disabled
-  calls. No L0b backend/data was activated.
+  at the live planner without a separate manual deploy. At that time the import
+  control was visible while its RPCs/tables did not exist; calls failed without
+  changing data. PR #77 merged the Packet A prevention: Full/Mobile controls are
+  fail-closed behind `enabled=false`, and handlers reject disabled calls. The
+  later schema-only apply did not enable either control or import data.
 - Browser + Google Drive remain the Todo source of truth. L0b does not start L1,
   does not make Supabase authoritative, and does not alter the LINE
   snapshot/mutation queue or Drive save paths.
@@ -81,16 +88,18 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   `a9c99719e0e6abdf2a5f1fbedd282328f812577b` after exact-head CI #127 passed
   all four jobs and the Owner approved that reviewed head only. Packet A source
   is merged and its exact ACL-only migration was applied and catalog-verified on
-  `2026-08-22`; no additional full Claude review is planned while the reviewed
+  `2026-08-22`; the exact L0b schema was separately applied and verified on
+  `2026-08-23`. No additional full Claude review is planned while the reviewed
   SQL/permission contract is unchanged.
 - Packet A Production readiness is controlled by
   `docs/PACKET_A_PRODUCTION_READINESS.md`. A generic `supabase db push` is
-  prohibited because it can also apply the earlier pending L0b migration. The
+  prohibited: the repository timestamp and provider-assigned L0b ledger version
+  differ, so bulk history inference can attempt an unsafe reapply. The
   read-only Production preflight, targeted pre-Production 6D decision, exact
   ACL-only apply, and post-apply catalog verification are complete at the
-  base/hash recorded below. The next database roadmap gate is L0b and remains
-  separately Owner-gated. No L0b apply/import/backfill, provider change,
-  deployment, cleanup, or L1 is authorized by Packet A closure.
+  base/hash recorded below. The subsequent exact L0b schema-only apply used a
+  separate Owner gate. No L0b import/backfill, provider change, deployment,
+  cleanup, or L1 was authorized by Packet A closure or by the schema-only gate.
 
 ### Packet A backup gates B-1/B-2 — completed and post-apply refresh verified
 
@@ -125,8 +134,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   `d771caa09a77e3b5e6f558dcdda155410c21ebadc786ec6434b1336791ce4d8d`,
   encrypted archive SHA-256
   `b7f651d32b7ac31225839484736e0c8d926e65523120bcc94924c5520a166807`,
-  expiring `2026-08-23T17:33:07Z`. Owner custody of this refreshed artifact is
-  **not confirmed**; it is not a substitute for a future fresh backup gate.
+  expiring `2026-08-23T17:33:07Z`. Owner confirmed custody of the downloaded
+  refreshed artifact before the exact L0b schema-only apply. Future recovery
+  gates must still use qualifying evidence; no artifact substitution is allowed.
 - Refreshed B-2 source is the one-commit/four-addition Draft PR #83 at remote
   head `48aaa7968ab76946095207d919a1db29cc3c7f05`, tree
   `c573d02e52aae7613724b874bd3dd7e7ba6736bf`, based on
@@ -138,8 +148,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - The refreshed target retained the immutable PostgreSQL 17 image, network mode
   `none`, no published port, atomic restore, and exact aggregate/catalog/RLS/
   policy/index/ACL/owner-orphan/L0b reconciliation. Production remained
-  `ACTIVE_HEALTHY`; its ledger still ended at
-  `20260822162710_line_acl_default_privilege_hardening`, with L0b absent.
+  `ACTIVE_HEALTHY`; at restore time its ledger ended at
+  `20260822162710_line_acl_default_privilege_hardening`, with L0b absent. That
+  was the verified pre-L0b-apply state.
 - PR #83 remains open Draft and must not be merged. Its approval label and exact
   Environment rule `refs/pull/83/merge` remain present; they authorize no new
   event/run without a separate exact-head approval. Cleanup is separately gated.
@@ -212,6 +223,35 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   Drive remains authoritative; L0b, deployment, provider/Auth changes, cleanup,
   PR #79/#83 merge and L1 remain outside scope. The exact staged L0b gates are
   recorded in `docs/L0B_PRODUCTION_READINESS.md`.
+
+### L0b Production schema-only apply — catalog verified, importer disabled
+
+- Owner confirmed custody of refreshed encrypted backup artifact `9479566992`
+  and separately approved the exact targeted operation for Production project
+  `qjaywadzvwvcspdsjxth`, base
+  `main@1ece60919d0a4ecdeafcfa4c05b509fc9543492a`, migration SHA-256
+  `75d0794155cfcc4a3575868f92a16a5d670f6660787c30611e3955a98fe04e8c`.
+- Targeted `apply_migration` ran exactly once with name `l0b_data_foundation`;
+  Supabase recorded `20260823055451_l0b_data_foundation`. No generic
+  `supabase db push`, import, backfill, planner-content read, deploy, provider
+  configuration change, cleanup, or L1 action occurred.
+- Post-apply catalog verification passed: tables/owners/RLS/policies `9/9`,
+  reviewed RPCs `6/6`, triggers `5/5`, reviewed indexes `8/8`, unvalidated
+  constraints `0`, owner-orphans `0`, ACL differences `0`, `PUBLIC` RPC grants
+  `0`, and sequence API-role grants `0`. All nine L0b tables contain zero rows.
+- LINE and unrelated `aicc_*` aggregate catalog/ACL/policy/function/count
+  canaries were identical before and after apply. Full/Mobile import controls
+  remain fail-closed with `UI_ENABLED=false`; browser + Google Drive remain
+  authoritative.
+- Supabase advisors added six
+  `authenticated_security_definer_function_executable` WARNs for the six
+  reviewed authenticated importer RPCs. This is the intended execution model;
+  exact ACLs, `auth.uid()` owner binding, empty `search_path`, RLS and fencing
+  remain verified. Treat any drift as a reopened blocker. The pre-existing
+  leaked-password-protection WARN and default-deny `mtp_line_events` INFO remain.
+- Gates 0-3 are complete. Gate 4 manual enablement/import and final functional
+  acceptance remain separately Owner-gated; this documentation closure is not
+  import acceptance or L0b/L1 source-of-truth cutover.
 
 ### L0a webhook reliability Production release
 
@@ -1032,7 +1072,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
-| L0b | Normalized Supabase projection — Production activation | **Next roadmap gate.** Source/reviews/CI are closed; Production remains `0/9` tables and `0/6` RPCs, migration unapplied, importer disabled. Follow `docs/L0B_PRODUCTION_READINESS.md`: current aggregate preflight is read-only PASS, but qualifying backup custody, targeted 6D, exact apply, catalog verification, enablement, first manual import and acceptance remain separately gated. |
+| L0b | Normalized Supabase projection — Production activation | **Schema gate complete; import gate next.** Source/reviews/CI, qualifying backup custody, targeted 6D, exact schema-only apply, and catalog verification are closed. Production has `9/9` tables and `6/6` reviewed RPCs with zero rows; importer remains disabled. Follow `docs/L0B_PRODUCTION_READINESS.md` for separately approved enablement, first manual import, reconciliation, and acceptance. |
 | L1 | Direct Supabase Todo / Drive export-only cutover | Unstarted and blocked on L0b Production verification plus schema completion for operational fields, opaque LINE reference design, full-owner reconciliation, and a separate cutover/rollback approval. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
