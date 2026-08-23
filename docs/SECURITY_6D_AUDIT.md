@@ -163,9 +163,10 @@ COMPLETE; MANUAL IMPORT / ACCEPTANCE NOT EXECUTED.**
   `search_path`, RLS, and fencing all passed. Any drift reopens the gate. The
   pre-existing leaked-password-protection WARN and default-deny LINE INFO remain
   outside this schema-only closure.
-- Both Full/Mobile importers remain disabled. Browser + Google Drive remain
-  authoritative. Manual enablement/import and acceptance require a new exact
-  approval and are not implied by this documentation-only PR.
+- At this schema-only closure point both Full/Mobile importers remained
+  disabled. The later separately reviewed Gate 4 publication is recorded below;
+  browser + Google Drive still remain authoritative and first import/acceptance
+  still require a new exact approval.
 
 ## L0b Gate 4 targeted source closure
 
@@ -205,6 +206,32 @@ verification, acceptance or L1. Any change to the exact source bytes, importer
 contract, migration/RPC/RLS/ACL source, dependency lockfile, workflow, Auth,
 network controls or provider baseline invalidates the applicable evidence and
 requires targeted re-audit.
+
+## L0b Gate 4 merge/publication closure
+
+**Decision: PASS FOR THE EXACT APPROVED MERGE/PUBLICATION BOUNDARY — FIRST
+IMPORT AND OWNER-DATA PROJECTION REMAIN BLOCKED.**
+
+Owner approval was frozen to PR #86 exact head
+`4830b6cf82aa1ff65306b775e2382d84e96af21e`, tree
+`34f3859b997a530d80c4387bca0212388b731dc7`, and exact base
+`main@167b84cfdfeedd19c0396b2f520e9806244eec3b`. GitHub merged that unchanged
+tree as `main@8fc88a8a94017eadb58b98adecbb87e22d65496c`; its two parents are the exact
+approved base and head. The merge commit signature is valid.
+
+| Dimension | Decision | Post-merge evidence / remaining boundary |
+|---|---|---|
+| 1. Identity and access | PASS FOR PUBLICATION | No Auth, RPC, RLS, policy or privilege bytes changed after the targeted review. The published controls still require the signed-in browser client and explicit Owner action. |
+| 2. Secrets and data | PASS FOR PUBLICATION | Exact-head and post-merge secret scans passed. Publication read no planner content and performed no Supabase write; all nine L0b tables remain empty. |
+| 3. Input and content safety | PASS / NO DRIFT | The approved PR-head tree equals the merge tree. Projection allowlists, binary exclusion, chunk bounds, identity, rejection and reconciliation logic are unchanged from the targeted source decision. |
+| 4. Browser and network controls | PASS FOR PUBLICATION | `UI_ENABLED=true` exposes only the reviewed manual controls behind existing render/fail-closed checks. Static tests still prove no timer, Auto-sync, Drive or LINE path invokes `importNow`; no CSP/origin/redirect change exists. |
+| 5. Supply chain and deployment | PASS | Exact PR-head `verify` #151 (`32624687421`) and post-merge push `verify` #152 (`32639538682`) passed all four jobs. Pages #117 (`32639537950`) completed build, report and deploy for exact merge `8fc88a8a`; artifact `9493226035` digest is `sha256:cdc5c5ba6fd15897240d61a12dd650c188d337938d693eda2e8debdcf5cbee92`. |
+| 6. Operations and recovery | PASS FOR PUBLICATION | Read-only Production recheck found project `qjaywadzvwvcspdsjxth` `ACTIVE_HEALTHY`, migration tail `20260823055451_l0b_data_foundation`, RLS `9/9`, and zero rows in all nine L0b tables. Before any import, rollback is a reviewed source revert; no destructive database rollback is allowed. |
+
+This closes only the approved GitHub merge/publication boundary. It does not
+authorize planner-data read/projection, first import, bounded reconciliation,
+acceptance, provider/Auth/secret change, cleanup, source-of-truth cutover or L1.
+Those actions require a separate exact Owner gate.
 
 ## Packet A targeted pre-Production 6D decision
 

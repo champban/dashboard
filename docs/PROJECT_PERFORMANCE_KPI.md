@@ -4,9 +4,8 @@ Status: backend, bilingual command menu, task-details v2, Search button,
 confirmed-mutation UX, and L0a webhook reliability v22 are active in
 Production and owner-accepted on LINE. Packet A is applied and catalog-verified
 with functional smoke Owner-waived / not executed. L0b source and schema-only
-Production apply/catalog gates are complete. Gate 4 manual-control source is
-staged in Draft PR #86, while Production remains disabled and no planner rows
-were imported.
+Production apply/catalog gates are complete. Gate 4 manual-control source was
+merged and published from exact PR #86 head; no planner rows were imported.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -24,7 +23,7 @@ Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
 Production catalog gate and the L0b schema-only gate are closed; any L0b data
-import, merge/publication or acceptance action remains separately Owner-gated.
+projection, first import or acceptance action remains separately Owner-gated.
 
 ## Outcome
 
@@ -336,7 +335,8 @@ Environment secrets and artifact cleanup remain separate approvals.
 | M5 source merge | `2026-08-20` | Owner approved exact head `e3a52c53` only; PR #76 merged as `67fe86ca`. GitHub Pages then published the browser asset through existing deployment coupling; no L0b backend/data was activated |
 | M6a schema-only Production verified | `2026-08-23` | Exact targeted apply from `main@1ece6091`; provider version `20260823055451_l0b_data_foundation`; tables/RLS/policies `9/9`, RPCs `6/6`, zero rows, canaries unchanged; importer disabled |
 | Gate 4 source candidate | `2026-08-23T14:00:10+07:00` | Draft PR #86 exact source head `db3c8cde`, tree `9cb2bad4`; one commit/two files; local full gate and exact-head GitHub Actions `verify` #150 run `32623877211` passed 4/4 jobs; targeted 6D returned `CONDITIONAL PASS` for a separate merge/publication decision; no provider write |
-| M6b first manual import / acceptance | Not authorized | Requires separate exact-head merge/publication, owner-data projection, first-import, bounded reconciliation, and acceptance approvals |
+| Gate 4 merge/publication | `2026-08-23T19:29:26+07:00` | Owner approved PR #86 exact head `4830b6cf`, tree `34f3859b`, against exact base `167b84cf`; merged as `main@8fc88a8a` with the same tree. Exact-head CI #151, post-merge CI #152 and Pages deployment #117 passed; no import/provider write |
+| M6b first manual import / acceptance | Not authorized | Requires separate owner-data projection, first-import, bounded reconciliation, and acceptance approvals |
 
 Comparability: this database/data-architecture increment is not comparable to
 the earlier LINE feature increments. No speed, quality, or manual-step
@@ -348,12 +348,12 @@ separately gated.
 
 | KPI | Current value | Evidence / gate |
 |---|---:|---|
-| Source candidate | PASS | Draft PR #86 exact source head `db3c8cded9359b402eb6316bb4c21067db8195d4`, tree `9cb2bad40bd18f249aa2ad25903c2c50e351dd56`; base `main@167b84cfdfeedd19c0396b2f520e9806244eec3b`; exactly one commit and two modified files |
-| Exact-head CI | PASS | `verify` #150, run `32623877211`, completed successfully on all four jobs; CI retries caused by source/config/dependency failure: `0` |
-| Targeted 6D | CONDITIONAL PASS | No new Critical/High finding; exact source is ready only for a separate merge/publication decision; first import remains blocked |
+| Approved PR head | PASS | PR #86 exact head `4830b6cf82aa1ff65306b775e2382d84e96af21e`, tree `34f3859b997a530d80c4387bca0212388b731dc7`; exact base `main@167b84cfdfeedd19c0396b2f520e9806244eec3b`; runtime source commit `db3c8cde` changes two files and final commit records targeted closure only |
+| Exact-head/post-merge CI | PASS | Exact PR-head `verify` #151 run `32624687421` and push `verify` #152 run `32639538682` completed successfully on all four jobs; CI retries caused by source/config/dependency failure: `0` |
+| Targeted 6D | CONDITIONAL PASS → publication boundary closed | No new Critical/High finding; the exact approved merge/publication completed without tree drift. First import remains blocked |
 | Provider effect | `0` | Read-only recheck found Production `ACTIVE_HEALTHY`, migration tail `20260823055451_l0b_data_foundation`, L0b RLS `9/9`, row counts all zero |
 | Manual intervention | `0` for this source packet | GitHub and Supabase evidence were obtained through authenticated connectors; no Owner click or secret entry was required |
-| Production publication | Not executed | PR #86 remains Draft; `main` and the live GitHub Pages planner retain the disabled bridge |
+| Production publication | PASS | PR #86 merged as `main@8fc88a8a94017eadb58b98adecbb87e22d65496c`, tree `34f3859b997a530d80c4387bca0212388b731dc7`; Pages run `32639537950` completed build/report/deploy successfully and points to https://champban.github.io/dashboard/ |
 | First import / acceptance | Not executed | Requires a later separate exact approval and explicit signed-in Owner action; no raw planner content may enter logs/chat |
 
 ### L0b quality/rework record
@@ -396,7 +396,7 @@ percentage is published.
 | Catalog verification | PASS | Tables/owners/RLS/policies `9/9`; RPCs `6/6`; triggers `5/5`; indexes `8/8`; unvalidated constraints, owner-orphans, and ACL differences all `0` |
 | Data movement | `0` | All nine L0b tables have zero rows; no planner-content read, import, backfill, shadow/dual write, or source-of-truth cutover |
 | Existing-system canaries | PASS / unchanged | Frozen LINE and unrelated `aicc_*` aggregate catalog, ACL, policy, function, and row-count fingerprints matched before/after |
-| Import controls | Disabled | Full/Mobile retain `UI_ENABLED=false`; manual import and functional acceptance not executed |
+| Import controls | Published, manual only | Full/Mobile use `UI_ENABLED=true` behind signed-in render/fail-closed handlers; no timer/Drive/LINE path invokes import, all nine L0b tables remain empty, and functional acceptance was not executed |
 | Security advisor residual | `6` expected WARNs | The reviewed authenticated `SECURITY DEFINER` importer RPCs intentionally remain executable by `authenticated`; exact ACLs, `auth.uid()` binding, empty `search_path`, RLS, and fencing verified |
 
 Packet A is `Not comparable` to feature delivery. It is management-closed as

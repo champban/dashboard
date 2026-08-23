@@ -7,21 +7,24 @@ source-of-truth cutover occurred.
 The GitHub Pages path published the browser asset automatically after merge;
 PR #77 then merged Packet A as
 `main@9a5a95f5c9065214c0418def80a3086fdf79d323`, keeping its Full/Mobile
-controls disabled in Production source. Draft PR #86 now stages the separate
-Gate 4 source candidate at exact reviewed source head
-`db3c8cded9359b402eb6316bb4c21067db8195d4`; it is not merged or published and
-no import has run.
+controls disabled in Production source. PR #86 subsequently passed targeted
+6D and exact-head CI, then merged from exact approved head
+`4830b6cf82aa1ff65306b775e2382d84e96af21e` as
+`main@8fc88a8a94017eadb58b98adecbb87e22d65496c`. GitHub Pages deployment #117
+published the reviewed signed-in manual controls successfully; no import has
+run.
 
 ## Purpose and boundary
 
 L0b adds an additive, owner-scoped normalized projection of the current planner
 data. It is a foundation and reconciliation exercise, not L1 direct Todo access.
 The browser plus Google Drive remain authoritative. The reviewed manual importer
-is retained. Production `main` still exposes `enabled=false`, hides both
-Full/Mobile controls, and makes their handlers fail closed. Draft PR #86
-deliberately changes only that bridge flag to `true`; the existing render and
-handler checks remain. Drive save, Auto-sync, LINE snapshots, mutation queues,
-timers, and provider configuration do not invoke it.
+is retained. Production `main` now exposes `enabled=true` only for the reviewed
+signed-in manual controls; the existing render and fail-closed handler checks
+remain. Drive save, Auto-sync, LINE snapshots, mutation queues, timers, and
+provider configuration do not invoke it. A separate exact owner-data
+projection/import approval and explicit signed-in Owner click are still
+required.
 
 The applied migration is
 `supabase/migrations/20260820032749_l0b_data_foundation.sql`, Git blob
@@ -227,13 +230,13 @@ jobs. Its ACL migration was applied and catalog-verified as provider version
 SQL/permission contract remains unchanged.
 
 The qualifying restore-tested backup, custody, read-only preflight, targeted 6D,
-exact L0b-only apply, and catalog verification gates in
+exact L0b-only apply, catalog verification and Gate 4 publication gates in
 `docs/L0B_PRODUCTION_READINESS.md` are complete. The nine tables contain zero
-rows. Gate 4 Draft PR #86 exact source head
-`db3c8cded9359b402eb6316bb4c21067db8195d4` passed GitHub Actions `verify`
-#150, run `32623877211`, and targeted 6D for a separate merge/publication
-decision. Production remains disabled. Merge/publication, first import,
-acceptance, source-of-truth cutover and L1 remain separately gated. Generic
-`supabase db push` is prohibited. Rollback before any import is to keep the
-importer disabled; the additive tables may remain and the browser/Drive/LINE
-snapshot path stays usable.
+rows. PR #86 exact head `4830b6cf82aa1ff65306b775e2382d84e96af21e`
+passed exact-head GitHub Actions `verify` #151, merged without tree drift as
+`main@8fc88a8a94017eadb58b98adecbb87e22d65496c`, and passed post-merge `verify`
+#152 plus Pages deployment #117. First import, acceptance, source-of-truth
+cutover and L1 remain separately gated. Generic `supabase db push` is
+prohibited. Before any import, rollback is to revert the reviewed manual-control
+publication if needed; the additive empty tables may remain and the
+browser/Drive/LINE snapshot path stays usable.
