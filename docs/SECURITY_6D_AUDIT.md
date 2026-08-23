@@ -10,6 +10,8 @@ Packet A targeted pre-Production decision: `2026-08-22` (`Asia/Bangkok`)
 
 Packet A Production ACL closure: `2026-08-22` (`Asia/Bangkok`)
 
+L0b schema-only Production closure: `2026-08-23` (`Asia/Bangkok`)
+
 Repository: `champban/dashboard`
 
 Production scope:
@@ -27,8 +29,9 @@ Production scope:
 
 **Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP,
 ISOLATED RESTORE, TARGETED PRODUCTION APPLY, AND CATALOG GATES COMPLETE;
-FUNCTIONAL SMOKE OWNER-WAIVED / NOT EXECUTED. L0b DATABASE ACTIVATION IS NOT
-APPROVED. PROVIDER GATE A IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED RESIDUAL.**
+FUNCTIONAL SMOKE OWNER-WAIVED / NOT EXECUTED. L0b SCHEMA-ONLY APPLY AND CATALOG
+GATES ARE COMPLETE; IMPORT REMAINS DISABLED AND NOT EXECUTED. PROVIDER GATE A
+IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED RESIDUAL.**
 
 Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
 PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
@@ -48,9 +51,9 @@ merge approval closed that source gate; it did not authorize database activation
 
 Read-only verification after merge found that the existing GitHub Pages path
 published `l0b-import.js` to the live planner without a separate manual deploy.
-No L0b tables/RPCs exist, so the exposed control cannot import and no data change
-was observed. Packet A makes both client controls fail closed and adds an
-ACL-only migration plus PostgreSQL 17 tests. PR #77 merged exact reviewed head
+At that time no L0b tables/RPCs existed, so the exposed control could not import
+and no data change was observed. Packet A makes both client controls fail closed
+and adds an ACL-only migration plus PostgreSQL 17 tests. PR #77 merged exact reviewed head
 `a9c99719e0e6abdf2a5f1fbedd282328f812577b`, tree
 `6479a43d73b04351f842e985a538afada694ce5e`, as
 `main@9a5a95f5c9065214c0418def80a3086fdf79d323`. Exact-head CI #127 passed all
@@ -72,7 +75,7 @@ A hardening of `postgres` defaults and existing objects.
 | 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
 | 4. Browser and network controls | Full/Mobile controls require `enabled===true`; bridge defaults false; handlers also reject disabled calls; Drive/LINE paths unchanged | Generated artifact parity and browser regression suite |
 | 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 and the frozen migration was applied through targeted `apply_migration` | Packet A closed; never use generic `supabase db push` for L0b |
-| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody remains unconfirmed; any future schema gate requires qualifying backup evidence |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented; no cleanup/rollback DDL; importer stays disabled. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody was confirmed for the exact L0b schema gate; later import/recovery gates remain separately controlled |
 
 ### Packet A Backup Gate B-1/B-2 evidence
 
@@ -91,8 +94,9 @@ A hardening of `postgres` defaults and existing objects.
 - Post-run read-only Production table counts matched the pre-run snapshot. The
   approval label was removed and PR #79 remains Draft/unmerged.
 - After Packet A apply, refreshed B-1 run `32587955307`, job `97067096268`,
-  produced artifact `9479566992`; Owner custody of that refreshed artifact is
-  not confirmed and its expiry is `2026-08-23T17:33:07Z`.
+  produced artifact `9479566992`; Owner confirmed custody of the downloaded
+  refreshed artifact before its expiry `2026-08-23T17:33:07Z` and before the
+  exact L0b schema-only apply.
 - Refreshed B-2 Draft PR #83 exact remote head
   `48aaa7968ab76946095207d919a1db29cc3c7f05`, tree
   `c573d02e52aae7613724b874bd3dd7e7ba6736bf`, passed verify run
@@ -103,9 +107,10 @@ A hardening of `postgres` defaults and existing objects.
 - PR #83 remains Draft/unmerged. Its label and exact Environment rule remain
   present but authorize no new event or run without a separate exact-head gate.
 
-The original evidence closed the pre-apply recovery gate; the refreshed evidence
-validates recoverability and Packet A ACL reconciliation after apply. Neither
-authorizes L0b activation, deployment, cleanup, or L1.
+The original evidence closed the pre-Packet-A recovery gate; the refreshed
+evidence validated recoverability and Packet A ACL reconciliation for the
+separately approved L0b schema-only gate. Neither authorizes data import,
+deployment, cleanup, or L1.
 
 Open risks:
 
@@ -122,9 +127,42 @@ Open risks:
 - L0b is a partial projection and is not the planner source of truth.
 
 Packet A's completed procedure is in `docs/PACKET_A_PRODUCTION_READINESS.md`.
-The next database procedure is `docs/L0B_PRODUCTION_READINESS.md`. Generic
-`supabase db push` remains blocked; L0b requires a targeted operation and its
-own exact approval.
+The L0b schema closure and remaining manual-import gates are in
+`docs/L0B_PRODUCTION_READINESS.md`. Generic `supabase db push` remains blocked;
+future L0b data movement requires its own exact approval.
+
+## L0b schema-only Production 6D closure
+
+**Decision: CONDITIONAL PASS — EXACT SCHEMA APPLY AND CATALOG VERIFICATION
+COMPLETE; MANUAL IMPORT / ACCEPTANCE NOT EXECUTED.**
+
+- Exact apply base was
+  `main@1ece60919d0a4ecdeafcfa4c05b509fc9543492a`, tree
+  `e3ab91ca505aee4a0dbcbdff5c5e42e0465ffd1a`. Migration blob
+  `59aad11b7b0d3761bc62d7673c7102f164e25f8a` and SHA-256
+  `75d0794155cfcc4a3575868f92a16a5d670f6660787c30611e3955a98fe04e8c`
+  matched the reviewed source.
+- Owner confirmed custody of encrypted artifact `9479566992` and approved the
+  exact targeted project/base/hash operation. The connector invoked
+  `apply_migration` once; ledger version is
+  `20260823055451_l0b_data_foundation`.
+- Post-apply verification passed tables/owner/RLS/policies `9/9`, RPCs `6/6`,
+  triggers `5/5`, indexes `8/8`, unvalidated constraints `0`, owner-orphans `0`,
+  table/function ACL differences `0`, `PUBLIC` RPC grants `0`, and sequence
+  API-role grants `0`. All nine L0b tables contain zero rows.
+- The frozen LINE and unrelated `aicc_*` aggregate catalog/ACL/policy/function/
+  row-count canaries were unchanged. No planner content was read; no import,
+  backfill, deployment, provider/Auth/secret change, cleanup, or L1 occurred.
+- Six post-apply
+  `authenticated_security_definer_function_executable` WARNs map exactly to the
+  six reviewed authenticated importer RPCs. This is an accepted schema-gate
+  residual because exact execution ACLs, `auth.uid()` binding, empty
+  `search_path`, RLS, and fencing all passed. Any drift reopens the gate. The
+  pre-existing leaked-password-protection WARN and default-deny LINE INFO remain
+  outside this schema-only closure.
+- Both Full/Mobile importers remain disabled. Browser + Google Drive remain
+  authoritative. Manual enablement/import and acceptance require a new exact
+  approval and are not implied by this documentation-only PR.
 
 ## Packet A targeted pre-Production 6D decision
 

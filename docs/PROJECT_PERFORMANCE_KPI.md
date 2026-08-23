@@ -3,8 +3,9 @@
 Status: backend, bilingual command menu, task-details v2, Search button,
 confirmed-mutation UX, and L0a webhook reliability v22 are active in
 Production and owner-accepted on LINE. Packet A is applied and catalog-verified
-with functional smoke Owner-waived / not executed. L0b source is merged, but its
-database migration remains unapplied and its importer remains disabled.
+with functional smoke Owner-waived / not executed. L0b source and schema-only
+Production apply/catalog gates are complete; its importer remains disabled and
+no planner rows were imported.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -21,8 +22,8 @@ Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
-Production catalog gate are closed; any L0b Production action remains separately
-Owner-gated.
+Production catalog gate and the L0b schema-only gate are closed; any L0b data
+import/enablement action remains separately Owner-gated.
 
 ## Outcome
 
@@ -332,12 +333,14 @@ Environment secrets and artifact cleanup remain separate approvals.
 | M3 local verification | `2026-08-20T11:00:35+07:00` | Build/harness `LEN 25129 / NODES 141`, audit `0 blockers`, package/CSP `6/6`, full regression chain, secret scan, static SQL gate, and `git diff --check` passed; PostgreSQL 17 execution remains the Draft-PR CI gate because local `psql` is unavailable |
 | M4 Draft PR / CI re-verified | `2026-08-20` | CI #124 passed at remediation commit `14d67b2d`; exact-head CI #125 passed all three jobs at `e3a52c53`; no migration was applied outside throwaway PostgreSQL |
 | M5 source merge | `2026-08-20` | Owner approved exact head `e3a52c53` only; PR #76 merged as `67fe86ca`. GitHub Pages then published the browser asset through existing deployment coupling; no L0b backend/data was activated |
-| M6 Production verified | Not authorized | Requires separate backup, migration, backfill/deployment approvals and smoke |
+| M6a schema-only Production verified | `2026-08-23` | Exact targeted apply from `main@1ece6091`; provider version `20260823055451_l0b_data_foundation`; tables/RLS/policies `9/9`, RPCs `6/6`, zero rows, canaries unchanged; importer disabled |
+| M6b first manual import / acceptance | Not authorized | Requires separate source enablement, merge/deploy, owner-data projection, reconciliation, and acceptance approvals |
 
 Comparability: this database/data-architecture increment is not comparable to
 the earlier LINE feature increments. No speed, quality, or manual-step
-improvement is claimed. Review #1 and the PR #76 source gate are closed. L0b
-database activation remains unstarted and separately gated.
+improvement is claimed. Review #1, PR #76 source, schema-only apply, and catalog
+verification are closed. L0b data import/acceptance remains unstarted and
+separately gated.
 
 ### L0b quality/rework record
 
@@ -364,17 +367,29 @@ percentage is published.
 | PostgreSQL 17 coverage | PASS | Exact-head CI #127 passed all four jobs, including ACL/default-privilege, L0b, and L0a SQL gates |
 | Provider residual | Accepted; Gate A closed | Current Supabase documentation records `supabase_admin` defaults as intentional provider-managed state that does not bypass RLS by itself; Packet A does not alter that role |
 | Review count | Closed | Owner approved the exact reviewed PR #77 head; no repeated full L0b review while SQL/permission contract is unchanged |
-| B-1 backup gate | PASS; refreshed after apply | Original run `32149051510` has Owner custody. Post-apply run `32587955307`, job `97067096268`, artifact `9479566992` passed; refreshed Owner custody is not confirmed and expiry is `2026-08-23T17:33:07Z` |
+| B-1 backup gate | PASS; refreshed after apply | Original run `32149051510` has Owner custody. Post-apply run `32587955307`, job `97067096268`, artifact `9479566992` passed; Owner confirmed refreshed custody before expiry `2026-08-23T17:33:07Z` and before the L0b schema apply |
 | B-2 isolated restore | PASS; refreshed after apply | Draft PR #83 exact remote head `48aaa796`; run `32618003121`; source job `97141728425` and restore job `97141748031` passed exact Packet A ACL reconciliation |
 | B-2 refreshed final-run duration | `2m 36s` measured | Exact corrected-head run `32618003121`; normal verify run `32616039132` and source-safety run `32616039104` also passed |
 | B-2 refreshed failed attempts | `1` | Previous corrected-series attempt failed closed at post-restore ACL reconciliation; the exact corrected-head attempt passed. Historical PR #79 attempt counts remain recorded in its Draft PR |
 | Output artifacts from B-2 | `0` | Successful run produced no artifact; private plaintext and logs were cleanup-scoped to the runner |
-| Production changes | `1` targeted migration | Packet A ACL-only apply succeeded once; no L0b migration, import/backfill, deployment, provider change, cleanup, or L1 action |
+| Production changes | `2` targeted migrations | Packet A ACL-only and L0b schema-only applies each succeeded once; no L0b import/backfill, deployment, provider change, cleanup, or L1 action |
+
+### L0b schema-only Production gate record
+
+| KPI | Current value | Evidence / gate |
+|---|---:|---|
+| Exact apply | PASS | Production `qjaywadzvwvcspdsjxth`; `main@1ece6091`; blob `59aad11b`; SHA-256 `75d07941...`; provider version `20260823055451_l0b_data_foundation`; targeted connector call exactly once |
+| Catalog verification | PASS | Tables/owners/RLS/policies `9/9`; RPCs `6/6`; triggers `5/5`; indexes `8/8`; unvalidated constraints, owner-orphans, and ACL differences all `0` |
+| Data movement | `0` | All nine L0b tables have zero rows; no planner-content read, import, backfill, shadow/dual write, or source-of-truth cutover |
+| Existing-system canaries | PASS / unchanged | Frozen LINE and unrelated `aicc_*` aggregate catalog, ACL, policy, function, and row-count fingerprints matched before/after |
+| Import controls | Disabled | Full/Mobile retain `UI_ENABLED=false`; manual import and functional acceptance not executed |
+| Security advisor residual | `6` expected WARNs | The reviewed authenticated `SECURITY DEFINER` importer RPCs intentionally remain executable by `authenticated`; exact ACLs, `auth.uid()` binding, empty `search_path`, RLS, and fencing verified |
 
 Packet A is `Not comparable` to feature delivery. It is management-closed as
 `CONDITIONAL PASS`: source, backup/restore, targeted 6D, ACL-only apply, and
 catalog/RLS gates passed; the three functional smoke checks remain explicitly
-Owner-waived / not executed. The next staged roadmap gate is L0b, controlled by
-`docs/L0B_PRODUCTION_READINESS.md`. Total B-1/B-2 wall-clock time and manual-
+Owner-waived / not executed. The next staged L0b gate is manual import
+enablement and acceptance, controlled by `docs/L0B_PRODUCTION_READINESS.md`.
+Total B-1/B-2 wall-clock time and manual-
 intervention count were not captured consistently and remain `N/A` rather than
 reconstructed.
