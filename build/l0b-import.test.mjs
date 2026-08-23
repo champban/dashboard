@@ -16,7 +16,7 @@ const context=vm.createContext({window,crypto:webcrypto,TextEncoder,URL,console,
 vm.runInContext(fs.readFileSync('l0b-import.js','utf8'),context,{filename:'l0b-import.js'});
 const bridge=window.__MTP_L0B__;
 assert.ok(bridge,'manual import bridge is published');
-assert.equal(bridge.enabled,false,'Packet A keeps shipped import controls fail closed');
+assert.equal(bridge.enabled,true,'Gate 4 deliberately enables the reviewed manual controls');
 
 const canonical=JSON.parse(fs.readFileSync('test/vectors/l0b-canonical.json','utf8'));
 const chunkVectors=JSON.parse(fs.readFileSync('test/vectors/l0b-chunk-bytes.json','utf8'));
@@ -109,9 +109,9 @@ const mobile=fs.readFileSync('mobile/index.html','utf8');
 assert.equal((app.match(/id="l0bImportFull"/g)||[]).length,1,'Full keeps one reviewed manual control in source');
 assert.equal((mobile.match(/id="l0bImportMobile"/g)||[]).length,1,'Mobile keeps one reviewed manual control in source');
 assert.match(app,/window\.__MTP_L0B__\?\.enabled===true && \(/,
-  'Full renders the control only behind the disabled bridge gate');
+  'Full renders the control only behind the explicit bridge gate');
 assert.match(mobile,/window\.__MTP_L0B__\?\.enabled===true\?`<div class="sync-card card"><h3>Database foundation/,
-  'Mobile renders the control only behind the disabled bridge gate');
+  'Mobile renders the control only behind the explicit bridge gate');
 assert.match(app,/bridge\?\.enabled!==true\|\|!bridge\?\.importNow/,
   'Full handler also fails closed if invoked without activation');
 assert.match(mobile,/bridge\?\.enabled!==true\|\|!bridge\?\.importNow/,

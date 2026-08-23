@@ -3,10 +3,9 @@
 
 const KIND_ORDER=['task','subtask','event','event_window','task_attachment'];
 const CHUNK_ROWS=500;
-// Packet A keeps the importer source testable but makes every shipped UI
-// entry point fail closed until a separately reviewed backend-activation
-// change deliberately enables it.
-const UI_ENABLED=false;
+// Gate 4 deliberately exposes the reviewed manual controls. Import still
+// requires an authenticated owner click; Drive, LINE and timers never invoke it.
+const UI_ENABLED=true;
 const encoder=new TextEncoder();
 
 function bytes(value){return encoder.encode(String(value))}
