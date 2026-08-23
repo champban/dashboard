@@ -80,19 +80,19 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 - L0b Review #1 and the PR #76 source gate are closed. PR #77 merged exact head
   `a9c99719e0e6abdf2a5f1fbedd282328f812577b` after exact-head CI #127 passed
   all four jobs and the Owner approved that reviewed head only. Packet A source
-  is merged but its migration is unapplied; no additional full Claude review is
-  planned while the reviewed SQL/permission contract is unchanged.
+  is merged and its exact ACL-only migration was applied and catalog-verified on
+  `2026-08-22`; no additional full Claude review is planned while the reviewed
+  SQL/permission contract is unchanged.
 - Packet A Production readiness is controlled by
   `docs/PACKET_A_PRODUCTION_READINESS.md`. A generic `supabase db push` is
   prohibited because it can also apply the earlier pending L0b migration. The
-  read-only Production preflight and targeted pre-Production 6D decision are
-  complete at the exact base/hash recorded below. Production still requires a
-  separate exact ACL-only apply approval and post-apply verification. No
-  migration apply, import/backfill, provider change, deployment, cleanup, or L1
-  is authorized by the source merge, Provider Gate A closure, backup/restore,
-  preflight, or 6D gates.
+  read-only Production preflight, targeted pre-Production 6D decision, exact
+  ACL-only apply, and post-apply catalog verification are complete at the
+  base/hash recorded below. The next database roadmap gate is L0b and remains
+  separately Owner-gated. No L0b apply/import/backfill, provider change,
+  deployment, cleanup, or L1 is authorized by Packet A closure.
 
-### Packet A backup gates B-1/B-2 — completed, Production apply inactive
+### Packet A backup gates B-1/B-2 — completed and post-apply refresh verified
 
 - B-1 created the pinned encrypted logical backup in run `32149051510`, attempt
   2, job `96681690187` — `SUCCESS`. Artifact `9452687931`,
@@ -103,7 +103,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   Owner confirmed custody of a downloaded copy. The GitHub artifact expiry is
   `2026-08-22T15:40:38Z`; a future restore after expiry requires a separately
   approved fresh B-1 run, never a substitute artifact.
-- B-2 completed at Draft PR #79 exact head
+- The original pre-apply B-2 completed at Draft PR #79 exact head
   `796b42a41b5e33f96f2ecc0752baf691c645d35c`, tree
   `d79ffb9b1eb3d5c6ed9380058aaedac1d9266b9f`. Run `32577304437`, source-safety
   job `97041400164`, and isolated restore job `97041418226` all passed. The
@@ -115,17 +115,42 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   while retaining the target service ledger at 0-60. Atomic roles, schema and
   data restore plus exact table/RPC/RLS/policy/index/owner-orphan/count
   reconciliation passed.
-- The successful run produced no output artifact and used no Production
+- The original successful run produced no output artifact and used no Production
   connection. Post-run read-only Production table counts matched the pre-run
-  snapshot. The consumed approval label was removed; the restrictive
-  Environment rule `refs/pull/79/merge` remains pending separately approved
-  cleanup. PR #79 remains Draft and must not be merged.
-- B-2 proves logical recoverability of the approved backup. It does not assert
+  snapshot. Its consumed approval label and Environment rule were removed.
+  PR #79 remains Draft and must not be merged.
+- After Packet A Production apply, a refreshed B-1 backup completed in run
+  `32587955307`, job `97067096268`, artifact `9479566992`
+  (`dashboard-supabase-backup-20260822T173203Z`): 30,428-byte ZIP SHA-256
+  `d771caa09a77e3b5e6f558dcdda155410c21ebadc786ec6434b1336791ce4d8d`,
+  encrypted archive SHA-256
+  `b7f651d32b7ac31225839484736e0c8d926e65523120bcc94924c5520a166807`,
+  expiring `2026-08-23T17:33:07Z`. Owner custody of this refreshed artifact is
+  **not confirmed**; it is not a substitute for a future fresh backup gate.
+- Refreshed B-2 source is the one-commit/four-addition Draft PR #83 at remote
+  head `48aaa7968ab76946095207d919a1db29cc3c7f05`, tree
+  `c573d02e52aae7613724b874bd3dd7e7ba6736bf`, based on
+  `main@eeac0ba1c542a17e3d9570f34dba936a20416c6e`. Exact-head verify run
+  `32616039132` and source-safety run `32616039104` passed. The separately
+  approved isolated restore run `32618003121` passed source job `97141728425`
+  and restore job `97141748031` in 2m36s; all cleanup steps passed and output
+  artifacts remained zero.
+- The refreshed target retained the immutable PostgreSQL 17 image, network mode
+  `none`, no published port, atomic restore, and exact aggregate/catalog/RLS/
+  policy/index/ACL/owner-orphan/L0b reconciliation. Production remained
+  `ACTIVE_HEALTHY`; its ledger still ended at
+  `20260822162710_line_acl_default_privilege_hardening`, with L0b absent.
+- PR #83 remains open Draft and must not be merged. Its approval label and exact
+  Environment rule `refs/pull/83/merge` remain present; they authorize no new
+  event/run without a separate exact-head approval. Cleanup is separately gated.
+- The original B-2 proves logical recoverability of the pre-apply approved
+  backup. It does not assert
   Packet A hardened ACLs because the backup predates Packet A, and it does not
   claim migration-history identity because B-1 did not dump that ledger
-  separately. The Production ACL migration remains unapplied.
+  separately. The refreshed B-2 additionally reconciles the applied Packet A
+  ACL contract from the post-apply backup without changing Production.
 
-### Packet A read-only preflight and targeted 6D — complete, apply inactive
+### Packet A read-only preflight and targeted 6D — historical apply gate complete
 
 - Owner authorized read-only Production inspection, then separately authorized
   targeted 6D review/documentation. The exact base was
@@ -156,10 +181,10 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   protection warning. The Auth warning is a Medium follow-up owned by P'Boy,
   due `2026-09-22` or before any Auth configuration change; no Auth/provider
   setting change is authorized here.
-- Separate Owner exact-operation approval remains mandatory. Only targeted
-  `apply_migration` may be considered; `supabase db push`, L0b, data
-  movement, deployment, provider/environment changes, cleanup and L1 remain
-  prohibited.
+- The separate Owner exact-operation approval was later obtained for Packet A
+  only, as recorded in the Production closure below. Generic `supabase db push`,
+  L0b, data movement, deployment, provider/environment changes, cleanup and L1
+  were not included.
 
 ### Packet A Production ACL apply — catalog verified, smoke waived
 
@@ -185,7 +210,8 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   any related permission symptom or before the next LINE/Auth/ACL change.
 - Packet A is management-closed with a `CONDITIONAL PASS`. Browser + Google
   Drive remains authoritative; L0b, deployment, provider/Auth changes, cleanup,
-  PR #79 merge and L1 remain outside scope.
+  PR #79/#83 merge and L1 remain outside scope. The exact staged L0b gates are
+  recorded in `docs/L0B_PRODUCTION_READINESS.md`.
 
 ### L0a webhook reliability Production release
 
@@ -992,6 +1018,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |
 | LINE-WEBHOOK-1 | LINE redelivery or partial batch failure could duplicate drafts and reprocess completed events | No persistent webhook event identity/state, batch-level failure handling, and an 8-second gateway timeout | Service-role-only `mtp_line_events` ledger, atomic claim/finalize RPCs, per-event isolation, 30-second lease, `source_event_id` mutation idempotency, and provider redelivery enabled | Final review PASS at `73ad8b6`; CI #104/#116; isolated replay/timeout PASS; migration `20260818154406`; v22 live smoke: 5 processed, 0 failed/processing, max attempt 1, no new mutation |
 | PACKET-A-B2-1 | Pinned logical backup failed in the data phase on the disposable CLI target | Supabase CLI `2.111.0` bootstrapped Storage through migration 60 while the Production-shaped dump expected migration-62 columns; zero-row COPY headers still resolve every named column | Fail-closed network-isolated compatibility bridge pins reviewed upstream migrations 61-62, exact pre/post catalog state and immutable source hashes; it never edits the dump or records false Storage migration history | PR #79 exact head `796b42a`; source-safety and restore run `32577304437` PASS; no output artifact or Production connection |
+| PACKET-A-B2-2 | Post-Packet-A restore reached catalog verification but failed closed before publishing raw diagnostics | Restoring into a fresh target did not reproduce the source database's reviewed `postgres` default-ACL precondition; deleted private logs prevented overstating a unique first failing assertion | Reconstruct only the frozen Packet A default-ACL precondition inside the disposable transaction, restore schema as `postgres`, reset before data, and publish only nonce-bound allowlisted assertion group + SQLSTATE; raw logs remain private and cleanup-scoped | PR #83 exact remote head `48aaa796`; verify/source run `32616039132`/`32616039104` PASS; restore run `32618003121`, jobs `97141728425`/`97141748031` PASS; zero output artifacts and no Production write |
 | PACKET-A-ACL-1 | Broad existing LINE grants and `postgres` future defaults exposed privileges beyond the reviewed contract | Historical Supabase defaults plus explicit existing object grants were broader than RLS alone controls | Exact hash-pinned targeted ACL migration; never use `db push`; freeze before/after ledger, count, ACL/RLS and unrelated canaries | Migration `20260822162710`; catalog/default/RLS/count/canary PASS; functional smoke Owner-waived / NOT EXECUTED |
 
 ## Open backlog
@@ -1005,6 +1032,8 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | Mobile/Full code sharing | `mobile/index.html` is a separate vanilla app; every shared fix must be made twice. Long-term: fold mobile into the React app or extract shared modules. |
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
+| L0b | Normalized Supabase projection — Production activation | **Next roadmap gate.** Source/reviews/CI are closed; Production remains `0/9` tables and `0/6` RPCs, migration unapplied, importer disabled. Follow `docs/L0B_PRODUCTION_READINESS.md`: current aggregate preflight is read-only PASS, but qualifying backup custody, targeted 6D, exact apply, catalog verification, enablement, first manual import and acceptance remain separately gated. |
+| L1 | Direct Supabase Todo / Drive export-only cutover | Unstarted and blocked on L0b Production verification plus schema completion for operational fields, opaque LINE reference design, full-owner reconciliation, and a separate cutover/rollback approval. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
 | LINE-3 | ~~Rich Menu backup and owner acceptance~~ | **Closed 2026-07-30.** `docs/assets/line/` holds the configuration, the specification, the recreation commands and the deployment image — verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, no `tEXt`/`iTXt`/`eXIf` metadata. The 7-step owner acceptance passed on LINE mobile and LINE for PC: the menu appears, sends `menu`, and the bot returns the English Flex menu containing `Search`. Still absent and still optional: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |

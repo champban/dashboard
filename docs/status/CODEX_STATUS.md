@@ -1,72 +1,69 @@
-# CODEX STATUS — Provider Gate A / Packet A Readiness
+# CODEX STATUS — Packet A Closure / L0b Readiness
 
-STATUS: SOURCE-DOCUMENTATION VERIFIED / NOT MERGED / NO PRODUCTION CHANGE
+STATUS: DOCS-ONLY SOURCE VERIFIED / NO PRODUCTION CHANGE
 
-PROGRESS: Provider Gate A decision and Production readiness packet complete;
-source PR/merge and every Production gate remain separate
+PROGRESS: Packet A and refreshed B-2 evidence reconciled; L0b staged gates
+documented on one docs-only branch; exact L0b Production apply remains
+unapproved
 
 AGENT: Codex / ChatGPT
 
-TASK / LANE: Provider Gate A closure + Packet A Production readiness
+TASK / LANE: Packet A/B-2 durable closure + L0b Production-readiness packet
 
 CLASSIFICATION: `SEQUENTIAL_ONLY`
 
 ACTIVE WRITER: Codex only
 
-BRANCH: `docs/provider-gate-a-closure`
+BRANCH: `docs/packet-a-b2-refresh-closure`
 
-BASE SHA: `9a5a95f5c9065214c0418def80a3086fdf79d323`
+BASE SHA: `eeac0ba1c542a17e3d9570f34dba936a20416c6e`
 
 ## Verified baseline
 
-- PR #77 merged exact reviewed source head
-  `a9c99719e0e6abdf2a5f1fbedd282328f812577b`, tree
-  `6479a43d73b04351f842e985a538afada694ce5e`.
-- Exact-head CI #127 passed all four jobs.
-- Packet A migration is merged source but unapplied.
-- Production migrations stop at L0a
-  `20260818154406_line_webhook_event_reliability`; L0b table count is zero.
-- Provider Gate A is closed as an accepted provider-managed residual based on
-  current official Supabase documentation.
-- `RISK-L0A-ACL-1` remains open only for broad `postgres` defaults and existing
-  `mtp_line_*` grants until Packet A apply and verification.
+- `main@eeac0ba1c542a17e3d9570f34dba936a20416c6e`, tree
+  `fc2db3abf19a23307d70bca0723c121b62c923bc`.
+- Packet A provider migration
+  `20260822162710_line_acl_default_privilege_hardening` is applied and
+  catalog-verified; functional smoke is Owner-waived / not executed.
+- Refreshed B-2 Draft PR #83 remote head
+  `48aaa7968ab76946095207d919a1db29cc3c7f05`, tree
+  `c573d02e52aae7613724b874bd3dd7e7ba6736bf`; verify/source-safety/restore
+  runs passed, output artifacts zero, Production unchanged.
+- Supabase `Dashboard` (`qjaywadzvwvcspdsjxth`) is `ACTIVE_HEALTHY` on
+  PostgreSQL `17.6.1.147`.
+- Production L0b table/RPC counts are `0/9` and `0/6`; the L0b migration remains
+  unapplied and both import controls remain disabled.
+- Browser + Google Drive remain authoritative.
 
-## Authorized scope
+## Current docs-only scope
 
-- Record the Provider Gate A decision in durable source documentation.
-- Add one Packet A Production readiness procedure.
-- Correct stale PR #77/CI/provider-gate status in existing docs.
-- Run documentation, diff, secret, and unchanged-runtime/SQL verification.
-- Open one source-documentation PR.
+- Correct stale Packet A/B-2 status and exact evidence in durable context,
+  security, KPI, and readiness records.
+- Add the staged L0b Production-readiness packet.
+- Run diff, Markdown/reference, secret, tests, build/package, and unchanged-
+  migration verification.
+- Open one Draft docs-only PR; do not merge it without exact approval.
 
 ## Hard stops
 
-- No migration apply or migration-history mutation.
-- No generic `supabase db push`; it can also apply pending L0b.
-- No import/backfill/data copy, shadow/dual write, or L1.
-- No Supabase/Netlify/LINE/Drive/secret/environment change.
-- No deployment, cleanup, deletion, dependency change, or unrelated refactor.
-- Do not alter the exact reviewed Packet A migration bytes without targeted
-  review.
+- No L0b migration apply or migration-history mutation.
+- No generic `supabase db push`.
+- No planner-data read/copy, import/backfill, shadow/dual write, or L1.
+- No Supabase/Netlify/LINE/Drive/secret/Auth/Environment change.
+- No deployment, merge, cleanup, deletion, dependency change, or unrelated
+  refactor.
+- Do not alter either reviewed migration file or B-2 workflow/source packet.
 
-## Current source artifacts
+## Next exact gates
 
-- `supabase/migrations/20260820083714_line_acl_default_privilege_hardening.sql`
-  — exact reviewed, unapplied migration; SHA-256
-  `554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a`.
-- `docs/PACKET_A_PRODUCTION_READINESS.md` — controlling preflight/apply/verify
-  gates; source documentation only.
+1. Verify and open this docs-only Draft PR from exact `main`.
+2. Recheck L0b source/hash and aggregate Production baseline read-only.
+3. Qualify a fresh restore-verified backup with confirmed Owner custody.
+4. Record a targeted exact-operation 6D decision.
+5. Obtain separate approval for the exact L0b targeted `apply_migration` call.
+6. Verify schema/catalog with importer still disabled and zero imported rows.
+7. Prepare and separately approve manual-control enablement and first Owner-
+   initiated import; keep browser + Drive authoritative.
 
-## Remaining Production gates
-
-1. Merge this documentation only after its source PR is verified and approved.
-2. Create and restore-test a fresh recoverable Supabase backup.
-3. Re-run the read-only catalog/source preflight.
-4. Record a targeted pre-Production 6D decision.
-5. Obtain separate Owner approval for the exact targeted `apply_migration`
-   operation.
-6. Apply only Packet A and complete aggregate catalog/RLS/data-invariance plus
-   bounded functional verification.
-
-OWNER ACTION: none during source-documentation preparation. Migration and
-Production approval will be requested separately, one decision at a time.
+OWNER ACTION: none for docs/source verification. The next Owner decision is the
+exact L0b Production apply gate only after all preceding evidence is current.

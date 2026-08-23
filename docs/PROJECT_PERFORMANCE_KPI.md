@@ -2,8 +2,9 @@
 
 Status: backend, bilingual command menu, task-details v2, Search button,
 confirmed-mutation UX, and L0a webhook reliability v22 are active in
-Production and owner-accepted on LINE. L0b and Packet A source are merged, but
-their database migrations remain unapplied.
+Production and owner-accepted on LINE. Packet A is applied and catalog-verified
+with functional smoke Owner-waived / not executed. L0b source is merged, but its
+database migration remains unapplied and its importer remains disabled.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -20,7 +21,7 @@ Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
-source gate are closed; any Production database action remains separately
+Production catalog gate are closed; any L0b Production action remains separately
 Owner-gated.
 
 ## Outcome
@@ -359,20 +360,21 @@ percentage is published.
 |---|---:|---|
 | Source gate | Complete | PR #77 merged exact reviewed head `a9c99719` as `main@9a5a95f5`; merge did not authorize database apply/deploy |
 | UI prevention | Merged | Full/Mobile control render and handlers require a bridge whose default is `enabled=false` |
-| ACL prevention | Merged, unapplied | Transactional/repeatable migration targets public-schema `postgres` table/sequence/API-role defaults, its global built-in future-function `PUBLIC EXECUTE`, and exact `mtp_line_*` grants; existing `aicc_*` objects are canary-tested unchanged |
+| ACL prevention | Applied / catalog-verified | Provider version `20260822162710`; exact least-privilege ACL/default matrix, RLS/policies, row counts and unrelated `aicc_*` canary passed; functional smoke Owner-waived / not executed |
 | PostgreSQL 17 coverage | PASS | Exact-head CI #127 passed all four jobs, including ACL/default-privilege, L0b, and L0a SQL gates |
 | Provider residual | Accepted; Gate A closed | Current Supabase documentation records `supabase_admin` defaults as intentional provider-managed state that does not bypass RLS by itself; Packet A does not alter that role |
 | Review count | Closed | Owner approved the exact reviewed PR #77 head; no repeated full L0b review while SQL/permission contract is unchanged |
-| B-1 backup gate | PASS | Run `32149051510`, attempt 2, job `96681690187`; exact encrypted artifact/digests pinned; Owner confirmed downloaded custody |
-| B-2 isolated restore | PASS | Draft PR #79 exact head `796b42a`; run `32577304437`; source-safety job `97041400164` and restore job `97041418226` passed |
-| B-2 final-run duration | `3m 50s` measured | GitHub run created `2026-08-22T13:58:10Z` and completed `2026-08-22T14:02:00Z`; this is run duration, not total B-1/B-2 wall-clock lead time |
-| B-2 failed/blocked workflow attempts | `4` | Attempts 1-3 failed closed before final reconciliation; attempt 4 was rejected by the Environment branch policy with zero restore steps; attempt 5 passed |
+| B-1 backup gate | PASS; refreshed after apply | Original run `32149051510` has Owner custody. Post-apply run `32587955307`, job `97067096268`, artifact `9479566992` passed; refreshed Owner custody is not confirmed and expiry is `2026-08-23T17:33:07Z` |
+| B-2 isolated restore | PASS; refreshed after apply | Draft PR #83 exact remote head `48aaa796`; run `32618003121`; source job `97141728425` and restore job `97141748031` passed exact Packet A ACL reconciliation |
+| B-2 refreshed final-run duration | `2m 36s` measured | Exact corrected-head run `32618003121`; normal verify run `32616039132` and source-safety run `32616039104` also passed |
+| B-2 refreshed failed attempts | `1` | Previous corrected-series attempt failed closed at post-restore ACL reconciliation; the exact corrected-head attempt passed. Historical PR #79 attempt counts remain recorded in its Draft PR |
 | Output artifacts from B-2 | `0` | Successful run produced no artifact; private plaintext and logs were cleanup-scoped to the runner |
-| Production changes | `0` | No migration apply, import/backfill, provider change, cleanup, or L1 action |
+| Production changes | `1` targeted migration | Packet A ACL-only apply succeeded once; no L0b migration, import/backfill, deployment, provider change, cleanup, or L1 action |
 
-Packet A is `Not comparable` to feature delivery. Prevention closure remains
-pending until the read-only preflight, targeted 6D, ACL-only apply, catalog/RLS,
-and functional verification gates in `docs/PACKET_A_PRODUCTION_READINESS.md`
-pass; no speed-improvement claim is made. Total B-1/B-2 wall-clock time and
-manual-intervention count were not captured consistently and remain `N/A`
-rather than reconstructed.
+Packet A is `Not comparable` to feature delivery. It is management-closed as
+`CONDITIONAL PASS`: source, backup/restore, targeted 6D, ACL-only apply, and
+catalog/RLS gates passed; the three functional smoke checks remain explicitly
+Owner-waived / not executed. The next staged roadmap gate is L0b, controlled by
+`docs/L0B_PRODUCTION_READINESS.md`. Total B-1/B-2 wall-clock time and manual-
+intervention count were not captured consistently and remain `N/A` rather than
+reconstructed.
