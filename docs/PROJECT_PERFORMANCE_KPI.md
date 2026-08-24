@@ -5,7 +5,9 @@ confirmed-mutation UX, and L0a webhook reliability v22 are active in
 Production and owner-accepted on LINE. Packet A is applied and catalog-verified
 with functional smoke Owner-waived / not executed. L0b source and schema-only
 Production apply/catalog gates are complete. Gate 4 manual-control source was
-merged and published from exact PR #86 head; no planner rows were imported.
+merged and published from exact PR #86 head. The separately approved M6b first
+manual import and bounded aggregate acceptance are complete; repeat import and
+L1 remain separately gated, and Browser + Google Drive remain authoritative.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -22,8 +24,10 @@ Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
-Production catalog gate and the L0b schema-only gate are closed; any L0b data
-projection, first import or acceptance action remains separately Owner-gated.
+Production catalog gate and the L0b schema-only gate are closed. The separately
+approved first L0b projection/import and bounded aggregate acceptance are also
+complete; any repeat import, cleanup, source-of-truth cutover or L1 action
+remains separately Owner-gated.
 
 ## Outcome
 
