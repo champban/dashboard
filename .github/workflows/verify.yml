@@ -171,6 +171,39 @@ jobs:
       - name: Execute non-migration L1A source contract and security gate
         run: bash supabase/tests/run_l1a_direct_todo_tests.sh
 
+  l1b-planner-parity-sql:
+    name: L1B planner parity / private Storage / conflicts (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: l1b_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d l1b_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/l1b_test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure PostgreSQL client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Execute non-migration L1B planner and Storage source gate
+        run: bash supabase/tests/run_l1b_planner_parity_tests.sh
+
   line-acl-hardening-sql:
     name: LINE ACL / default privileges (PostgreSQL 17)
     runs-on: ubuntu-latest

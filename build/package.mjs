@@ -86,6 +86,7 @@ ${tag(inline[5])}
 <script defer src="auth.js"></script>
 <script defer src="line-sync.js"></script>
 <script defer src="l0b-import.js"></script>
+<script defer src="l1-planner.js"></script>
 </body>
 </html>
 `;
