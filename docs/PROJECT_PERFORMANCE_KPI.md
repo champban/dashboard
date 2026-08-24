@@ -22,6 +22,8 @@ L0b source-only M0: `2026-08-20T10:27:38+07:00` (`Asia/Bangkok`)
 
 Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
+L1A source-only M0: `2026-08-24T10:50:50+07:00` (`Asia/Bangkok`)
+
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
 Production catalog gate and the L0b schema-only gate are closed. The separately
@@ -325,7 +327,25 @@ Environment secrets and artifact cleanup remain separate approvals.
 - Schedule/retention decision for `mtp_cleanup_line_events`.
 - Dependency advisory review by `2026-09-17`; no forced upgrade.
 - L0b normalized Supabase data foundation requires a new approval and KPI record.
-- L1 direct Todo mutation and Drive export-only cutover remain unstarted.
+- L1A source-contract work has started; Production direct Todo mutation and
+  Drive export-only cutover remain unstarted and separately gated.
+
+## L1A direct Todo source-contract record
+
+| Milestone / KPI | Current value | Evidence / boundary |
+|---|---:|---|
+| M0 activation | `2026-08-24T10:50:50+07:00` | Owner activated L1 from exact `main@a5a2a31f`, tree `cf11ca83`; `SEQUENTIAL_ONLY` |
+| Source slice | L1A | Operational task/event fields, stable event-window UUID, dependencies, opaque LINE reference digest, and task create/update/tombstone contract |
+| Public mutation surface | `3` RPC wrappers | Task create/update/delete only; owner from `auth.uid()`, exact version and idempotency key required |
+| New tables | `3` | Dependencies, external-reference digests, private mutation receipts; all RLS-enabled and deny broad default grants |
+| Production writes | `0` | Contract is outside `supabase/migrations/`; no import, direct Todo mutation, Storage/Auth/provider change, or cutover |
+| Authority | Browser + Drive | Unchanged until separately approved and Production-verified L1C cutover |
+| Verification target | PostgreSQL 17 + full repo gates | Static gate is local; disposable SQL/ACL/negative tests are an exact-head CI requirement |
+
+Comparability is `Not comparable`: this is an architecture/security source
+slice rather than an activated user feature. M4/M5/M6 and quality/rework counts
+will be frozen only after final exact-head CI and source review; no speed or
+Production outcome claim is made now.
 
 ## L0b normalized data foundation — Production record
 
@@ -408,7 +428,8 @@ Packet A is `Not comparable` to feature delivery. It is management-closed as
 `CONDITIONAL PASS`: source, backup/restore, targeted 6D, ACL-only apply, and
 catalog/RLS gates passed; the three functional smoke checks remain explicitly
 Owner-waived / not executed. L0b M6b first-import acceptance is now closed under
-`docs/L0B_PRODUCTION_READINESS.md`; L1 remains unstarted and separately gated.
+`docs/L0B_PRODUCTION_READINESS.md`; the L1A source contract is now in progress,
+while Production mutation/cutover remains separately gated.
 Total B-1/B-2 wall-clock time and manual-
 intervention count were not captured consistently and remain `N/A` rather than
 reconstructed.
