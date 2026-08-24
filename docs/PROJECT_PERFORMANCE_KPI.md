@@ -6,8 +6,10 @@ Production and owner-accepted on LINE. Packet A is applied and catalog-verified
 with functional smoke Owner-waived / not executed. L0b source and schema-only
 Production apply/catalog gates are complete. Gate 4 manual-control source was
 merged and published from exact PR #86 head. The separately approved M6b first
-manual import and bounded aggregate acceptance are complete; repeat import and
-L1 remain separately gated, and Browser + Google Drive remain authoritative.
+manual import and bounded aggregate acceptance are complete. L1A and L1B
+non-migration source contracts are merged/published but inactive; repeat import,
+Production promotion/activation and L1C remain separately gated, and Browser +
+Google Drive remain authoritative.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -24,11 +26,15 @@ Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
 L1A source-only M0: `2026-08-24T10:50:50+07:00` (`Asia/Bangkok`)
 
+L1B exact M0 activation timestamp: `N/A` — not captured contemporaneously;
+Draft PR #91 opened at `2026-08-24T15:58:20+07:00` (`Asia/Bangkok`)
+
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
 Production catalog gate and the L0b schema-only gate are closed. The separately
 approved first L0b projection/import and bounded aggregate acceptance are also
-complete; any repeat import, cleanup, source-of-truth cutover or L1 action
+complete. L1A/L1B source publication is complete, but any repeat import,
+Production promotion/activation, cleanup, source-of-truth cutover or L1C action
 remains separately Owner-gated.
 
 ## Outcome
@@ -326,9 +332,36 @@ Environment secrets and artifact cleanup remain separate approvals.
 
 - Schedule/retention decision for `mtp_cleanup_line_events`.
 - Dependency advisory review by `2026-09-17`; no forced upgrade.
-- L0b normalized Supabase data foundation requires a new approval and KPI record.
-- L1A source contract is merged/published but inactive; Production direct Todo
-  mutation and Drive export-only cutover remain unstarted and separately gated.
+- Any repeat L0b import requires a new exact approval and KPI record.
+- L1A and L1B source contracts are merged/published but inactive; Production
+  direct Todo/planner mutation, private Storage activation and Drive export-only
+  cutover remain unstarted and separately gated.
+
+## L1B full planner parity source-contract record
+
+| Milestone / KPI | Current value | Evidence / boundary |
+|---|---:|---|
+| M0 activation | `N/A` | Exact Owner activation time was not recorded contemporaneously and is not reconstructed. PR #91 opened at `2026-08-24T15:58:20+07:00`; this is a source-candidate timestamp, not M0. |
+| Targeted 6D | `2026-08-24T16:02:49+07:00` | `CONDITIONAL PASS` for the exact disabled source publication; no known Critical/High finding. Auditor was Codex, not an independent second reviewer; the Owner explicitly waived that review only for this frozen merge/publication gate. |
+| Source merge/publication | `2026-08-24T19:54:06+07:00` | PR #91 exact head `287d4932`, tree `e2d21724`, merged as signature-valid `main@b807d67a` from exact base `19b42d6f`; merge tree remained identical. |
+| Source slice | L1B | Planner parity for task children/dependencies, events/windows, notes/assets, attachments/private objects, settings, offline queue and version-7 Drive export contracts. |
+| Source diff | `1` commit / `15` files | `+2292/-30`; SQL/Storage definitions remain under `supabase/contracts/`, outside `supabase/migrations/`. |
+| Exact-head/post-merge CI | PASS | Runs `32709008940` and `32729590661` each passed all six jobs, including the PostgreSQL 17 L1B planner-parity/private-Storage/conflict gate. CI retries caused by source/config/dependency failure: `0`. |
+| GitHub Pages publication | PASS | Run `32729589662` completed successfully for merge `b807d67a`, tree `e2d21724`. Live Full, Mobile and `l1-planner.js` SHA-256 values matched committed bytes exactly. |
+| Production writes | `0` | No migration apply, bucket creation, import, planner mutation, client activation, Auth/secret/provider change, reconciliation, cleanup or L1C cutover. |
+| Client mode | Disabled | Published bridge remains `ENABLED=false`, mode `off`; enqueue fails closed and flush sends nothing. |
+| Authority | Browser + Drive | Unchanged until separately approved and Production-verified L1C cutover. |
+
+Live/committed SHA-256 parity evidence:
+
+- `index.html`: `685ed7561f27b3d0210c23f62e55c3a99b00982d945a469fc4f546c073c32e68`;
+- `mobile/index.html`: `d880e6e0256f6d848084a61727c8662c6d2b2087adabfed63c82fb6505f77a87`;
+- `l1-planner.js`: `98dc07564936dab79d3a569f8a9b62ae78657792b25987f49b835e6f2377fbf8`.
+
+Comparability is `Not comparable`: this is an architecture/security source
+publication, not an activated user feature. Wall-clock hours to M4/M6 are `N/A`
+because exact M0 was not captured and no Production milestone was attempted.
+No speed-improvement or Production-functionality claim is made.
 
 ## L1A direct Todo source-contract record
 
@@ -429,8 +462,9 @@ Packet A is `Not comparable` to feature delivery. It is management-closed as
 `CONDITIONAL PASS`: source, backup/restore, targeted 6D, ACL-only apply, and
 catalog/RLS gates passed; the three functional smoke checks remain explicitly
 Owner-waived / not executed. L0b M6b first-import acceptance is now closed under
-`docs/L0B_PRODUCTION_READINESS.md`; the L1A source contract is merged/published,
-while Production mutation/cutover remains separately gated.
+`docs/L0B_PRODUCTION_READINESS.md`; the L1A and L1B source contracts are
+merged/published, while Production mutation/Storage activation and L1C cutover
+remain separately gated.
 Total B-1/B-2 wall-clock time and manual-
 intervention count were not captured consistently and remain `N/A` rather than
 reconstructed.

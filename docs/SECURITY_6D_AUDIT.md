@@ -1,4 +1,4 @@
-# Security 6D Audit — L0a/L0b Closure and L1A Source Publication
+# Security 6D Audit — L0a/L0b Closure and L1A/L1B Source Publication
 
 Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
@@ -26,7 +26,66 @@ L1A source activation: `2026-08-24T10:50:50+07:00` (`Asia/Bangkok`)
 L1A source merge/publication closure: `2026-08-24T11:56:19+07:00`
 (`Asia/Bangkok`)
 
+L1B targeted source decision: `2026-08-24T16:02:49+07:00`
+(`Asia/Bangkok`)
+
+L1B source merge/publication closure: `2026-08-24T21:07:52+07:00`
+(`Asia/Bangkok`; evidence capture after the `19:54:06+07:00` merge)
+
 Repository: `champban/dashboard`
+
+## L1B full planner parity targeted source and publication closure
+
+**Decision: PASS FOR THE EXACT APPROVED DISABLED SOURCE MERGE/PUBLICATION
+BOUNDARY — NO MIGRATION, STORAGE BUCKET, PRODUCTION MUTATION, CLIENT ACTIVATION,
+IMPORT, OR L1C CUTOVER IS INCLUDED.**
+
+PR #91 froze exact head
+`287d493211abd21f2dc4d5887d83b27f2d4ee0e4`, tree
+`e2d21724980bc3985e5a41a42d35ffa1263f3f96`, against exact base
+`main@19b42d6f926fe5bc327ac80854c20a16de0381da`. Its one-commit, 15-file
+`+2292/-30` diff keeps the planner and private-Storage SQL under
+`supabase/contracts/`; no file was added under `supabase/migrations/`.
+
+Targeted 6D returned `CONDITIONAL PASS` at
+`2026-08-24T16:02:49+07:00` for the exact disabled source publication with no
+known Critical/High finding. Exact-head `verify` run `32709008940` passed all
+six jobs, including PostgreSQL 17 planner parity, owner RLS, private-Storage
+policy/path and conflict/idempotency coverage. The audit was performed by Codex
+and was not an independent second review. The Owner explicitly waived that
+second review only for the exact frozen merge/publication boundary.
+
+PR #91 then merged without tree drift at `2026-08-24T19:54:06+07:00` as
+signed `main@b807d67aef520959383fe80ff0c6dbc0a7b94e0d`; its two parents are the
+exact approved base and head. Post-merge `verify` run `32729590661` passed all
+six jobs, and Pages run `32729589662` completed successfully for that same
+merge SHA and tree.
+
+| Dimension | Publication decision | Exact evidence / residual activation gate |
+|---|---|---|
+| 1. Identity and access | PASS FOR SOURCE/PUBLICATION | Owner derives from `auth.uid()`; private definer core uses empty `search_path`; public wrappers are invoker functions; authenticated table access remains SELECT-only under owner RLS. Direct-helper, direct-write and cross-owner negatives passed before and after merge. |
+| 2. Secrets and data | PASS FOR SOURCE/PUBLICATION | Secret scan passed. No Production data was read or written; no import, credential, binary upload, bucket creation or provider action occurred. Nested forbidden-key and offline-queue binary guards passed. |
+| 3. Input and content safety | CONDITIONAL PASS FOR LATER ACTIVATION | Payload allowlists/bounds, UUID owner paths, SHA-256 metadata, HTTPS-only references, settings denylist and active-content rejection passed. Full render-sanitization plus malware/cleanup/durability proof remain mandatory before client/upload activation. |
+| 4. Browser and network controls | PASS FOR DISABLED SOURCE | The published bridge remains `ENABLED=false`, mode `off`; enqueue fails closed and flush sends nothing. No timer, online/page-load transport, new network origin, Auth redirect or CSP exception was introduced. |
+| 5. Supply chain and delivery | PASS | No dependency/lockfile change. Exact-head and post-merge runs passed `6/6`; the merge is signature-valid and tree-identical. Pages published the same merge SHA/tree. |
+| 6. Operations and recovery | CONDITIONAL PASS FOR LATER PROMOTION | Source rollback is a reviewed revert with no database effect. A current recoverable backup/isolated restore, read-only Production preflight, exact migration/Storage bytes and rollback approval, apply/catalog checks, reconciliation/observation and L1C cutover remain separate gates. Generic `supabase db push` is prohibited. |
+
+Live byte-parity checks passed after Pages publication:
+
+- `index.html` SHA-256:
+  `685ed7561f27b3d0210c23f62e55c3a99b00982d945a469fc4f546c073c32e68`;
+- `mobile/index.html` SHA-256:
+  `d880e6e0256f6d848084a61727c8662c6d2b2087adabfed63c82fb6505f77a87`;
+- `l1-planner.js` SHA-256:
+  `98dc07564936dab79d3a569f8a9b62ae78657792b25987f49b835e6f2377fbf8`.
+
+This closes only the approved merge/GitHub Pages publication boundary. It does
+not create the `mtp-private` bucket, apply either contract as a migration,
+activate the browser client, repeat/import planner data, change Auth/secrets/
+providers, demote Drive, reconcile owner data, clean up objects, or approve L1C.
+Browser + Google Drive remain authoritative. Any later change to contract bytes,
+Storage policy, ACL/RLS, browser enablement, dependencies, workflow, provider
+baseline or review status requires fresh targeted evidence.
 
 ## L1A direct Todo targeted source decision
 
