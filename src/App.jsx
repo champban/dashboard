@@ -13495,6 +13495,18 @@ export default function App() {
     },
   });
 
+  // L1B provider-free adapter: expose the same complete version-7 payload the
+  // existing Drive/export paths use. The separately loaded bridge is frozen at
+  // enabled=false, so registration performs no read, queue or network write.
+  useEffect(()=>{
+    const source = () => buildSavePayload();
+    window.__MTP_L1_SOURCE_FULL__ = source;
+    return ()=>{ if(window.__MTP_L1_SOURCE_FULL__===source) delete window.__MTP_L1_SOURCE_FULL__; };
+  },[activeProfileId,activeProfile?.name,activeProfile?.emoji,lastFileName,
+     personal,work,events,notes,customTabs,config,lang,widgetOrder,eventTypes,
+     calViews,ganttViewsBk,tlViewsBk,groupColors,tabOrder,tabReads,activity,
+     dataLastUpdated]);
+
   const runL0bImport = async () => {
     const bridge=window.__MTP_L0B__;
     if(bridge?.enabled!==true||!bridge?.importNow){
