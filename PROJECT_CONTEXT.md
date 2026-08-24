@@ -334,7 +334,7 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   High issue appeared. Browser + Google Drive remain authoritative. M6b closes
   first-import acceptance only and does not authorize a second import or L1.
 
-### L1A direct Todo source contract — active source lane, not Production
+### L1A direct Todo source contract — merged/published, not Production
 
 - Owner activated L1 on `2026-08-24T10:50:50+07:00` from exact
   `main@a5a2a31f3c0ffe195ff56108c6cdf1b68f66b307`, tree
@@ -347,11 +347,25 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   dependency and opaque LINE-reference contracts, and versioned/idempotent
   task create/update/tombstone RPCs with owner-bound RLS/ACL tests. It does not
   enable a browser write path or claim whole-planner parity.
+- Draft PR #89 froze remote head
+  `b0b7c5b1748b19649d8b46cb114f9ba6519e62e6`, tree
+  `868e944d49880ae92c09838395c339b52fdef380`, against exact base
+  `main@a5a2a31f3c0ffe195ff56108c6cdf1b68f66b307`. Exact-head `verify` run
+  `32690736886` passed all five jobs, including the PostgreSQL 17 L1A
+  schema/RLS/idempotency/conflict gate. Targeted 6D returned `CONDITIONAL PASS`
+  for the bounded source publication with no known Critical/High finding.
+- Owner approved the exact mark-ready/merge/publication recommendation. PR #89
+  merged at `2026-08-24T11:50:44+07:00` as signed
+  `main@2ec6e3d1576b18643514fa980da22cb41bb2e893`; its tree is byte-identical to
+  the approved PR head. Post-merge `verify` run `32691502347` passed `5/5`,
+  Pages run `32691501925` passed build/deploy/report, and the live `index.html`
+  SHA-256 matched the committed artifact:
+  `389113791ae6c53dede2c9d0560306473075cc00be3f32ee96bc41554f69ed6b`.
 - No Production migration, repeat import, planner-data read, direct Todo write,
-  Storage bucket, Auth/secret/provider change, Drive demotion, cutover, merge,
-  or publication is authorized by this source lane. Browser + Google Drive
-  remain authoritative.
-- Promotion requires exact-head PostgreSQL 17 CI, targeted 6D/source closure,
+  Storage bucket, Auth/secret/provider change, Drive demotion, client activation,
+  or cutover occurred. The Pages publication carried no runtime artifact drift.
+  Browser + Google Drive remain authoritative.
+- Source CI and targeted 6D are closed. Promotion to a migration still requires
   independent review, a qualified current backup/restore proof, read-only
   Production preflight, and a later exact migration-byte/hash/project/rollback
   approval. Generic `supabase db push` remains prohibited.
@@ -1179,7 +1193,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
 | L0b | Normalized Supabase projection — Production activation | **M6b first manual import and bounded aggregate acceptance complete.** Exactly one batch succeeded from `main@fe654751`; chunks `4/4`, rejects `0`, hashes/counts reconciled, staging `0`, and catalog/canaries remained intact. Browser + Google Drive remain authoritative; another import and L1 remain separately gated. |
-| L1 | Direct Supabase Todo / Drive export-only cutover | **L1A source contract in progress from exact `main@a5a2a31f`; not a migration and not active.** Operational fields, stable child identity, opaque LINE references, and task mutation RPC/ACL tests are being reviewed. Production apply, full planner parity, reconciliation, client activation and Drive export-only cutover remain later exact gates. |
+| L1 | Direct Supabase Todo / Drive export-only cutover | **L1A non-migration source contract merged/published as `main@2ec6e3d1`; not active in Production.** PR #89 exact-head and post-merge CI passed `5/5`; Pages published the byte-identical runtime artifact. Migration promotion, full planner parity, reconciliation, client activation and Drive export-only cutover remain later exact gates. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
 | LINE-3 | ~~Rich Menu backup and owner acceptance~~ | **Closed 2026-07-30.** `docs/assets/line/` holds the configuration, the specification, the recreation commands and the deployment image — verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, no `tEXt`/`iTXt`/`eXIf` metadata. The 7-step owner acceptance passed on LINE mobile and LINE for PC: the menu appears, sends `menu`, and the bot returns the English Flex menu containing `Search`. Still absent and still optional: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |

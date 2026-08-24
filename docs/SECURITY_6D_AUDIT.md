@@ -1,4 +1,4 @@
-# Security 6D Audit — L0a/L0b Closure and L1A Source Candidate
+# Security 6D Audit — L0a/L0b Closure and L1A Source Publication
 
 Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
@@ -23,12 +23,15 @@ L0b M6b first-import acceptance: `2026-08-23T21:29:13+07:00`
 
 L1A source activation: `2026-08-24T10:50:50+07:00` (`Asia/Bangkok`)
 
+L1A source merge/publication closure: `2026-08-24T11:56:19+07:00`
+(`Asia/Bangkok`)
+
 Repository: `champban/dashboard`
 
 ## L1A direct Todo targeted source decision
 
-**Decision: SOURCE CANDIDATE IN VERIFICATION — NO PRODUCTION APPLY, CLIENT
-ACTIVATION, MERGE, OR PUBLICATION IS INCLUDED.**
+**Decision: PASS FOR THE EXACT APPROVED SOURCE MERGE/PUBLICATION BOUNDARY — NO
+PRODUCTION APPLY, CLIENT ACTIVATION, IMPORT, OR CUTOVER IS INCLUDED.**
 
 The candidate starts from exact
 `main@a5a2a31f3c0ffe195ff56108c6cdf1b68f66b307`, tree
@@ -36,19 +39,26 @@ The candidate starts from exact
 contract under `supabase/contracts/`; CI applies it only after the exact L0b
 migration in a disposable PostgreSQL 17 service.
 
+PR #89 exact head `b0b7c5b1748b19649d8b46cb114f9ba6519e62e6`, tree
+`868e944d49880ae92c09838395c339b52fdef380`, passed `verify` run
+`32690736886` (`5/5`). It merged without tree drift as signed
+`main@2ec6e3d1576b18643514fa980da22cb41bb2e893`. Post-merge run
+`32691502347` passed `5/5`; Pages run `32691501925` passed build/deploy/report;
+the live and committed `index.html` SHA-256 matched exactly.
+
 | Dimension | Source decision | Evidence / residual gate |
 |---|---|---|
-| 1. Identity and access | CONDITIONAL PASS | Owner is derived only from `auth.uid()`; new tables use RLS; authenticated tables remain SELECT-only; mutation is through three allowlisted wrappers and private empty-`search_path` cores. Exact PostgreSQL catalog/negative tests must pass at the final head. |
-| 2. Secrets and data | CONDITIONAL PASS | No secret, owner content, raw LINE identifier/message/reference, binary, import, or Production connection is used. LINE references store SHA-256 digests of random opaque tokens only. Secret scan remains required. |
-| 3. Validation and integrity | CONDITIONAL PASS | Payload keys/types are allowlisted; progress/length/origin constraints, owner-composite FKs, dependency-cycle rejection, stable window UUID, expected-version conflicts, and tombstone deletes are covered in source tests. Full planner parity remains L1B. |
-| 4. Availability and concurrency | CONDITIONAL PASS | Owner-scoped idempotency receipts make identical retries single-write; conflicting key reuse and stale versions fail closed. Offline queue/realtime behavior and load evidence remain L1B gates. |
-| 5. Supply chain and delivery | CONDITIONAL PASS | No dependency or runtime bundle change. Existing npm/build/secret gates plus a new PostgreSQL 17 job protect exact source. Final exact HEAD/base/diff/CI and independent review are still required. |
-| 6. Operations and recovery | CONDITIONAL PASS | Source rollback is branch close/revert with no Production effect. Promotion requires qualified backup/restore, read-only preflight and exact migration hash/project/rollback approval; generic `db push` is prohibited. |
+| 1. Identity and access | PASS FOR SOURCE | Owner derives only from `auth.uid()`; new tables use RLS; authenticated tables remain SELECT-only; wrapper/core ACL negatives and cross-owner denial passed on the exact head and merge. |
+| 2. Secrets and data | PASS FOR SOURCE | Secret scan passed; no owner content, raw LINE identifier/message/reference, binary, import, Production connection, migration, or client activation occurred. |
+| 3. Validation and integrity | PASS FOR L1A CONTRACT | Payload allowlist/type/bounds, direct/import origin, owner FKs, dependency-cycle rejection, stable window UUID, expected-version conflicts and tombstones passed. Full planner parity remains L1B. |
+| 4. Availability and concurrency | PASS FOR L1A CONTRACT | Owner-scoped idempotency retry/conflicting-key and stale-version cases passed. Offline queue/realtime behavior and load evidence remain L1B gates. |
+| 5. Supply chain and delivery | PASS | No dependency/runtime bundle change; exact-head and post-merge repository/SQL jobs passed `5/5`; Pages published the byte-identical runtime artifact. |
+| 6. Operations and recovery | CONDITIONAL PASS | Source is merged but inactive. Migration promotion still requires independent review, qualified backup/restore, read-only preflight and exact migration hash/project/rollback approval; generic `db push` is prohibited. |
 
-No Critical/High issue is presently known in the bounded source design. This is
-not a final merge or Production decision: any change to exact HEAD/base/diff,
-SQL, ACL/RLS, tests, workflow, provider baseline, or review status invalidates
-the applicable evidence. Browser + Google Drive remain authoritative.
+No Critical/High issue is known in the bounded published source. This is not a
+Production migration or authority decision. Any later change to SQL, ACL/RLS,
+tests, workflow, provider baseline, migration bytes, or review status requires
+fresh evidence. Browser + Google Drive remain authoritative.
 
 Production scope:
 

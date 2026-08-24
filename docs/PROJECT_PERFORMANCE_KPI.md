@@ -327,25 +327,26 @@ Environment secrets and artifact cleanup remain separate approvals.
 - Schedule/retention decision for `mtp_cleanup_line_events`.
 - Dependency advisory review by `2026-09-17`; no forced upgrade.
 - L0b normalized Supabase data foundation requires a new approval and KPI record.
-- L1A source-contract work has started; Production direct Todo mutation and
-  Drive export-only cutover remain unstarted and separately gated.
+- L1A source contract is merged/published but inactive; Production direct Todo
+  mutation and Drive export-only cutover remain unstarted and separately gated.
 
 ## L1A direct Todo source-contract record
 
 | Milestone / KPI | Current value | Evidence / boundary |
 |---|---:|---|
 | M0 activation | `2026-08-24T10:50:50+07:00` | Owner activated L1 from exact `main@a5a2a31f`, tree `cf11ca83`; `SEQUENTIAL_ONLY` |
+| Source merge/publication | `2026-08-24T11:50:44+07:00` | PR #89 exact head `b0b7c5b1`, tree `868e944d`, merged as signed `main@2ec6e3d1` with the same tree |
 | Source slice | L1A | Operational task/event fields, stable event-window UUID, dependencies, opaque LINE reference digest, and task create/update/tombstone contract |
 | Public mutation surface | `3` RPC wrappers | Task create/update/delete only; owner from `auth.uid()`, exact version and idempotency key required |
 | New tables | `3` | Dependencies, external-reference digests, private mutation receipts; all RLS-enabled and deny broad default grants |
 | Production writes | `0` | Contract is outside `supabase/migrations/`; no import, direct Todo mutation, Storage/Auth/provider change, or cutover |
 | Authority | Browser + Drive | Unchanged until separately approved and Production-verified L1C cutover |
-| Verification target | PostgreSQL 17 + full repo gates | Static gate is local; disposable SQL/ACL/negative tests are an exact-head CI requirement |
+| Exact-head/post-merge CI | PASS | Runs `32690736886` and `32691502347` passed all five jobs, including PostgreSQL 17 L1A schema/RLS/idempotency/conflict |
+| GitHub Pages publication | PASS / no runtime drift | Run `32691501925` passed build/deploy/report; live and committed `index.html` SHA-256 both `38911379...f69ed6b` |
 
 Comparability is `Not comparable`: this is an architecture/security source
-slice rather than an activated user feature. M4/M5/M6 and quality/rework counts
-will be frozen only after final exact-head CI and source review; no speed or
-Production outcome claim is made now.
+slice rather than an activated user feature. Source delivery/CI/publication are
+closed; no Production functionality, speed, data-authority or M6 claim is made.
 
 ## L0b normalized data foundation — Production record
 
@@ -428,7 +429,7 @@ Packet A is `Not comparable` to feature delivery. It is management-closed as
 `CONDITIONAL PASS`: source, backup/restore, targeted 6D, ACL-only apply, and
 catalog/RLS gates passed; the three functional smoke checks remain explicitly
 Owner-waived / not executed. L0b M6b first-import acceptance is now closed under
-`docs/L0B_PRODUCTION_READINESS.md`; the L1A source contract is now in progress,
+`docs/L0B_PRODUCTION_READINESS.md`; the L1A source contract is merged/published,
 while Production mutation/cutover remains separately gated.
 Total B-1/B-2 wall-clock time and manual-
 intervention count were not captured consistently and remain `N/A` rather than
