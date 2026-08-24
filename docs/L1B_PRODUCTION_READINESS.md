@@ -190,12 +190,16 @@ Until that specific approval is received, status remains **NO-GO FOR APPLY**.
 A future approval for Gate 8 does not automatically authorize client activation,
 reconciliation, cleanup or L1C.
 
-### Gate 9 — disabled client publication
+### Gate 9 — verify existing disabled client
 
-- [ ] Publish only the reviewed disabled client after schema/Storage catalog
-      verification under a separate release decision.
-- [ ] Verify release SHA/artifact parity and that no automatic enqueue/send path
-      is active.
+- [ ] After schema/Storage catalog verification, verify the already-published L1B
+      browser artifact still matches the reviewed disabled client bytes and still
+      reports `enabled=false`, mode `off`.
+- [ ] Verify no automatic enqueue/send path is active and no Supabase authority
+      or write path is enabled.
+- [ ] Do **not** republish unchanged client bytes merely because schema/Storage
+      was applied. If client bytes must change, treat that as a separate release
+      gate with its own exact-head verification/publication boundary.
 
 ### Gate 10 — activation, reconciliation and observation
 
