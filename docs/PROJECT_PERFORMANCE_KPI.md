@@ -5,7 +5,9 @@ confirmed-mutation UX, and L0a webhook reliability v22 are active in
 Production and owner-accepted on LINE. Packet A is applied and catalog-verified
 with functional smoke Owner-waived / not executed. L0b source and schema-only
 Production apply/catalog gates are complete. Gate 4 manual-control source was
-merged and published from exact PR #86 head; no planner rows were imported.
+merged and published from exact PR #86 head. The separately approved M6b first
+manual import and bounded aggregate acceptance are complete; repeat import and
+L1 remain separately gated, and Browser + Google Drive remain authoritative.
 
 M0 activation confirmed: `2026-07-28T23:13:14+07:00` (`Asia/Bangkok`)
 
@@ -22,8 +24,10 @@ Packet A M0: `2026-08-20T15:37:14+07:00` (`Asia/Bangkok`)
 
 L0b/Packet A classification: `SEQUENTIAL_ONLY` — database migration and
 Auth/RLS/ACL policy sets use one active writer. The two L0b reviews and Packet A
-Production catalog gate and the L0b schema-only gate are closed; any L0b data
-projection, first import or acceptance action remains separately Owner-gated.
+Production catalog gate and the L0b schema-only gate are closed. The separately
+approved first L0b projection/import and bounded aggregate acceptance are also
+complete; any repeat import, cleanup, source-of-truth cutover or L1 action
+remains separately Owner-gated.
 
 ## Outcome
 
@@ -323,7 +327,7 @@ Environment secrets and artifact cleanup remain separate approvals.
 - L0b normalized Supabase data foundation requires a new approval and KPI record.
 - L1 direct Todo mutation and Drive export-only cutover remain unstarted.
 
-## L0b normalized data foundation — source-only record
+## L0b normalized data foundation — Production record
 
 | Milestone | Timestamp (`Asia/Bangkok`) | Evidence / status |
 |---|---|---|
@@ -336,25 +340,26 @@ Environment secrets and artifact cleanup remain separate approvals.
 | M6a schema-only Production verified | `2026-08-23` | Exact targeted apply from `main@1ece6091`; provider version `20260823055451_l0b_data_foundation`; tables/RLS/policies `9/9`, RPCs `6/6`, zero rows, canaries unchanged; importer disabled |
 | Gate 4 source candidate | `2026-08-23T14:00:10+07:00` | Draft PR #86 exact source head `db3c8cde`, tree `9cb2bad4`; one commit/two files; local full gate and exact-head GitHub Actions `verify` #150 run `32623877211` passed 4/4 jobs; targeted 6D returned `CONDITIONAL PASS` for a separate merge/publication decision; no provider write |
 | Gate 4 merge/publication | `2026-08-23T19:29:26+07:00` | Owner approved PR #86 exact head `4830b6cf`, tree `34f3859b`, against exact base `167b84cf`; merged as `main@8fc88a8a` with the same tree. Exact-head CI #151, post-merge CI #152 and Pages deployment #117 passed; no import/provider write |
-| M6b first manual import / acceptance | Not authorized | Requires separate owner-data projection, first-import, bounded reconciliation, and acceptance approvals |
+| M6b first manual import / acceptance | `2026-08-23T21:29:13+07:00` | Exactly one Full manual import from `main@fe654751` succeeded: chunks `4/4`, final chunks `1`, rejects `0`, hashes/counts reconciled, staging `0`; catalog and LINE/AICC canaries remained intact |
 
 Comparability: this database/data-architecture increment is not comparable to
 the earlier LINE feature increments. No speed, quality, or manual-step
 improvement is claimed. Review #1, PR #76 source, schema-only apply, and catalog
-verification are closed. L0b data import/acceptance remains unstarted and
+verification and M6b first-import acceptance are closed. Browser + Google Drive
+remain authoritative; repeat import, source-of-truth cutover and L1 remain
 separately gated.
 
-### L0b Gate 4 source-enablement record
+### L0b Gate 4 and M6b acceptance record
 
 | KPI | Current value | Evidence / gate |
 |---|---:|---|
 | Approved PR head | PASS | PR #86 exact head `4830b6cf82aa1ff65306b775e2382d84e96af21e`, tree `34f3859b997a530d80c4387bca0212388b731dc7`; exact base `main@167b84cfdfeedd19c0396b2f520e9806244eec3b`; runtime source commit `db3c8cde` changes two files and final commit records targeted closure only |
 | Exact-head/post-merge CI | PASS | Exact PR-head `verify` #151 run `32624687421` and push `verify` #152 run `32639538682` completed successfully on all four jobs; CI retries caused by source/config/dependency failure: `0` |
-| Targeted 6D | CONDITIONAL PASS → publication boundary closed | No new Critical/High finding; the exact approved merge/publication completed without tree drift. First import remains blocked |
-| Provider effect | `0` | Read-only recheck found Production `ACTIVE_HEALTHY`, migration tail `20260823055451_l0b_data_foundation`, L0b RLS `9/9`, row counts all zero |
-| Manual intervention | `0` for this source packet | GitHub and Supabase evidence were obtained through authenticated connectors; no Owner click or secret entry was required |
+| Targeted 6D | PASS through M6b bounded acceptance | No new Critical/High finding; publication completed without tree drift and the separately approved first import reconciled successfully |
+| Provider effect | `1` successful import batch | Production remained `ACTIVE_HEALTHY`; migration tail stayed `20260823055451_l0b_data_foundation`; exactly one batch succeeded and normalized aggregate counts matched server evidence |
+| Manual intervention | `1` Owner import action | Owner authenticated and initiated the Full manual import; no credential or raw planner content entered chat/evidence |
 | Production publication | PASS | PR #86 merged as `main@8fc88a8a94017eadb58b98adecbb87e22d65496c`, tree `34f3859b997a530d80c4387bca0212388b731dc7`; Pages run `32639537950` completed build/report/deploy successfully and points to https://champban.github.io/dashboard/ |
-| First import / acceptance | Not executed | Requires a later separate exact approval and explicit signed-in Owner action; no raw planner content may enter logs/chat |
+| First import / acceptance | PASS | Batch `07021dad-c25d-40dc-a722-b405c8b2a5c7`; `4/4` chunks, `0` rejects, traversal/hash/count reconciliation PASS, staging `0`, no retry |
 
 ### L0b quality/rework record
 
@@ -365,7 +370,7 @@ separately gated.
 | Remediation CI retries | `0` | Run #124 passed all three jobs on the first remediation attempt |
 | Failed deploys | `0` | No manual deployment command was attempted |
 | Release-control escapes | `1` | Existing GitHub Pages coupling published the merged L0b browser asset although approval excluded deployment; backend RPCs/tables were absent, so no import/data change occurred |
-| Manual intervention batches | `1` | Owner transferred the Claude review result between panels; no provider action or secret entry |
+| Manual intervention batches | `2` | Owner transferred the Claude review result between panels and later initiated the separately approved first Full manual import; no secret entered chat |
 
 Comparability remains `Not comparable`. This is a database architecture and
 security-test increment on an existing application, so no speed-improvement
@@ -386,24 +391,24 @@ percentage is published.
 | B-2 refreshed final-run duration | `2m 36s` measured | Exact corrected-head run `32618003121`; normal verify run `32616039132` and source-safety run `32616039104` also passed |
 | B-2 refreshed failed attempts | `1` | Previous corrected-series attempt failed closed at post-restore ACL reconciliation; the exact corrected-head attempt passed. Historical PR #79 attempt counts remain recorded in its Draft PR |
 | Output artifacts from B-2 | `0` | Successful run produced no artifact; private plaintext and logs were cleanup-scoped to the runner |
-| Production changes | `2` targeted migrations | Packet A ACL-only and L0b schema-only applies each succeeded once; no L0b import/backfill, deployment, provider change, cleanup, or L1 action |
+| Production changes | `2` targeted migrations + `1` manual import | Packet A ACL-only and L0b schema-only applies each succeeded once; M6b added exactly one successful normalized projection batch. No deployment, provider change, cleanup, source-of-truth cutover, or L1 action |
 
-### L0b schema-only Production gate record
+### L0b Production and M6b acceptance record
 
 | KPI | Current value | Evidence / gate |
 |---|---:|---|
 | Exact apply | PASS | Production `qjaywadzvwvcspdsjxth`; `main@1ece6091`; blob `59aad11b`; SHA-256 `75d07941...`; provider version `20260823055451_l0b_data_foundation`; targeted connector call exactly once |
 | Catalog verification | PASS | Tables/owners/RLS/policies `9/9`; RPCs `6/6`; triggers `5/5`; indexes `8/8`; unvalidated constraints, owner-orphans, and ACL differences all `0` |
-| Data movement | `0` | All nine L0b tables have zero rows; no planner-content read, import, backfill, shadow/dual write, or source-of-truth cutover |
+| Data movement | `1` bounded projection batch | Active aggregates: tasks `105`, subtasks `17`, events `6`, event windows `15`, attachments `0`; tombstoned/anomaly counts `0`; no raw planner content captured in evidence |
 | Existing-system canaries | PASS / unchanged | Frozen LINE and unrelated `aicc_*` aggregate catalog, ACL, policy, function, and row-count fingerprints matched before/after |
-| Import controls | Published, manual only | Full/Mobile use `UI_ENABLED=true` behind signed-in render/fail-closed handlers; no timer/Drive/LINE path invokes import, all nine L0b tables remain empty, and functional acceptance was not executed |
+| Import controls | Published, manual only | Full/Mobile use `UI_ENABLED=true` behind signed-in render/fail-closed handlers; no timer/Drive/LINE path invokes import. First Full manual acceptance passed; another import remains separately gated |
 | Security advisor residual | `6` expected WARNs | The reviewed authenticated `SECURITY DEFINER` importer RPCs intentionally remain executable by `authenticated`; exact ACLs, `auth.uid()` binding, empty `search_path`, RLS, and fencing verified |
 
 Packet A is `Not comparable` to feature delivery. It is management-closed as
 `CONDITIONAL PASS`: source, backup/restore, targeted 6D, ACL-only apply, and
 catalog/RLS gates passed; the three functional smoke checks remain explicitly
-Owner-waived / not executed. The next staged L0b gate is manual import
-enablement and acceptance, controlled by `docs/L0B_PRODUCTION_READINESS.md`.
+Owner-waived / not executed. L0b M6b first-import acceptance is now closed under
+`docs/L0B_PRODUCTION_READINESS.md`; L1 remains unstarted and separately gated.
 Total B-1/B-2 wall-clock time and manual-
 intervention count were not captured consistently and remain `N/A` rather than
 reconstructed.

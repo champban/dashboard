@@ -1,4 +1,4 @@
-# Security 6D Audit — L0a Closure and L0b Gate 4 Publication Closure
+# Security 6D Audit — L0a Closure and L0b M6b Acceptance Closure
 
 Pre-deploy audit: `2026-08-17` (`Asia/Bangkok`)
 
@@ -16,6 +16,9 @@ L0b Gate 4 targeted source decision: `2026-08-23T14:00:10+07:00`
 (`Asia/Bangkok`)
 
 L0b Gate 4 publication closure: `2026-08-23T19:29:26+07:00`
+(`Asia/Bangkok`)
+
+L0b M6b first-import acceptance: `2026-08-23T21:29:13+07:00`
 (`Asia/Bangkok`)
 
 Repository: `champban/dashboard`
@@ -36,9 +39,9 @@ Production scope:
 **Decision: PR #76 AND PACKET A SOURCE MERGES COMPLETE; PACKET A BACKUP,
 ISOLATED RESTORE, TARGETED PRODUCTION APPLY, AND CATALOG GATES COMPLETE;
 FUNCTIONAL SMOKE OWNER-WAIVED / NOT EXECUTED. L0b SCHEMA-ONLY APPLY AND CATALOG
-GATES ARE COMPLETE; GATE 4 MANUAL CONTROLS ARE PUBLISHED; FIRST IMPORT REMAINS
-NOT EXECUTED. PROVIDER GATE A IS CLOSED AS AN ACCEPTED PROVIDER-MANAGED
-RESIDUAL.**
+GATES ARE COMPLETE; GATE 4 MANUAL CONTROLS ARE PUBLISHED; M6b FIRST MANUAL
+IMPORT AND BOUNDED AGGREGATE ACCEPTANCE PASSED. PROVIDER GATE A IS CLOSED AS AN
+ACCEPTED PROVIDER-MANAGED RESIDUAL.**
 
 Review #1 is closed with Owner-approved D-1 `A + A1`. Owner approved the exact
 PR #76 source head `e3a52c5306e44856970eeb811dc52ecc9b8c3527`; it merged as
@@ -77,12 +80,12 @@ A hardening of `postgres` defaults and existing objects.
 
 | Dimension | Current source control | Remaining gate |
 |---|---|---|
-| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revoked public-schema `postgres` table/sequence/API-role defaults, globally revoked its built-in future-function `PUBLIC EXECUTE`, and reconstructed exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Packet A catalog gate closed; L0b has a separate preflight/apply/import gate |
-| 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change | Secret scan and exact-head diff |
-| 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate stays green |
-| 4. Browser and network controls | Packet A first made the Full/Mobile controls default-off; the separately approved Gate 4 publication later set the reviewed bridge to `enabled=true`. Existing signed-in render checks and fail-closed handlers remain; Drive/LINE paths are unchanged | Exact-head/post-merge generated-artifact parity and browser regression passed; first import remains a separate gate |
+| 1. Identity and access | Reviewed L0b owner model remains unchanged; Packet A revoked public-schema `postgres` table/sequence/API-role defaults, globally revoked its built-in future-function `PUBLIC EXECUTE`, and reconstructed exact browser/service `mtp_line_*` ACLs without changing RLS policies. Provider Gate A is closed as an accepted provider-managed residual | Packet A catalog gate and L0b first-import acceptance closed; repeat import/L1 remain gated |
+| 2. Secrets and data | ACL-only migration has no data DML; synthetic row invariance test; no secret/provider change. M6b evidence is aggregate-only | Secret scan, exact-head diff and bounded post-import evidence passed |
+| 3. Input and content safety | L0b reviewed validation/reconciliation is unchanged | Existing L0b regression gate and first-import hash/count reconciliation passed |
+| 4. Browser and network controls | Packet A first made the Full/Mobile controls default-off; the separately approved Gate 4 publication later set the reviewed bridge to `enabled=true`. Existing signed-in render checks and fail-closed handlers remain; Drive/LINE paths are unchanged | Exact-head/post-merge generated-artifact parity and browser regression passed; exactly one later approved Full import succeeded |
 | 5. Supply chain and deployment | No dependency/lockfile change; exact Packet A source merged in PR #77 after CI #127 and the frozen migration was applied through targeted `apply_migration` | Packet A closed; never use generic `supabase db push` for L0b |
-| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented with no cleanup/rollback DDL. The importer was disabled through the schema-only closure; Gate 4 later published the manual controls without executing an import. Original and refreshed encrypted backup/isolated restore reconciliation passed | Refreshed artifact custody was confirmed for the exact L0b schema gate; first import/recovery gates remain separately controlled |
+| 6. Operations and recovery | ACL migration is transactional/repeatable and forward-fix oriented with no cleanup/rollback DDL. Gate 4 published the manual controls; the later approved first import passed bounded acceptance with no retry. Original and refreshed encrypted backup/isolated restore reconciliation passed | Repeat import, recovery, cleanup and L1 remain separately controlled |
 
 ### Packet A Backup Gate B-1/B-2 evidence
 
@@ -128,7 +131,8 @@ Open risks:
   GitHub Pages coupling. Impact is limited to a visible, failing import control;
   no L0b backend/data existed. Packet A prevents recurrence by default-off UI
   gating. The later Gate 4 source merge/publication was separately approved and
-  completed; first owner-data projection/import remains separately gated.
+  completed; the separately approved first owner-data projection/import later
+  passed bounded aggregate acceptance with no retry.
 - Legacy subtask `Date.now()` collisions remain whole-batch identity quarantine
   under D-1 A1. A subtask UUID migration is a later L1 prerequisite, not L0b.
 - Event windows are positional values and have no stable identity across reorder.
@@ -227,7 +231,7 @@ approved base and head. The merge commit signature is valid.
 | Dimension | Decision | Post-merge evidence / remaining boundary |
 |---|---|---|
 | 1. Identity and access | PASS FOR PUBLICATION | No Auth, RPC, RLS, policy or privilege bytes changed after the targeted review. The published controls still require the signed-in browser client and explicit Owner action. |
-| 2. Secrets and data | PASS FOR PUBLICATION | Exact-head and post-merge secret scans passed. Publication read no planner content and performed no Supabase write; all nine L0b tables remain empty. |
+| 2. Secrets and data | PASS FOR PUBLICATION | Exact-head and post-merge secret scans passed. Publication read no planner content and performed no Supabase write; all nine L0b tables were still empty at this publication-closure checkpoint. |
 | 3. Input and content safety | PASS / NO DRIFT | The approved PR-head tree equals the merge tree. Projection allowlists, binary exclusion, chunk bounds, identity, rejection and reconciliation logic are unchanged from the targeted source decision. |
 | 4. Browser and network controls | PASS FOR PUBLICATION | `UI_ENABLED=true` exposes only the reviewed manual controls behind existing render/fail-closed checks. Static tests still prove no timer, Auto-sync, Drive or LINE path invokes `importNow`; no CSP/origin/redirect change exists. |
 | 5. Supply chain and deployment | PASS | Exact PR-head `verify` #151 (`32624687421`) and post-merge push `verify` #152 (`32639538682`) passed all four jobs. Pages #117 (`32639537950`) completed build, report and deploy for exact merge `8fc88a8a`; artifact `9493226035` digest is `sha256:cdc5c5ba6fd15897240d61a12dd650c188d337938d693eda2e8debdcf5cbee92`. |
@@ -237,6 +241,45 @@ This closes only the approved GitHub merge/publication boundary. It does not
 authorize planner-data read/projection, first import, bounded reconciliation,
 acceptance, provider/Auth/secret change, cleanup, source-of-truth cutover or L1.
 Those actions require a separate exact Owner gate.
+
+## L0b M6b first-import acceptance closure
+
+**Decision: PASS FOR THE SEPARATELY APPROVED FIRST MANUAL IMPORT AND BOUNDED
+AGGREGATE ACCEPTANCE — REPEAT IMPORT, SOURCE-OF-TRUTH CUTOVER AND L1 REMAIN
+BLOCKED.**
+
+The Owner approval was frozen to exact
+`main@fe6547513111657b5554c58eb715354f4c408130`, tree
+`d936d14b756e39eaa193c2d6948a7ea4fc324ff1`, Production project
+`qjaywadzvwvcspdsjxth`, migration tail
+`20260823055451_l0b_data_foundation`, and exactly one authenticated manual Full
+import with aggregate-only reconciliation, no automatic retry and stop on any
+drift. Backup artifact `9479566992` was still unexpired when the import ran.
+
+Batch `07021dad-c25d-40dc-a722-b405c8b2a5c7` started at
+`2026-08-23T21:29:12+07:00` and finished `succeeded` at `21:29:13+07:00`.
+Declared/received chunks were `4/4`, the one final chunk was sequence `3`,
+reject count/classes were `0/{}`, traversal completed, hashes were compared,
+stream/client and payload/stored hashes matched, and staging returned to `0`.
+Active aggregate counts were tasks `105`, subtasks `17`, events `6`, event
+windows `15`, task attachments `0`; tombstoned and anomaly counts were zero.
+No planner title, note, description, identifier, attachment content, owner ID,
+credential or secret entered evidence or chat.
+
+| Dimension | Decision | Post-import evidence / residual boundary |
+|---|---|---|
+| 1. Identity and access | PASS | Tables/owner/RLS/policies remained `9/9`; RPCs remained `6/6` `SECURITY DEFINER` with empty `search_path`, authenticated execute `6`, anon/PUBLIC execute `0`; authenticated non-SELECT table grants, staging client grants, sequence API-role grants and owner-orphans were `0`. |
+| 2. Secrets and data | PASS FOR APPROVED PROJECTION | One partial normalized projection batch succeeded. Evidence is aggregate-only; excluded fields and binary content were not imported or inspected. Browser + Drive remain authoritative. |
+| 3. Input and content safety | PASS | Chunks `4/4`, rejects `0`, traversal complete, both reconciliation hash comparisons true, recorded/actual active and tombstone counts equal, anomalies `0`, and staging `0`. |
+| 4. Browser and network controls | PASS FOR ONE MANUAL ACTION | Exactly one Full batch exists; running/failed/partial/expired counts are `0`. No Mobile duplicate, timer, Drive, LINE, auto-sync or retry path ran. |
+| 5. Supply chain and deployment | PASS / NO SOURCE DRIFT | `main` remained exact `fe654751`; migration ledger and schema source did not change. No deployment, dependency, Auth, CSP, redirect, provider or secret change occurred. |
+| 6. Operations and recovery | PASS FOR M6b | LINE stayed at `5` tables / `5` RLS / `38` columns / `10` policies / `4` functions and row counts `1/5/1/17/1`; unrelated `aicc_*` stayed at `9` relations / `123` columns / `14` policies / `6` functions. No rollback or retry was required. |
+
+The security advisor set remains the documented six intended authenticated
+importer WARNs, one default-deny `mtp_line_events` INFO and the pre-existing
+leaked-password-protection WARN. No new Critical or High issue appeared. This
+closure does not make Supabase the planner source of truth and does not approve
+another import, cleanup, direct Todo mutation, Drive demotion or L1.
 
 ## Packet A targeted pre-Production 6D decision
 

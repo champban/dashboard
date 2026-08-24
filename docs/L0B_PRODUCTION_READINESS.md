@@ -1,15 +1,16 @@
 # L0b Production Readiness
 
 Status: **SCHEMA-ONLY PRODUCTION APPLY AND CATALOG VERIFICATION COMPLETE /
-GATE 4 MANUAL-CONTROL PUBLICATION COMPLETE / FIRST MANUAL IMPORT NOT EXECUTED**
+GATE 4 MANUAL-CONTROL PUBLICATION COMPLETE / M6b FIRST MANUAL IMPORT AND
+BOUNDED AGGREGATE ACCEPTANCE COMPLETE**
 
 Decision date: `2026-08-23` (`Asia/Bangkok`)
 
 This packet records the exact, separately approved L0b schema-only Production
-apply after Packet A and the separately approved Gate 4 merge/publication. It
-does not authorize planner-data read/copy, first import, provider/Auth/secret
-change, cleanup, source-of-truth cutover, or L1. Browser + Google Drive remain
-authoritative.
+apply after Packet A, Gate 4 merge/publication, and first authenticated manual
+import with aggregate-only acceptance. It does not authorize another import,
+provider/Auth/secret change, cleanup, source-of-truth cutover, or L1. Browser +
+Google Drive remain authoritative.
 
 ## Exact source boundary
 
@@ -46,9 +47,10 @@ Verified through the authenticated Supabase connector on `2026-08-23`:
 - Reviewed triggers are present `5/5`, indexes `8/8`, unvalidated constraints
   `0`, owner-orphans `0`, table ACL differences `0`, function ACL differences
   `0`, `PUBLIC` RPC grants `0`, and sequence API-role grants `0`.
-- All nine L0b tables contain zero rows. PR #86 later published the reviewed
-  Full/Mobile signed-in manual controls (`UI_ENABLED=true`), but no planner
-  content was read or imported and no automatic path invokes the importer.
+- The first separately approved manual import later created exactly one
+  successful batch. Active aggregates are tasks `105`, subtasks `17`, events
+  `6`, event windows `15`, and task attachments `0`; all tombstoned counts are
+  zero. No automatic path invokes the importer.
 - Frozen LINE canaries were unchanged before/after: tables `5` / RLS `5`,
   columns `38`, policies `10`, functions `4`, row counts `1/5/1/17/1`; digests
   `f1f54e4e92976f3d85b5ff55a1e6a0f9`,
@@ -100,6 +102,33 @@ and no direct table writes. They are accepted schema-gate residuals, not an
 apply failure; any ACL/auth/search-path drift reopens the gate. The Auth warning
 remains outside this scope and must be revisited before an Auth configuration
 change.
+
+## M6b first-import acceptance evidence
+
+**Decision: PASS FOR EXACTLY ONE SEPARATELY APPROVED FULL MANUAL IMPORT AND
+BOUNDED AGGREGATE ACCEPTANCE.**
+
+- Exact runtime source: `main@fe6547513111657b5554c58eb715354f4c408130`,
+  tree `d936d14b756e39eaa193c2d6948a7ea4fc324ff1`.
+- Production remained `ACTIVE_HEALTHY`; migration tail remained
+  `20260823055451_l0b_data_foundation`; backup artifact `9479566992` was still
+  inside its expiry window when the operation ran.
+- Exactly one batch exists: `07021dad-c25d-40dc-a722-b405c8b2a5c7`, started
+  `2026-08-23T21:29:12+07:00`, finished `succeeded` at `21:29:13+07:00`.
+  Running, failed, partial and expired batch counts are zero.
+- Declared/received chunks `4/4`; final chunks `1`, sequence `3`; rejects
+  `0`, classes `{}`; traversal complete; hashes compared; stream/client and
+  payload/stored hashes equal; staging rows `0`.
+- Recorded and actual aggregates match: active task `105`, subtask `17`, event
+  `6`, event window `15`, task attachment `0`; tombstoned and anomaly counts
+  all `0`.
+- L0b catalog/RLS/RPC/ACL controls and frozen LINE/AICC canaries remained
+  intact. Security advisors added no Critical/High finding. No raw planner
+  content, owner identifier, credential or secret was captured in evidence.
+
+This closes M6b first-import acceptance only. Browser + Google Drive remain the
+source of truth. Another import, cleanup, direct Supabase Todo mutation, Drive
+demotion and L1 require separate review and Owner approval.
 
 ## Mandatory staged gates
 
@@ -181,32 +210,44 @@ change.
       `main@167b84cfdfeedd19c0396b2f520e9806244eec3b` as
       `main@8fc88a8a94017eadb58b98adecbb87e22d65496c` with the same tree.
       Exact-head CI #151, post-merge CI #152 and Pages deployment #117 passed.
-- [ ] Obtain a separate exact approval before reading/projecting owner planner
-      data or starting the first authenticated import.
-- [ ] Owner initiates the import from the signed-in planner. Verify only bounded
-      aggregate evidence: batch terminal state, declared/received chunks,
-      reject counts/classes, active/tombstone counts, and equal client/server
-      reconciliation hashes. Do not expose raw planner content in logs/chat.
-- [ ] On partial/reject/mismatch, keep browser + Drive authoritative, do not
-      retry automatically, do not enable shadow/dual write, and correct the
-      authoritative planner only through a separately reviewed Owner action.
+- [x] Obtain a separate exact approval before reading/projecting owner planner
+      data or starting the first authenticated import. Approval was frozen to
+      `main@fe6547513111657b5554c58eb715354f4c408130`, tree
+      `d936d14b756e39eaa193c2d6948a7ea4fc324ff1`, Production project
+      `qjaywadzvwvcspdsjxth`, exactly one Full import, aggregate-only
+      reconciliation and stop-on-drift/no-retry controls.
+- [x] Owner initiated the import from the signed-in Full planner. Batch
+      `07021dad-c25d-40dc-a722-b405c8b2a5c7` ran from
+      `2026-08-23T21:29:12+07:00` through `21:29:13+07:00` and succeeded.
+      Declared/received chunks were `4/4`, final chunks `1`, rejects/classes
+      `0/{}`, traversal complete, hashes compared, stream/client and
+      payload/stored hashes equal, and staging returned to `0`.
+- [x] Bounded active aggregates matched recorded server evidence: task `105`,
+      subtask `17`, event `6`, event window `15`, task attachment `0`;
+      tombstoned and anomaly counts were all zero. No raw planner content or
+      owner identifier was exposed in logs/chat.
+- [x] The partial/reject/mismatch stop condition did not trigger. No duplicate
+      click, automatic retry, shadow/dual write, destructive rollback or source
+      correction ran.
 
 ### Gate 5 — L0b closure
 
 - [x] Record the schema-only migration version, exact source, backup custody,
       aggregate catalog, RLS/ACL, zero-row state, Gate 4 publication, rollback
-      status, and residuals in context/security/KPI documentation. Import
-      reconciliation and Owner acceptance remain pending Gate 4.
+      status, and residuals in context/security/KPI documentation.
+- [x] Record M6b exact source/Production boundary, single-batch terminal state,
+      aggregate reconciliation, canaries, advisor residuals and no-retry result
+      without recording planner content.
 - [x] Keep browser + Google Drive authoritative. L0b remains a partial projection
       and does not authorize direct Supabase Todo mutation or L1 cutover.
 
 ## Rollback and stop conditions
 
-The migration is additive. Before any import, the safe rollback is to revert the
-manual-control publication and leave the unused schema in place while a
-separately approved least-privilege forward fix is prepared. Do not drop tables,
-rewrite migration history, restore Production, or delete evidence as an
-automatic response.
+The migration is additive. Before the completed first import, the safe rollback
+was to revert the manual-control publication and leave the unused schema in
+place while a separately approved least-privilege forward fix was prepared. Do
+not drop tables, rewrite migration history, restore Production, or delete
+evidence as an automatic response.
 
 After an import, no automatic destructive rollback is allowed. Preserve Drive as
 the source of truth, stop further imports, retain batch evidence, and require a
