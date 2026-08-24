@@ -370,6 +370,44 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   Production preflight, and a later exact migration-byte/hash/project/rollback
   approval. Generic `supabase db push` remains prohibited.
 
+### L1B full planner parity source contract — merged/published, disabled, not Production
+
+- PR #91 froze exact head
+  `287d493211abd21f2dc4d5887d83b27f2d4ee0e4`, tree
+  `e2d21724980bc3985e5a41a42d35ffa1263f3f96`, against exact base
+  `main@19b42d6f926fe5bc327ac80854c20a16de0381da`. The one-commit diff contains
+  15 files (`+2292/-30`) and keeps the SQL/Storage definitions under
+  `supabase/contracts/`, outside `supabase/migrations/`.
+- Targeted 6D at `2026-08-24T16:02:49+07:00` returned
+  `CONDITIONAL PASS` for the bounded disabled source publication with no known
+  Critical/High finding. Exact-head `verify` run `32709008940` passed all six
+  jobs, including the PostgreSQL 17 L1B planner-parity/private-Storage/conflict
+  gate. The Owner explicitly waived an independent second review only for the
+  exact merge/publication decision; this does not waive later activation gates.
+- PR #91 merged at `2026-08-24T19:54:06+07:00` as signed
+  `main@b807d67aef520959383fe80ff0c6dbc0a7b94e0d`. Its tree is byte-identical to
+  the approved head and its parents are the exact approved base and head.
+  Post-merge `verify` run `32729590661` passed `6/6`; Pages run `32729589662`
+  completed successfully for the same merge SHA/tree.
+- Live publication is byte-identical to the committed source: SHA-256 values
+  are `685ed7561f27b3d0210c23f62e55c3a99b00982d945a469fc4f546c073c32e68`
+  for `index.html`,
+  `d880e6e0256f6d848084a61727c8662c6d2b2087adabfed63c82fb6505f77a87`
+  for `mobile/index.html`, and
+  `98dc07564936dab79d3a569f8a9b62ae78657792b25987f49b835e6f2377fbf8`
+  for `l1-planner.js`.
+- The shared browser bridge remains `ENABLED=false`, with mode `off`. No
+  migration was applied, no `mtp-private` bucket was created, and no import,
+  Production mutation, client activation, Auth/secret/provider change, Drive
+  demotion, reconciliation, cleanup or L1C cutover occurred. Browser + Google
+  Drive remain authoritative.
+- Source merge/publication is closed. Promotion still requires a current
+  recoverable backup and isolated restore proof, read-only Production preflight,
+  exact migration and Storage-policy bytes/hash/project/rollback approval,
+  apply/catalog verification, separately approved disabled-client publication,
+  activation, full-owner reconciliation/observation, and a later L1C authority
+  decision. Generic `supabase db push` remains prohibited.
+
 ### L0a webhook reliability Production release
 
 - PR #70 merged the exact reviewed L0a source; PR #69 was closed unmerged as
@@ -567,6 +605,7 @@ Targeted 6D audit:
 | 2026-08-23 | source `db3c8cde` / Draft PR #86 | L0b Gate 4 source candidate; not merged/published/imported | Pass | Pass | Pass | Conditional | Conditional | Conditional | CONDITIONAL PASS | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-08-23 | PR head `4830b6cf` / merge `8fc88a8a` | L0b Gate 4 GitHub Pages publication; import not executed | Pass | Pass | Pass | Pass | Pass | Pass | PASS FOR APPROVED PUBLICATION BOUNDARY | `docs/SECURITY_6D_AUDIT.md` |
 | 2026-08-23 | `main@fe654751` / batch `07021dad` | L0b M6b first manual Full import; aggregate-only acceptance | Pass | Pass | Pass | Pass | Pass | Pass | PASS FOR APPROVED FIRST-IMPORT BOUNDARY | `docs/SECURITY_6D_AUDIT.md` |
+| 2026-08-24 | PR head `287d4932` / merge `b807d67a` | L1B full-planner source publication; bridge disabled; no migration/Storage/Production action | Pass | Pass | Conditional | Pass | Pass | Conditional | PASS FOR APPROVED DISABLED SOURCE PUBLICATION BOUNDARY | `docs/SECURITY_6D_AUDIT.md` |
 
 The second row covers Rich Menu asset versioning, the project-context
 corrections, and the scheduled health check. `index.html` and
@@ -1193,7 +1232,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
 | L0b | Normalized Supabase projection — Production activation | **M6b first manual import and bounded aggregate acceptance complete.** Exactly one batch succeeded from `main@fe654751`; chunks `4/4`, rejects `0`, hashes/counts reconciled, staging `0`, and catalog/canaries remained intact. Browser + Google Drive remain authoritative; another import and L1 remain separately gated. |
-| L1 | Direct Supabase Todo / Drive export-only cutover | **L1A non-migration source contract merged/published as `main@2ec6e3d1`; not active in Production.** PR #89 exact-head and post-merge CI passed `5/5`; Pages published the byte-identical runtime artifact. Migration promotion, full planner parity, reconciliation, client activation and Drive export-only cutover remain later exact gates. |
+| L1 | Direct Supabase Todo / Drive export-only cutover | **L1A and L1B non-migration source contracts are merged/published through `main@b807d67a`; both remain inactive in Production.** PR #91 exact-head and post-merge CI passed `6/6`; Pages published byte-identical Full/Mobile/bridge artifacts. Migration/Storage promotion, Production activation, full-owner reconciliation and L1C Drive export-only cutover remain later exact gates. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
 | LINE-3 | ~~Rich Menu backup and owner acceptance~~ | **Closed 2026-07-30.** `docs/assets/line/` holds the configuration, the specification, the recreation commands and the deployment image — verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, no `tEXt`/`iTXt`/`eXIf` metadata. The 7-step owner acceptance passed on LINE mobile and LINE for PC: the menu appears, sends `menu`, and the bot returns the English Flex menu containing `Search`. Still absent and still optional: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |
