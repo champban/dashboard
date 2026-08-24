@@ -334,6 +334,28 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   High issue appeared. Browser + Google Drive remain authoritative. M6b closes
   first-import acceptance only and does not authorize a second import or L1.
 
+### L1A direct Todo source contract — active source lane, not Production
+
+- Owner activated L1 on `2026-08-24T10:50:50+07:00` from exact
+  `main@a5a2a31f3c0ffe195ff56108c6cdf1b68f66b307`, tree
+  `cf11ca8344b2787a92d0e43e19bc9f67ddc5cdf9`, on
+  `feature/l1a-direct-supabase-todo`. Classification is `SEQUENTIAL_ONLY`.
+- This first slice is source/test/documentation only. The SQL lives at
+  `supabase/contracts/l1a_direct_todo.sql`, deliberately outside
+  `supabase/migrations/`, and is applied only to throwaway PostgreSQL 17 in CI.
+- The candidate completes operational task fields, stable event-window UUIDs,
+  dependency and opaque LINE-reference contracts, and versioned/idempotent
+  task create/update/tombstone RPCs with owner-bound RLS/ACL tests. It does not
+  enable a browser write path or claim whole-planner parity.
+- No Production migration, repeat import, planner-data read, direct Todo write,
+  Storage bucket, Auth/secret/provider change, Drive demotion, cutover, merge,
+  or publication is authorized by this source lane. Browser + Google Drive
+  remain authoritative.
+- Promotion requires exact-head PostgreSQL 17 CI, targeted 6D/source closure,
+  independent review, a qualified current backup/restore proof, read-only
+  Production preflight, and a later exact migration-byte/hash/project/rollback
+  approval. Generic `supabase db push` remains prohibited.
+
 ### L0a webhook reliability Production release
 
 - PR #70 merged the exact reviewed L0a source; PR #69 was closed unmerged as
@@ -1157,7 +1179,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | CI | **Done, not "not started".** `.github/workflows/verify.yml` runs on every PR and every push to `main`: secret scan (+ selftest), `npm run verify` (build → harness → audit → package), `npm test`, a check that `index.html`/`BUILD-MANIFEST.json` reproduce byte-for-byte from source, and an es2019 guard rejecting `??` / `?.[` in the shipped bundle. Remaining gap is monitoring, not CI — see LINE-4. |
 | — | Staging | Netlify deploy previews planned (deferred until source is stable — now unblocked). Needs new JS origin + redirect URI in Google Console, new redirect URL in Supabase Auth, and the Netlify domain added to CSP `connect-src`/`form-action` as applicable. |
 | L0b | Normalized Supabase projection — Production activation | **M6b first manual import and bounded aggregate acceptance complete.** Exactly one batch succeeded from `main@fe654751`; chunks `4/4`, rejects `0`, hashes/counts reconciled, staging `0`, and catalog/canaries remained intact. Browser + Google Drive remain authoritative; another import and L1 remain separately gated. |
-| L1 | Direct Supabase Todo / Drive export-only cutover | Unstarted and blocked on L0b Production verification plus schema completion for operational fields, opaque LINE reference design, full-owner reconciliation, and a separate cutover/rollback approval. |
+| L1 | Direct Supabase Todo / Drive export-only cutover | **L1A source contract in progress from exact `main@a5a2a31f`; not a migration and not active.** Operational fields, stable child identity, opaque LINE references, and task mutation RPC/ACL tests are being reviewed. Production apply, full planner parity, reconciliation, client activation and Drive export-only cutover remain later exact gates. |
 | LINE-1 | ~~LINE Official read-only bot production activation~~ | **Closed 2026-07-30.** Backup, migrations, Function Secrets, function v3, webhook verification, auth hotfix, menu and task cards are active, and owner live-data acceptance passed — including the exclusion cases that carry the privacy risk: an HTTP link, a local file attachment and base64 data were all absent from LINE output, and turning each opt-in off removed only its own data from the next reply. |
 | LINE-2 | ~~Search button owner acceptance~~ | **Closed 2026-07-30.** Keyboard prefill verified on LINE mobile for both `search ` and `ค้นหา `, typed-command fallback verified on LINE for PC, and bare `search` / `ค้นหา` both return the same prompt. |
 | LINE-3 | ~~Rich Menu backup and owner acceptance~~ | **Closed 2026-07-30.** `docs/assets/line/` holds the configuration, the specification, the recreation commands and the deployment image — verified at 2500 × 843, 418,567 bytes, SHA-256 `221784dd…836ed8a4`, no `tEXt`/`iTXt`/`eXIf` metadata. The 7-step owner acceptance passed on LINE mobile and LINE for PC: the menu appears, sends `menu`, and the bot returns the English Flex menu containing `Search`. Still absent and still optional: `line-rich-menu-background-v1.png`, needed only to re-typeset the label over the same artwork. |
