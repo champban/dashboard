@@ -1,0 +1,203 @@
+name: L1B B-2 catalog fallback
+
+on:
+  push:
+    branches:
+      - ops/l1b-b2-catalog-fallback
+    paths:
+      - '.github/workflows/l1b-b2-catalog-fallback.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: l1b-b2-catalog-fallback
+  cancel-in-progress: false
+
+jobs:
+  apply-and-verify:
+    if: >-
+      github.repository == 'champban/dashboard' &&
+      github.ref == 'refs/heads/ops/l1b-b2-catalog-fallback'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact staging branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ops/l1b-b2-catalog-fallback
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify staging boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'd31576e61c36566a2db3de1d948143bbd5efe8cb'
+          test "$(git diff --name-only HEAD^..HEAD)" = '.github/workflows/l1b-b2-catalog-fallback.yml'
+          test "$(git hash-object ops/l1b-post-import-isolated-restore-acl-patch.py)" = '3a0bb3c49428b61ce6536c92f21f8a67ac633c34'
+          test "$(git hash-object ops/l1b-post-import-isolated-restore.sh)" = 'e77864ae9b73fd3d914fe891eccde6d66ed7862d'
+
+      - name: Apply role-independent catalog remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          injector = Path('ops/l1b-post-import-isolated-restore-acl-patch.py')
+          payload = injector.read_text(encoding='utf-8')
+          anchor = "    anchor = (\n"
+          if payload.count(anchor) != 1:
+              raise SystemExit('injector anchor count differs')
+
+          addition = r'''    old_catalog_grant_block = r''' + "'''" + r'''  union all
+  select case when g.table_name like 'mtp_line_%' then 'LINE' when g.table_name like 'aicc_%' then 'AICC' else 'L0B' end,
+         'GRANT|'||g.table_schema||'|'||g.table_name||'|'||g.grantee||'|'||g.privilege_type||'|'||g.is_grantable
+  from information_schema.role_table_grants g where g.table_schema='public' and (g.table_name like 'mtp_line_%' or g.table_name like 'aicc_%' or g.table_name in ('mtp_import_batches','mtp_import_chunks','mtp_import_staging','mtp_import_rejects','mtp_tasks','mtp_subtasks','mtp_events','mtp_event_windows','mtp_task_attachments'))
+''' + "'''" + r'''
+          new_catalog_grant_block = r''' + "'''" + r'''  union all
+  select case when c.relname like 'mtp_line_%' then 'LINE' when c.relname like 'aicc_%' then 'AICC' else 'L0B' end,
+         'GRANT|'||n.nspname||'|'||c.relname||'|'||
+         case when x.grantee=0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(x.grantee) end||'|'||
+         x.privilege_type||'|'||
+         case
+           when x.is_grantable then 'YES'
+           when x.grantee=0 then 'NO'
+           when pg_catalog.pg_has_role(x.grantee,c.relowner,'USAGE') then 'YES'
+           else 'NO'
+         end
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(c.relacl,pg_catalog.acldefault('r'::"char",c.relowner))
+  ) x
+  where n.nspname='public'
+    and c.relkind in ('r','v','f','p')
+    and (c.relname like 'mtp_line_%' or c.relname like 'aicc_%' or c.relname in ('mtp_import_batches','mtp_import_chunks','mtp_import_staging','mtp_import_rejects','mtp_tasks','mtp_subtasks','mtp_events','mtp_event_windows','mtp_task_attachments'))
+    and x.privilege_type in ('INSERT','SELECT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+''' + "'''" + r'''
+          payload = replace_once(
+              payload,
+              old_catalog_grant_block,
+              new_catalog_grant_block,
+              "role-independent-catalog-grants",
+          )
+          if "information_schema.role_table_grants" in payload:
+              raise SystemExit("role-dependent catalog view remains in executed core")
+
+'''
+          payload = payload.replace(anchor, addition + anchor, 1)
+          injector.write_text(payload, encoding='utf-8', newline='\n')
+
+          wrapper = Path('ops/l1b-post-import-isolated-restore.sh')
+          wrapper_payload = wrapper.read_text(encoding='utf-8')
+          marker = "if [[ \"${1:-}\" == '--selftest' ]]; then\n"
+          checks = r'''if grep -Fq 'information_schema.role_table_grants' "$PATCHED_CORE"; then
+  echo "::error::Role-dependent catalog grant view remains in executed derived core"
+  exit 1
+fi
+grep -Fq 'cross join lateral pg_catalog.aclexplode' "$PATCHED_CORE"
+grep -Fq "c.relkind in ('r','v','f','p')" "$PATCHED_CORE"
+
+'''
+          if wrapper_payload.count(marker) != 1:
+              raise SystemExit('wrapper selftest marker count differs')
+          wrapper_payload = wrapper_payload.replace(marker, checks + marker, 1)
+          wrapper_payload = wrapper_payload.replace(
+              "EXPECTED_INJECTOR_BLOB='3a0bb3c49428b61ce6536c92f21f8a67ac633c34'",
+              "EXPECTED_INJECTOR_BLOB='PENDING_INJECTOR_BLOB'",
+              1,
+          )
+          wrapper_payload = wrapper_payload.replace(
+              "EXPECTED_REVIEWED_CORE_BLOB='e830585d50ad0f795fe72a8fba9300416bac58ac'",
+              "EXPECTED_REVIEWED_CORE_BLOB='PENDING_REVIEWED_CORE_BLOB'",
+              1,
+          )
+          wrapper.write_text(wrapper_payload, encoding='utf-8', newline='\n')
+          PY
+
+          injector_blob="$(git hash-object ops/l1b-post-import-isolated-restore-acl-patch.py)"
+          python3 - "$injector_blob" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path('ops/l1b-post-import-isolated-restore.sh')
+          payload = path.read_text(encoding='utf-8')
+          payload = payload.replace('PENDING_INJECTOR_BLOB', sys.argv[1], 1)
+          path.write_text(payload, encoding='utf-8', newline='\n')
+          PY
+
+          patch_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$patch_dir"' EXIT
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch \
+            ops/l1b-post-import-isolated-restore-core.sh "$patch_dir/core.sh" \
+            --kind core --expected-fixes 3 >/dev/null
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch \
+            ops/l1b-post-import-isolated-restore-acl-check.sh "$patch_dir/base-acl.sh" \
+            --kind base-acl --expected-fixes 2 >/dev/null
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch \
+            ops/l1b-post-import-isolated-restore-review-check.sh "$patch_dir/review.sh" \
+            --kind review --expected-fixes 5 >/dev/null
+          python3 ops/l1b-post-import-isolated-restore-acl-patch.py \
+            "$patch_dir/core.sh" "$patch_dir/final-core.sh"
+          final_core_blob="$(git hash-object "$patch_dir/final-core.sh")"
+
+          python3 - "$final_core_blob" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path('ops/l1b-post-import-isolated-restore.sh')
+          payload = path.read_text(encoding='utf-8')
+          payload = payload.replace('PENDING_REVIEWED_CORE_BLOB', sys.argv[1], 1)
+          path.write_text(payload, encoding='utf-8', newline='\n')
+          PY
+
+          wrapper_blob="$(git hash-object ops/l1b-post-import-isolated-restore.sh)"
+          python3 - "$injector_blob" "$wrapper_blob" "$final_core_blob" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path('.github/workflows/l1b-post-import-isolated-restore.yml')
+          payload = path.read_text(encoding='utf-8')
+          replacements = {
+              '3a0bb3c49428b61ce6536c92f21f8a67ac633c34': sys.argv[1],
+              'e77864ae9b73fd3d914fe891eccde6d66ed7862d': sys.argv[2],
+              'e830585d50ad0f795fe72a8fba9300416bac58ac': sys.argv[3],
+          }
+          for old, new in replacements.items():
+              count = payload.count(old)
+              if count < 1:
+                  raise SystemExit(f'workflow pin absent: {old}')
+              payload = payload.replace(old, new)
+          path.write_text(payload, encoding='utf-8', newline='\n')
+          PY
+
+          printf 'CATALOG_INJECTOR_BLOB=%s\nCATALOG_WRAPPER_BLOB=%s\nCATALOG_FINAL_CORE_BLOB=%s\n' \
+            "$injector_blob" "$wrapper_blob" "$final_core_blob" | tee "$RUNNER_TEMP/catalog-hashes.txt"
+
+      - name: Verify remediated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile ops/l1b-post-import-isolated-restore-acl-patch.py
+          bash -n ops/l1b-post-import-isolated-restore.sh
+          output="$(bash ops/l1b-post-import-isolated-restore.sh --selftest)"
+          grep -Fq 'L1B B-2 stdin-safe final derived-core verification: PASS' <<< "$output"
+          ! grep -Fq 'information_schema.role_table_grants' ops/l1b-post-import-isolated-restore-acl-patch.py
+          grep -Fq 'pg_catalog.aclexplode' ops/l1b-post-import-isolated-restore-acl-patch.py
+          python3 ops/l1b-post-import-isolated-restore-check.py contract \
+            .github/workflows/l1b-post-import-isolated-restore.yml \
+            ops/l1b-post-import-isolated-restore.sh
+          test -z "$(git diff --check)"
+
+      - name: Commit verified staging result
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/l1b-b2-catalog-fallback.yml
+          git config user.name 'champban'
+          git config user.email 'champbanyat@gmail.com'
+          git add .github/workflows/l1b-post-import-isolated-restore.yml \
+            ops/l1b-post-import-isolated-restore-acl-patch.py \
+            ops/l1b-post-import-isolated-restore.sh \
+            .github/workflows/l1b-b2-catalog-fallback.yml
+          git commit -m 'test(l1b): make B-2 catalog fingerprint role-independent'
+          git push origin HEAD:refs/heads/ops/l1b-b2-catalog-fallback
