@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
         env:
           POSTGRES_DB: l1b_promotion_test
           POSTGRES_USER: postgres
@@ -33,7 +33,10 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/l1b_promotion_test
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout exact PR merge ref
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: Ensure PostgreSQL client is available
         run: |
           if ! command -v psql >/dev/null 2>&1; then
