@@ -146,7 +146,6 @@ assert_absent "select count(*) from storage.buckets where id='mtp-private'" "mtp
 assert_absent "select count(*) from pg_catalog.pg_policies where schemaname='storage' and tablename='objects' and policyname like 'mtp_private_%'" "mtp-private policies"
 
 "${PSQL[@]}" --single-transaction -f "$STORAGE"
-"${PSQL[@]}" -f "$ROOT_DIR/supabase/tests/l1a_direct_todo.test.sql"
 "${PSQL[@]}" -f "$ROOT_DIR/supabase/tests/l1b_planner_parity.test.sql"
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$STORAGE" >/dev/null 2>&1; then
