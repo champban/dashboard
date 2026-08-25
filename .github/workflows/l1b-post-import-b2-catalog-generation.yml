@@ -1,0 +1,115 @@
+name: L1B B-2 minimal catalog fix generation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/l1b-post-import-b2-catalog-generation.yml'
+      - 'ops/l1b-post-import-isolated-restore-acl-check.sh'
+      - 'ops/l1b-post-import-isolated-restore-acl-patch.py'
+      - 'ops/l1b-post-import-isolated-restore-catalog-min.py'
+      - 'ops/l1b-post-import-isolated-restore-core.sh'
+      - 'ops/l1b-post-import-isolated-restore-review-check.sh'
+      - 'ops/l1b-post-import-isolated-restore-stdin-patch.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l1b-b2-min-catalog-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_HEAD_REF: ops/l1b-b2-catalog-generation
+
+jobs:
+  generate:
+    name: Generate minimal catalog-stable core
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-b2-catalog-generation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact generation head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact generation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == 'main' ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual.txt"
+          cat > "$RUNNER_TEMP/expected.txt" <<'EOF'
+          .github/workflows/l1b-post-import-b2-catalog-generation.yml
+          ops/l1b-post-import-isolated-restore-acl-check.sh
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-catalog-min.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-review-check.sh
+          ops/l1b-post-import-isolated-restore-stdin-patch.py
+          EOF
+          diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/actual.txt"
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-acl-check.sh)" == '457d4ffa2543557e2c2e9488a0518a1f1881ea48' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-acl-patch.py)" == '3a0bb3c49428b61ce6536c92f21f8a67ac633c34' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-catalog-min.py)" == '34dff0b033591aa073c354c0e1cafab3c12c4a1e' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-core.sh)" == '90757c51f83e10545df8159b0bd3757c223144da' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-review-check.sh)" == 'bf00f2503db6561359f19dfbaf1d39b5f9bcb7b1' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-stdin-patch.py)" == '00bfe97899918ff8af5357c5dc2483819394dbd7' ]]
+
+      - name: Generate exact derived blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile ops/*.py
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py selftest
+          python3 ops/l1b-post-import-isolated-restore-catalog-min.py --selftest
+          bash ops/l1b-post-import-isolated-restore-acl-check.sh --selftest
+          bash ops/l1b-post-import-isolated-restore-review-check.sh --selftest
+
+          work="$(mktemp -d "$RUNNER_TEMP/l1b-b2-generation.XXXXXX")"
+          trap 'rm -rf -- "$work"' EXIT
+          core="$work/core.stdin.sh"
+          base_acl="$work/base-acl.stdin.sh"
+          review="$work/review.stdin.sh"
+          count_core="$work/core.count.sh"
+          final_core="$work/core.catalog.sh"
+
+          core_fix="$(python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch ops/l1b-post-import-isolated-restore-core.sh "$core" --kind core --expected-fixes 3)"
+          base_fix="$(python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch ops/l1b-post-import-isolated-restore-acl-check.sh "$base_acl" --kind base-acl --expected-fixes 2)"
+          review_fix="$(python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch ops/l1b-post-import-isolated-restore-review-check.sh "$review" --kind review --expected-fixes 5)"
+          [[ "$core_fix" == 'L1B_B2_STDIN_FIXES=3' ]]
+          [[ "$base_fix" == 'L1B_B2_STDIN_FIXES=2' ]]
+          [[ "$review_fix" == 'L1B_B2_STDIN_FIXES=5' ]]
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py audit "$core"
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py audit "$base_acl"
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py audit "$review"
+
+          [[ "$(git hash-object "$core")" == 'fcd181886d4733ca4376faca75dfc2725ddcd065' ]]
+          [[ "$(git hash-object "$base_acl")" == '44456c741980bfa1752d23abeb3590417de18e15' ]]
+          [[ "$(git hash-object "$review")" == '9639cc7c08cc3d7447b775dab5e634973b52cdca' ]]
+
+          python3 ops/l1b-post-import-isolated-restore-acl-patch.py "$core" "$count_core"
+          [[ "$(git hash-object "$count_core")" == 'e830585d50ad0f795fe72a8fba9300416bac58ac' ]]
+          [[ "$(python3 ops/l1b-post-import-isolated-restore-catalog-min.py "$count_core" "$final_core")" == 'L1B_B2_CATALOG_FIXES=2' ]]
+          bash -n "$final_core"
+
+          printf '%s\n' \
+            "L1B_B2_STDIN_SAFE_BASE_ACL_BLOB=$(git hash-object "$base_acl")" \
+            "L1B_B2_STDIN_SAFE_REVIEW_BLOB=$(git hash-object "$review")" \
+            "L1B_B2_COUNT_REVIEW_CORE_BLOB=$(git hash-object "$count_core")" \
+            "L1B_B2_FINAL_CATALOG_CORE_BLOB=$(git hash-object "$final_core")" \
+            'L1B B-2 minimal catalog generation: PASS'
