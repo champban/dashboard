@@ -1,0 +1,152 @@
+# Provider-compatible artifact generation only. No Production connection or write.
+name: L1B promotion artifact generation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/l1b-promotion-artifact-generation.yml"
+      - "ops/l1b-generate-promotion-artifacts.sh"
+      - "docs/L1B_PROMOTION_ARTIFACT_GENERATION.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l1b-promotion-artifact-generation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_REPOSITORY: champban/dashboard
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_BASE_REF: main
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_HEAD_REF: ops/l1b-promotion-artifact-generation
+  EXPECTED_PROJECT_REF: qjaywadzvwvcspdsjxth
+
+jobs:
+  source-safety:
+    name: Promotion generator source / scope safety
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-promotion-artifact-generation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact one-commit generator boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == "1" ]]
+
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-promotion-artifact-generation.yml
+          docs/L1B_PROMOTION_ARTIFACT_GENERATION.md
+          ops/l1b-generate-promotion-artifacts.sh
+          EOF
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Execute static no-provider/no-secret contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/l1b-generate-promotion-artifacts.sh
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          workflow = pathlib.Path('.github/workflows/l1b-promotion-artifact-generation.yml').read_text(encoding='utf-8')
+          script = pathlib.Path('ops/l1b-generate-promotion-artifacts.sh').read_text(encoding='utf-8')
+
+          assert not re.findall(r"\$\{\{\s*secrets\.", workflow)
+          action_refs = re.findall(r'^\s*uses:\s*[^@\s]+@([^\s#]+)', workflow, re.MULTILINE)
+          assert action_refs and all(re.fullmatch(r'[0-9a-f]{40}', ref) for ref in action_refs)
+
+          forbidden_workflow = (
+              'pull_request' + '_target:',
+              'workflow' + '_dispatch:',
+              '\n' + 'push:',
+          )
+          assert all(token not in workflow for token in forbidden_workflow)
+
+          required_script = (
+              'supabase migration new l1a_direct_todo',
+              'supabase migration new l1b_planner_parity',
+              'cmp --silent',
+              'L1B_PROMOTION_ARTIFACT_MANIFEST.json',
+              'generic_db_push_allowed',
+              'Production connection/write: **NONE**',
+          )
+          assert all(token in script for token in required_script)
+
+          # Prohibition text is intentionally generated into the review packet.
+          # Reject only an executable db-push command line, not explanatory prose.
+          forbidden_script_patterns = (
+              r'\bset\s+-x\b', r'\bcurl\b', r'\bwget\b',
+              r'(?m)^[ \t]*(?:sudo[ \t]+)?supabase[ \t]+db[ \t]+push(?:[ \t]|$)',
+              r'(?m)^[ \t]*(?:sudo[ \t]+)?supabase[ \t]+link(?:[ \t]|$)',
+              r'apply_migration', r'execute_sql', r'\.supabase\.co',
+              r'pooler\.supabase', r'postgres(?:ql)?://',
+          )
+          assert all(re.search(pattern, script, re.MULTILINE) is None for pattern in forbidden_script_patterns)
+          PY
+
+  generate-artifacts:
+    name: Generate exact L1A / L1B / Storage artifacts
+    needs: source-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate exact execution source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == "1" ]]
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@aa3515eac405eac768fa4a72147c22d88a283c7b
+        with:
+          version: 2.111.0
+
+      - name: Generate and freeze provider-compatible artifacts
+        shell: bash
+        run: bash ops/l1b-generate-promotion-artifacts.sh
+
+      - name: Upload generated review packet
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: l1b-promotion-artifacts-${{ github.event.pull_request.head.sha }}
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
