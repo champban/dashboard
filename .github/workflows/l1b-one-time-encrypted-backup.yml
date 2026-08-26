@@ -1,0 +1,226 @@
+# One-time replacement B-1 after expiry of artifact 9550594832.
+# Owner authorized exactly one fresh Production logical-read/export on 2026-08-26.
+# Temporary evidence branch only. Never merge this workflow to main.
+name: L1B fresh post-import encrypted Supabase backup refresh
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/l1b-one-time-encrypted-backup.yml"
+      - "ops/l1b-one-time-backup.sh"
+      - "docs/L1B_POST_IMPORT_BACKUP.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l1b-post-import-backup-refresh-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_REPOSITORY: champban/dashboard
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_PROJECT_REF: qjaywadzvwvcspdsjxth
+  EXPECTED_BASE_REF: main
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_HEAD_REF: ops/l1b-post-import-backup-refresh
+  EXPECTED_BACKUP_SCRIPT_BLOB: 932a6669eb2e84f66197e946cc4402bf51a4ae28
+
+jobs:
+  source-safety:
+    name: L1B replacement B-1 source / secret-safety contract
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-post-import-backup-refresh'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact one-commit source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          [[ "$(git hash-object ops/l1b-one-time-backup.sh)" == "$EXPECTED_BACKUP_SCRIPT_BLOB" ]]
+
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-one-time-encrypted-backup.yml
+          docs/L1B_POST_IMPORT_BACKUP.md
+          ops/l1b-one-time-backup.sh
+          EOF
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Execute static source and secret-safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/l1b-one-time-backup.sh
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          workflow = pathlib.Path('.github/workflows/l1b-one-time-encrypted-backup.yml').read_text(encoding='utf-8')
+          script = pathlib.Path('ops/l1b-one-time-backup.sh').read_text(encoding='utf-8')
+
+          secret_refs = set(re.findall(r"\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*}}", workflow))
+          assert secret_refs == {'SUPABASE_DB_URL', 'BACKUP_PASSPHRASE'}, secret_refs
+
+          action_refs = re.findall(r'^\s*uses:\s*[^@\s]+@([^\s#]+)', workflow, re.MULTILINE)
+          assert action_refs and all(re.fullmatch(r'[0-9a-f]{40}', ref) for ref in action_refs)
+
+          forbidden_tokens = (
+              'pull_request' + '_target:',
+              'workflow' + '_dispatch:',
+              '\n' + 'push:',
+              'actions/' + 'download-artifact',
+              'supabase db push',
+          )
+          assert all(token not in workflow for token in forbidden_tokens)
+
+          disabled_gate = "'" + 'PENDING_OWNER_B1_REFRESH' + "' == '" + 'OWNER_APPROVED_B1_REFRESH' + "'"
+          enabled_gate = "'" + 'OWNER_APPROVED_B1_REFRESH' + "' == '" + 'OWNER_APPROVED_B1_REFRESH' + "'"
+          assert disabled_gate not in workflow
+          assert workflow.count(enabled_gate) == 1
+
+          opener = chr(36) + '{{'
+          job_guard = 'github.run_' + 'attempt == 1'
+          step_guard = '[[ "' + opener + ' github.' + 'run_attempt }}" == ' + "'1'" + ' ]]'
+          assert workflow.count(job_guard) == 1
+          assert workflow.count(step_guard) == 1
+
+          required = (
+              'supabase db dump', '--role-only', '--data-only', '--use-copy',
+              '--symmetric', '--cipher-algo AES256', 'sha256sum -c SHA256SUMS.txt',
+              'trap cleanup EXIT', 'BACKUP_ARTIFACT_PATH', 'BACKUP_MANIFEST_PATH',
+          )
+          assert all(token in script for token in required)
+
+          for pattern in (
+              r'\bset\s+-x\b', r'\bcurl\b', r'\bwget\b',
+              r'actions/upload-artifact', r'supabase\s+db\s+push',
+              r'\.supabase\.co', r'pooler\.supabase',
+          ):
+              assert re.search(pattern, script, re.MULTILINE) is None, pattern
+          PY
+
+  encrypted-logical-backup:
+    name: Replacement fresh post-import encrypted logical backup (Owner-gated)
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-post-import-backup-refresh' &&
+      'OWNER_APPROVED_B1_REFRESH' == 'OWNER_APPROVED_B1_REFRESH'
+    needs: source-safety
+    environment: production-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate exact source and protected inputs
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          [[ "${{ github.run_attempt }}" == '1' ]]
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          [[ "$(git hash-object ops/l1b-one-time-backup.sh)" == "$EXPECTED_BACKUP_SCRIPT_BLOB" ]]
+
+          if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
+            echo "::error::Missing production-backup environment secret SUPABASE_DB_URL"
+            exit 1
+          fi
+          if [[ -z "${BACKUP_PASSPHRASE:-}" || ${#BACKUP_PASSPHRASE} -lt 24 ]]; then
+            echo "::error::Missing or invalid production-backup BACKUP_PASSPHRASE"
+            exit 1
+          fi
+          if [[ "$SUPABASE_DB_URL" != postgres://* && "$SUPABASE_DB_URL" != postgresql://* ]]; then
+            echo "::error::SUPABASE_DB_URL must be a PostgreSQL connection URI"
+            exit 1
+          fi
+          if [[ "$SUPABASE_DB_URL" != *"$EXPECTED_PROJECT_REF"* ]]; then
+            echo "::error::SUPABASE_DB_URL does not identify the approved Dashboard project"
+            exit 1
+          fi
+          echo "Exact branch/base/project/protected-input gate: PASS"
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@aa3515eac405eac768fa4a72147c22d88a283c7b
+        with:
+          version: 2.111.0
+
+      - name: Ensure encryption tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gpg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gnupg
+          fi
+          [[ "$(supabase --version)" == '2.111.0' ]]
+          gpg --version | head -n 1
+
+      - name: Export, encrypt and verify the replacement backup
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: bash ops/l1b-one-time-backup.sh
+
+      - name: Verify plaintext cleanup before artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 \
+            \( -type d -name 'dashboard-l1b-post-import-backup-*' \
+               -o -type d -name 'dashboard-l1b-post-import-verify-*' \
+               -o -type f -name 'dashboard-l1b-post-import-backup-*.tar.gz' \
+               -o -type f -name 'dashboard-l1b-post-import-backup-*.verify.tar.gz' \
+               -o -type f -name '.dashboard-l1b-backup-passphrase-*' \) \
+            -print -quit | grep -q .; then
+            echo '::error::Plaintext B-1 material remains before artifact upload'
+            exit 1
+          fi
+          echo 'L1B_B1_PLAINTEXT_CLEANUP_VERIFIED'
+
+      - name: Upload encrypted replacement backup for one day
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dashboard-l1b-post-import-backup-${{ env.BACKUP_STAMP }}
+          path: |
+            ${{ env.BACKUP_ARTIFACT_PATH }}
+            ${{ env.BACKUP_MANIFEST_PATH }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
