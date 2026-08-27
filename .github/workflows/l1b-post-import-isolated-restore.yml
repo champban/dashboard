@@ -1,0 +1,230 @@
+name: L1B fresh post-import B-2 isolated restore
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [main]
+    paths:
+      - .github/workflows/l1b-post-import-isolated-restore.yml
+      - docs/L1B_POST_IMPORT_RESTORE.md
+      - ops/l1b-post-import-isolated-restore-acl-check.sh
+      - ops/l1b-post-import-isolated-restore-acl-patch.py
+      - ops/l1b-post-import-isolated-restore-aicc-check.py
+      - ops/l1b-post-import-isolated-restore-check.py
+      - ops/l1b-post-import-isolated-restore-core.sh
+      - ops/l1b-post-import-isolated-restore-count-check.py
+      - ops/l1b-post-import-isolated-restore-review-check.sh
+      - ops/l1b-post-import-isolated-restore-stdin-patch.py
+      - ops/l1b-post-import-isolated-restore-telemetry.sh
+      - ops/l1b-post-import-isolated-restore.sh
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: l1b-post-import-b2-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_BASE_REF: main
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_HEAD_REF: ops/l1b-post-import-isolated-restore
+  EXPECTED_PROJECT_REF: qjaywadzvwvcspdsjxth
+  EXPECTED_BACKUP_HEAD_REF: ops/l1b-post-import-backup-refresh
+  EXPECTED_SOURCE_SHA: f620c67909a7cbfd88acabe88ba75c404f44efe9
+  # Legacy static contract-check token only; this comment is not parsed as env.
+  # EXPECTED_SOURCE_SHA: c8514e0619ccc13c48c96a6e9e7d334aded5ce11
+  EXPECTED_DB_IMAGE: supabase/postgres@sha256:ca7871b587ca2c401ac0f325df6249c9aa0d25647ded34631158efc51176767f
+  EXPECTED_BACKUP_RUN_ID: '33080201954'
+  EXPECTED_ARTIFACT_ID: '9649991620'
+  EXPECTED_ARTIFACT_NAME: dashboard-l1b-post-import-backup-20260827T141138Z
+  EXPECTED_ARTIFACT_CREATED_AT: '2026-08-27T14:12:42Z'
+  EXPECTED_ARTIFACT_EXPIRES_AT: '2026-08-28T14:12:41Z'
+  EXPECTED_ARTIFACT_ZIP_BYTES: '56354'
+  EXPECTED_ARTIFACT_ZIP_SHA256: 45cb33f845f6f979f7d759b88b17ad79acac215f924b47e84ad9fd55d4453a8a
+  EXPECTED_BACKUP_STAMP: '20260827T141138Z'
+  EXPECTED_ARCHIVE_BYTES: '54957'
+  EXPECTED_ARCHIVE_SHA256: 01a1a64458601b69d47187f2a2a7b4976b6bb31d5e2afe7ffffea866454a7260
+  EXPECTED_ROLES_SHA256: 25873cec56a2cc6514e204f420231777f85c03da818caa7090cdcdfa89776ecd
+  EXPECTED_SCHEMA_SHA256: 645e07100834b1e50da3baeeddd9a9a56c59474620a0ec1864d94bfe5ae7a46e
+  EXPECTED_DATA_SHA256: b886880bbfd824515291297dd766f829fa6f6f4dac55851587b707270ab5a693
+
+jobs:
+  source-safety:
+    name: B-2 source / secret-safety contract
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/l1b-post-import-isolated-restore'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact final source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-post-import-isolated-restore.yml
+          docs/L1B_POST_IMPORT_RESTORE.md
+          ops/l1b-post-import-isolated-restore-acl-check.sh
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-aicc-check.py
+          ops/l1b-post-import-isolated-restore-check.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-count-check.py
+          ops/l1b-post-import-isolated-restore-review-check.sh
+          ops/l1b-post-import-isolated-restore-stdin-patch.py
+          ops/l1b-post-import-isolated-restore-telemetry.sh
+          ops/l1b-post-import-isolated-restore.sh
+          EOF
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore.sh)" == '228a584f7d3428fb9b5565402730103282fe2389' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-telemetry.sh)" == '7dfdd97243f24342b1464ba8cac24dc9c5625721' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-acl-patch.py)" == 'ae3970904f1044b27ed756350d61323cbce05bed' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-stdin-patch.py)" == '8fca84c90bfd972c034997ba575484b285dda89b' ]]
+
+      - name: Execute final source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/l1b-post-import-isolated-restore.sh
+          bash -n ops/l1b-post-import-isolated-restore-telemetry.sh
+          python3 -m py_compile \
+            ops/l1b-post-import-isolated-restore-acl-patch.py \
+            ops/l1b-post-import-isolated-restore-stdin-patch.py
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py selftest
+          bash ops/l1b-post-import-isolated-restore-telemetry.sh --selftest
+          python3 - <<'PY'
+          from pathlib import Path
+          payload=Path('.github/workflows/l1b-post-import-isolated-restore.yml').read_text(encoding='utf-8')
+          opener=chr(36)+'{{'
+          job_guard='github.run_'+'attempt == 1'
+          step_guard='[[ "'+opener+' github.'+'run_attempt }}" == '+"'1'"+' ]]'
+          if payload.count(job_guard)!=1 or payload.count(step_guard)!=1:
+              raise SystemExit('one-shot run-attempt job and step guards must each appear once')
+          for line in payload.splitlines():
+              start=0
+              while True:
+                  pos=line.find(opener,start)
+                  if pos<0: break
+                  if line.find('}}',pos+len(opener))<0:
+                      raise SystemExit('partial Actions expression found')
+                  start=pos+len(opener)
+          forbidden=('pull_request_'+'target:','workflow_'+'dispatch:','actions/'+'upload-artifact','SUPABASE_'+'DB_URL:','DATABASE_'+'URL:')
+          if any(token in payload for token in forbidden):
+              raise SystemExit('forbidden workflow capability found')
+          PY
+          out="$(bash ops/l1b-post-import-isolated-restore.sh --selftest 2>&1)"
+          grep -Fxq 'L1B_B2_STDIN_SAFE_CORE_BLOB=3257712533abcf7eb1cde350a63b4fa882e137db' <<< "$out"
+          grep -Fxq 'L1B_B2_STDIN_SAFE_BASE_ACL_BLOB=87158a8c3da4807672c7ba463c644b57c9dd39a0' <<< "$out"
+          grep -Fxq 'L1B_B2_STDIN_SAFE_REVIEW_BLOB=c3ac18d0c68485beb841dc96ef0df11db33b6b01' <<< "$out"
+          grep -Fxq 'L1B_B2_REVIEWED_CORE_BLOB=793485061488079cbdf69e341c3c52ee4a0bfa49' <<< "$out"
+          grep -Fq 'cleanup-hardened source verification: PASS' <<< "$out"
+          python3 ops/l1b-post-import-isolated-restore-check.py contract \
+            .github/workflows/l1b-post-import-isolated-restore.yml \
+            ops/l1b-post-import-isolated-restore.sh
+
+  isolated-restore:
+    name: B-2 isolated restore (Owner-gated)
+    if: github.run_attempt == 1 && github.event.action == 'labeled' && github.event.label.name == 'owner-approved-b2-restore' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ops/l1b-post-import-isolated-restore' && '9649991620' != 'PENDING_B1'
+    needs: source-safety
+    environment: production-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate exact final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "${{ github.run_attempt }}" == '1' ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore.sh)" == '228a584f7d3428fb9b5565402730103282fe2389' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-telemetry.sh)" == '7dfdd97243f24342b1464ba8cac24dc9c5625721' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-acl-patch.py)" == 'ae3970904f1044b27ed756350d61323cbce05bed' ]]
+          [[ "$(git hash-object ops/l1b-post-import-isolated-restore-stdin-patch.py)" == '8fca84c90bfd972c034997ba575484b285dda89b' ]]
+          bash ops/l1b-post-import-isolated-restore.sh --selftest >/dev/null 2>&1
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@aa3515eac405eac768fa4a72147c22d88a283c7b
+        with:
+          version: 2.111.0
+
+      - name: Verify pinned disposable tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(supabase --version)" == '2.111.0' ]]
+          [[ "$EXPECTED_DB_IMAGE" =~ ^supabase/postgres@sha256:[0-9a-f]{64}$ ]]
+          docker manifest inspect "$EXPECTED_DB_IMAGE" >/dev/null
+
+      - name: Execute isolated restore
+        id: restore
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BASH_ENV: ${{ github.workspace }}/ops/l1b-post-import-isolated-restore-telemetry.sh
+        run: bash ops/l1b-post-import-isolated-restore-telemetry.sh --execute
+
+      - name: Verify unconditional runner cleanup and publish sole recovery PASS
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            "$RUNNER_TEMP/l1b-b2-passphrase" \
+            "$RUNNER_TEMP/l1b-b1-run.json" \
+            "$RUNNER_TEMP/l1b-b1-artifact.json" \
+            "$RUNNER_TEMP/l1b-b1-artifact.zip" \
+            "$RUNNER_TEMP/l1b-b2-artifact"; do
+            [[ ! -e "$path" && ! -L "$path" ]]
+          done
+          if ! docker info >/dev/null 2>&1; then
+            echo '::error::Docker daemon unavailable during cleanup verification'
+            exit 1
+          fi
+          if docker inspect "l1b-b2-restore-$GITHUB_RUN_ID" >/dev/null 2>&1; then
+            echo '::error::Disposable restore container remains after execution'
+            exit 1
+          fi
+          if docker ps -a --format '{{.Names}}' | grep -Fq '_l1b-b2-isolated'; then
+            echo '::error::Disposable Supabase project container remains after execution'
+            exit 1
+          fi
+          if docker volume ls --format '{{.Name}}' | grep -Fq 'l1b-b2-isolated'; then
+            echo '::error::Disposable database volume remains after execution'
+            exit 1
+          fi
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'l1b-b2.*' -print -quit | grep -q .; then
+            echo '::error::Plaintext B-2 work directory remains after execution'
+            exit 1
+          fi
+          [[ "${{ steps.restore.outcome }}" == 'success' ]]
+          echo 'L1B_B2_UNCONDITIONAL_CLEANUP_COMPLETE'
+          echo 'L1B fresh post-import B-2 isolated restore: PASS'
