@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate exact source parent and stage reviewed files
+      - name: Validate source ancestry and stage exact reviewed files
         shell: bash
         run: |
           set -euo pipefail
@@ -36,8 +36,12 @@ jobs:
           [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
           [[ "$GITHUB_BASE_REF" == 'main' ]]
           [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
-          [[ "$(git rev-parse HEAD^)" == "$EXPECTED_SOURCE" ]]
+          git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
           [[ "$(git rev-parse "$EXPECTED_SOURCE^{tree}")" == '71aaeb6770a84b40ad7c06c8d0137c536725bb4c' ]]
+
+          git diff --name-only "$EXPECTED_SOURCE"..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/export-diff.txt"
+          printf '%s\n' '.github/workflows/l1b-pr97-source-export.yml' > "$RUNNER_TEMP/export-expected.txt"
+          diff -u "$RUNNER_TEMP/export-expected.txt" "$RUNNER_TEMP/export-diff.txt"
 
           OUT="$RUNNER_TEMP/pr97-source-export"
           mkdir -p "$OUT/.github/workflows" "$OUT/docs" "$OUT/ops"
@@ -59,8 +63,8 @@ jobs:
           )
 
           for file in "${files[@]}"; do
-            [[ -f "$file" && ! -L "$file" ]]
-            cp --parents "$file" "$OUT"
+            git cat-file -e "$EXPECTED_SOURCE:$file"
+            git show "$EXPECTED_SOURCE:$file" > "$OUT/$file"
             chmod 600 "$OUT/$file"
           done
 
@@ -70,16 +74,14 @@ jobs:
             echo "repository=$GITHUB_REPOSITORY"
             echo "file_count=${#files[@]}"
             for file in "${files[@]}"; do
-              printf '%s  %s\n' "$(sha256sum "$file" | awk '{print $1}')" "$file"
+              printf '%s  %s\n' "$(sha256sum "$OUT/$file" | awk '{print $1}')" "$file"
             done
           } > "$OUT/SOURCE-MANIFEST.txt"
           chmod 600 "$OUT/SOURCE-MANIFEST.txt"
 
           [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" == '13' ]]
-          if grep -R -n -E 'SUPABASE_DB_URL|BACKUP_PASSPHRASE=[^$]|postgres(ql)?://|BEGIN (RSA|OPENSSH) PRIVATE KEY' "$OUT"; then
-            echo '::error::Unexpected secret-like material in source export'
-            exit 1
-          fi
+          node build/secret-scan.mjs --selftest
+          node build/secret-scan.mjs
 
       - name: Upload exact source packet for one day
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
