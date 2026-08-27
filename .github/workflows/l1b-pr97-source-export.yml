@@ -1,0 +1,91 @@
+# Temporary, read-only source-transfer workflow for exact PR #97 remediation.
+# Never merge. No secrets, Production access, provider writes or deployment.
+name: L1B PR97 exact source export
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/l1b-pr97-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export-exact-pr97-source:
+    name: Export exact PR97 source files (no secrets)
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr97-source-export'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact export head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact source parent and stage reviewed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_SOURCE='147d0926b3ea8f3f6711bc7025d2252ec55e41c3'
+          [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
+          [[ "$GITHUB_BASE_REF" == 'main' ]]
+          [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
+          [[ "$(git rev-parse HEAD^)" == "$EXPECTED_SOURCE" ]]
+          [[ "$(git rev-parse "$EXPECTED_SOURCE^{tree}")" == '71aaeb6770a84b40ad7c06c8d0137c536725bb4c' ]]
+
+          OUT="$RUNNER_TEMP/pr97-source-export"
+          mkdir -p "$OUT/.github/workflows" "$OUT/docs" "$OUT/ops"
+          chmod 700 "$OUT"
+
+          files=(
+            '.github/workflows/l1b-post-import-isolated-restore.yml'
+            'docs/L1B_POST_IMPORT_RESTORE.md'
+            'ops/l1b-post-import-isolated-restore-acl-check.sh'
+            'ops/l1b-post-import-isolated-restore-acl-patch.py'
+            'ops/l1b-post-import-isolated-restore-aicc-check.py'
+            'ops/l1b-post-import-isolated-restore-check.py'
+            'ops/l1b-post-import-isolated-restore-core.sh'
+            'ops/l1b-post-import-isolated-restore-count-check.py'
+            'ops/l1b-post-import-isolated-restore-review-check.sh'
+            'ops/l1b-post-import-isolated-restore-stdin-patch.py'
+            'ops/l1b-post-import-isolated-restore-telemetry.sh'
+            'ops/l1b-post-import-isolated-restore.sh'
+          )
+
+          for file in "${files[@]}"; do
+            [[ -f "$file" && ! -L "$file" ]]
+            cp --parents "$file" "$OUT"
+            chmod 600 "$OUT/$file"
+          done
+
+          {
+            echo "source_commit=$EXPECTED_SOURCE"
+            echo "source_tree=71aaeb6770a84b40ad7c06c8d0137c536725bb4c"
+            echo "repository=$GITHUB_REPOSITORY"
+            echo "file_count=${#files[@]}"
+            for file in "${files[@]}"; do
+              printf '%s  %s\n' "$(sha256sum "$file" | awk '{print $1}')" "$file"
+            done
+          } > "$OUT/SOURCE-MANIFEST.txt"
+          chmod 600 "$OUT/SOURCE-MANIFEST.txt"
+
+          [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" == '13' ]]
+          if grep -R -n -E 'SUPABASE_DB_URL|BACKUP_PASSPHRASE=[^$]|postgres(ql)?://|BEGIN (RSA|OPENSSH) PRIVATE KEY' "$OUT"; then
+            echo '::error::Unexpected secret-like material in source export'
+            exit 1
+          fi
+
+      - name: Upload exact source packet for one day
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dashboard-pr97-exact-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr97-source-export
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
