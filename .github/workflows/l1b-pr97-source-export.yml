@@ -1,6 +1,6 @@
 # Temporary, read-only source-transfer workflow for exact PR #97 remediation.
 # Never merge. No secrets, Production access, provider writes or deployment.
-name: L1B PR97 exact source export
+name: L1B PR97 exact full source export
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   export-exact-pr97-source:
-    name: Export exact PR97 source files (no secrets)
+    name: Export exact PR97 full source tree (no secrets)
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'ops/l1b-pr97-source-export'
@@ -28,67 +28,44 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate source ancestry and stage exact reviewed files
+      - name: Validate source ancestry and stage exact full tree
         shell: bash
         run: |
           set -euo pipefail
           EXPECTED_SOURCE='147d0926b3ea8f3f6711bc7025d2252ec55e41c3'
+          EXPECTED_TREE='71aaeb6770a84b40ad7c06c8d0137c536725bb4c'
           [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
           [[ "$GITHUB_BASE_REF" == 'main' ]]
           [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
           git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
-          [[ "$(git rev-parse "$EXPECTED_SOURCE^{tree}")" == '71aaeb6770a84b40ad7c06c8d0137c536725bb4c' ]]
+          [[ "$(git rev-parse "$EXPECTED_SOURCE^{tree}")" == "$EXPECTED_TREE" ]]
 
           git diff --name-only "$EXPECTED_SOURCE"..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/export-diff.txt"
           printf '%s\n' '.github/workflows/l1b-pr97-source-export.yml' > "$RUNNER_TEMP/export-expected.txt"
           diff -u "$RUNNER_TEMP/export-expected.txt" "$RUNNER_TEMP/export-diff.txt"
 
-          OUT="$RUNNER_TEMP/pr97-source-export"
-          mkdir -p "$OUT/.github/workflows" "$OUT/docs" "$OUT/ops"
+          OUT="$RUNNER_TEMP/pr97-full-source"
+          mkdir -p "$OUT"
           chmod 700 "$OUT"
-
-          files=(
-            '.github/workflows/l1b-post-import-isolated-restore.yml'
-            'docs/L1B_POST_IMPORT_RESTORE.md'
-            'ops/l1b-post-import-isolated-restore-acl-check.sh'
-            'ops/l1b-post-import-isolated-restore-acl-patch.py'
-            'ops/l1b-post-import-isolated-restore-aicc-check.py'
-            'ops/l1b-post-import-isolated-restore-check.py'
-            'ops/l1b-post-import-isolated-restore-core.sh'
-            'ops/l1b-post-import-isolated-restore-count-check.py'
-            'ops/l1b-post-import-isolated-restore-review-check.sh'
-            'ops/l1b-post-import-isolated-restore-stdin-patch.py'
-            'ops/l1b-post-import-isolated-restore-telemetry.sh'
-            'ops/l1b-post-import-isolated-restore.sh'
-          )
-
-          for file in "${files[@]}"; do
-            git cat-file -e "$EXPECTED_SOURCE:$file"
-            git show "$EXPECTED_SOURCE:$file" > "$OUT/$file"
-            chmod 600 "$OUT/$file"
-          done
+          git archive --format=tar "$EXPECTED_SOURCE" | tar -xf - -C "$OUT"
 
           {
             echo "source_commit=$EXPECTED_SOURCE"
-            echo "source_tree=71aaeb6770a84b40ad7c06c8d0137c536725bb4c"
+            echo "source_tree=$EXPECTED_TREE"
             echo "repository=$GITHUB_REPOSITORY"
-            echo "file_count=${#files[@]}"
-            for file in "${files[@]}"; do
-              printf '%s  %s\n' "$(sha256sum "$OUT/$file" | awk '{print $1}')" "$file"
-            done
+            echo "file_count=$(find "$OUT" -type f | wc -l | tr -d ' ')"
           } > "$OUT/SOURCE-MANIFEST.txt"
           chmod 600 "$OUT/SOURCE-MANIFEST.txt"
 
-          [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" == '13' ]]
-          node build/secret-scan.mjs --selftest
-          node build/secret-scan.mjs
+          [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" -gt 100 ]]
+          (cd "$OUT" && node build/secret-scan.mjs --selftest && node build/secret-scan.mjs)
 
-      - name: Upload exact source packet for one day
+      - name: Upload exact full source packet for one day
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: dashboard-pr97-exact-source-${{ github.run_id }}
-          path: ${{ runner.temp }}/pr97-source-export
+          name: dashboard-pr97-exact-full-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr97-full-source
           if-no-files-found: error
           retention-days: 1
-          compression-level: 0
+          compression-level: 6
           include-hidden-files: true
