@@ -1,0 +1,98 @@
+# Temporary build-only runner for the approved PR #97 P2 remediation.
+# Never merge. No secrets, Environment, Production or provider access.
+name: L1B PR97 remediation runner v2
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/l1b-pr97-remediation-runner.yml"
+      - "ops/l1b-pr97-remediation-parts/part-003.patchpart.gz"
+
+permissions:
+  contents: write
+
+jobs:
+  build-remediated-one-commit:
+    name: Build verified PR97 one-commit candidate v2
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr97-source-export'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact orchestration head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct patch and execute frozen build logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PATCH_SHA='31780b84f11dd3391dfb69b45f8ddb0f4ebfea2a70d15e8ffeee13f8937685ec'
+          EXPECTED_PATCH_BYTES='25391'
+          EXPECTED_GZ_SHA='ba2847c3cf86c967dee136c0ef7a2dea2398d261ab6993f549b0d01bb7849bf3'
+          EXPECTED_RAW3_SHA='60e65ea35b3c4af504c4f50059a67d340f04838102e5500332964f938584c83d'
+          PART_DIR='ops/l1b-pr97-remediation-parts'
+          RAW3_GZ="$PART_DIR/part-003.patchpart.gz"
+          RAW3="$RUNNER_TEMP/part-003.patchpart"
+          PATCH_FILE="$RUNNER_TEMP/l1b-pr97-remediation.patch"
+          APPLY_SCRIPT="$RUNNER_TEMP/l1b-pr97-apply.sh"
+
+          [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
+          [[ "$GITHUB_BASE_REF" == 'main' ]]
+          [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
+          [[ -f "$RAW3_GZ" && ! -L "$RAW3_GZ" ]]
+          [[ "$(sha256sum "$RAW3_GZ" | awk '{print $1}')" == "$EXPECTED_GZ_SHA" ]]
+          gzip -dc "$RAW3_GZ" > "$RAW3"
+          chmod 600 "$RAW3"
+          [[ "$(sha256sum "$RAW3" | awk '{print $1}')" == "$EXPECTED_RAW3_SHA" ]]
+
+          : > "$PATCH_FILE"
+          chmod 600 "$PATCH_FILE"
+          for index in 000 001 002 003 004 005 006; do
+            if [[ "$index" == '003' ]]; then
+              cat "$RAW3" >> "$PATCH_FILE"
+            else
+              part="$PART_DIR/part-$index.b64"
+              [[ -f "$part" && ! -L "$part" ]]
+              base64 --decode "$part" >> "$PATCH_FILE"
+            fi
+          done
+          [[ "$(stat -c '%s' "$PATCH_FILE")" == "$EXPECTED_PATCH_BYTES" ]]
+          [[ "$(sha256sum "$PATCH_FILE" | awk '{print $1}')" == "$EXPECTED_PATCH_SHA" ]]
+
+          python3 - "$APPLY_SCRIPT" <<'PY'
+          from pathlib import Path
+          import sys
+
+          source = Path('.github/workflows/l1b-pr97-source-export.yml').read_text(encoding='utf-8').splitlines()
+          step = '      - name: Apply patch to exact reviewed head'
+          start = source.index(step)
+          run_start = next(i for i in range(start + 1, len(source)) if source[i] == '        run: |')
+          body = []
+          for line in source[run_start + 1:]:
+              if line.startswith('      - name: '):
+                  break
+              if line.startswith('          '):
+                  body.append(line[10:])
+              elif line == '':
+                  body.append('')
+              else:
+                  raise SystemExit(f'unexpected YAML indentation while extracting build script: {line!r}')
+          if not body or "BASE='297854c09205097a6a58cbce4c64961c802cd7a3'" not in body:
+              raise SystemExit('frozen build script extraction failed')
+          Path(sys.argv[1]).write_text('\n'.join(body) + '\n', encoding='utf-8')
+          PY
+          chmod 700 "$APPLY_SCRIPT"
+          PATCH_FILE="$PATCH_FILE" bash "$APPLY_SCRIPT"
+
+      - name: Record runner boundary
+        if: always()
+        shell: bash
+        run: |
+          echo 'L1B PR97 remediation runner v2 completed without Production access.' >> "$GITHUB_STEP_SUMMARY"
