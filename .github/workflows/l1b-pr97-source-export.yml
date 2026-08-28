@@ -1,6 +1,6 @@
-# Temporary, read-only source-transfer workflow for exact PR #97 remediation.
-# Never merge. No secrets, Production access, provider writes or deployment.
-name: L1B PR97 exact full source export
+# Temporary build-only workflow for the approved PR #97 P2 remediation.
+# Never merge. It has no secrets, Environment, Production or provider access.
+name: L1B PR97 exact one-commit remediation build
 
 on:
   pull_request:
@@ -10,69 +10,171 @@ on:
       - ".github/workflows/l1b-pr97-source-export.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export-exact-pr97-source:
-    name: Export exact PR97 full source tree (no secrets)
+  build-remediated-one-commit:
+    name: Build and verify exact PR97 one-commit candidate
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'ops/l1b-pr97-source-export'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
-      - name: Checkout exact export head
+      - name: Checkout orchestration source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
-      - name: Validate source ancestry and stage exact full tree
+      - name: Reconstruct and verify exact remediation patch
+        id: patch
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_SOURCE='147d0926b3ea8f3f6711bc7025d2252ec55e41c3'
-          EXPECTED_TREE='71aaeb6770a84b40ad7c06c8d0137c536725bb4c'
+          EXPECTED_PATCH_SHA='31780b84f11dd3391dfb69b45f8ddb0f4ebfea2a70d15e8ffeee13f8937685ec'
+          EXPECTED_PATCH_BYTES='25391'
+          PATCH_FILE="$RUNNER_TEMP/l1b-pr97-remediation.patch"
+          PART_DIR='ops/l1b-pr97-remediation-parts'
+
           [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
           [[ "$GITHUB_BASE_REF" == 'main' ]]
           [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
-          git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
-          [[ "$(git rev-parse "$EXPECTED_SOURCE^{tree}")" == "$EXPECTED_TREE" ]]
+          mapfile -t parts < <(find "$PART_DIR" -maxdepth 1 -type f -name 'part-*.b64' | LC_ALL=C sort)
+          [[ "${#parts[@]}" == '7' ]]
+          : > "$PATCH_FILE"
+          chmod 600 "$PATCH_FILE"
+          for part in "${parts[@]}"; do
+            base64 --decode "$part" >> "$PATCH_FILE"
+          done
+          [[ "$(stat -c '%s' "$PATCH_FILE")" == "$EXPECTED_PATCH_BYTES" ]]
+          [[ "$(sha256sum "$PATCH_FILE" | awk '{print $1}')" == "$EXPECTED_PATCH_SHA" ]]
+          echo "patch_file=$PATCH_FILE" >> "$GITHUB_OUTPUT"
 
-          git diff --name-only "$EXPECTED_SOURCE"..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/export-diff.txt"
-          printf '%s\n' '.github/workflows/l1b-pr97-source-export.yml' > "$RUNNER_TEMP/export-expected.txt"
-          diff -u "$RUNNER_TEMP/export-expected.txt" "$RUNNER_TEMP/export-diff.txt"
+      - name: Apply patch to exact reviewed head
+        id: build
+        shell: bash
+        env:
+          PATCH_FILE: ${{ steps.patch.outputs.patch_file }}
+        run: |
+          set -euo pipefail
+          BASE='297854c09205097a6a58cbce4c64961c802cd7a3'
+          BASE_TREE='c25d9b044e7a46963c3fc5661bd53b08f48d83d6'
+          OLD_HEAD='147d0926b3ea8f3f6711bc7025d2252ec55e41c3'
+          OLD_TREE='71aaeb6770a84b40ad7c06c8d0137c536725bb4c'
+          TARGET_BRANCH='ops/l1b-post-import-isolated-restore'
+          STAGING_BRANCH='ops/l1b-pr97-remediation-built'
 
-          # Validate the checked-out repository before creating the detached archive.
-          node build/secret-scan.mjs --selftest
-          node build/secret-scan.mjs
+          git fetch --no-tags origin "+refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH"
+          [[ "$(git rev-parse "refs/remotes/origin/$TARGET_BRANCH")" == "$OLD_HEAD" ]]
+          [[ "$(git rev-parse "$BASE^{tree}")" == "$BASE_TREE" ]]
+          [[ "$(git rev-parse "$OLD_HEAD^{tree}")" == "$OLD_TREE" ]]
+          [[ "$(git merge-base "$BASE" "$OLD_HEAD")" == "$BASE" ]]
+          [[ "$(git rev-list --count "$BASE".."$OLD_HEAD")" == '1' ]]
 
-          OUT="$RUNNER_TEMP/pr97-full-source"
-          mkdir -p "$OUT"
-          chmod 700 "$OUT"
-          git archive --format=tar "$EXPECTED_SOURCE" | tar -xf - -C "$OUT"
+          git checkout --detach "$OLD_HEAD"
+          git apply --check "$PATCH_FILE"
+          git apply "$PATCH_FILE"
 
+          cat > "$RUNNER_TEMP/expected-remediated-files.txt" <<'EOF'
+          .github/workflows/l1b-post-import-isolated-restore.yml
+          docs/L1B_POST_IMPORT_RESTORE.md
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-check.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-count-check.py
+          ops/l1b-post-import-isolated-restore.sh
+          EOF
+          git diff --name-only "$OLD_HEAD" | LC_ALL=C sort > "$RUNNER_TEMP/actual-remediated-files.txt"
+          diff -u "$RUNNER_TEMP/expected-remediated-files.txt" "$RUNNER_TEMP/actual-remediated-files.txt"
+          git diff --check
+
+          bash -n ops/l1b-post-import-isolated-restore.sh
+          bash -n ops/l1b-post-import-isolated-restore-telemetry.sh
+          python3 -m py_compile \
+            ops/l1b-post-import-isolated-restore-acl-patch.py \
+            ops/l1b-post-import-isolated-restore-aicc-check.py \
+            ops/l1b-post-import-isolated-restore-check.py \
+            ops/l1b-post-import-isolated-restore-count-check.py \
+            ops/l1b-post-import-isolated-restore-stdin-patch.py
+          python3 ops/l1b-post-import-isolated-restore-aicc-check.py selftest
+          python3 ops/l1b-post-import-isolated-restore-check.py selftest
+          python3 ops/l1b-post-import-isolated-restore-count-check.py selftest
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py selftest
+          bash ops/l1b-post-import-isolated-restore-telemetry.sh --selftest
+          out="$(bash ops/l1b-post-import-isolated-restore.sh --selftest 2>&1)"
+          grep -Fxq 'L1B_B2_STDIN_SAFE_CORE_BLOB=e8517dc89d59faa02b42ec1358f7c24b4a6a6061' <<< "$out"
+          grep -Fxq 'L1B_B2_STDIN_SAFE_BASE_ACL_BLOB=87158a8c3da4807672c7ba463c644b57c9dd39a0' <<< "$out"
+          grep -Fxq 'L1B_B2_STDIN_SAFE_REVIEW_BLOB=c3ac18d0c68485beb841dc96ef0df11db33b6b01' <<< "$out"
+          grep -Fxq 'L1B_B2_REVIEWED_CORE_BLOB=e781e9e903aa4e0fb1e1ca28dba8c907994c542d' <<< "$out"
+          grep -Fq 'cleanup-hardened source verification: PASS' <<< "$out"
+          python3 ops/l1b-post-import-isolated-restore-check.py contract \
+            .github/workflows/l1b-post-import-isolated-restore.yml \
+            ops/l1b-post-import-isolated-restore.sh
+
+          npm ci
+          npm test
+          npm run verify
+          npm run scan-secrets
+          git diff --check
+          git diff --name-only "$OLD_HEAD" | LC_ALL=C sort > "$RUNNER_TEMP/post-test-files.txt"
+          diff -u "$RUNNER_TEMP/expected-remediated-files.txt" "$RUNNER_TEMP/post-test-files.txt"
+
+          git config user.name 'ChatGPT Codex Connector'
+          git config user.email '199175422+chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add -- \
+            .github/workflows/l1b-post-import-isolated-restore.yml \
+            docs/L1B_POST_IMPORT_RESTORE.md \
+            ops/l1b-post-import-isolated-restore-acl-patch.py \
+            ops/l1b-post-import-isolated-restore-check.py \
+            ops/l1b-post-import-isolated-restore-core.sh \
+            ops/l1b-post-import-isolated-restore-count-check.py \
+            ops/l1b-post-import-isolated-restore.sh
+          TREE="$(git write-tree)"
+          NEW_COMMIT="$(printf '%s\n' 'test(l1b): close Auth recovery and COPY-log P2 gaps' | git commit-tree "$TREE" -p "$BASE")"
+
+          [[ "$(git rev-parse "$NEW_COMMIT^{tree}")" == "$TREE" ]]
+          [[ "$(git merge-base "$BASE" "$NEW_COMMIT")" == "$BASE" ]]
+          [[ "$(git rev-list --count "$BASE".."$NEW_COMMIT")" == '1' ]]
+          [[ "$(git rev-list --parents -n 1 "$NEW_COMMIT" | awk '{print NF}')" == '2' ]]
+          cat > "$RUNNER_TEMP/expected-pr97-files.txt" <<'EOF'
+          .github/workflows/l1b-post-import-isolated-restore.yml
+          docs/L1B_POST_IMPORT_RESTORE.md
+          ops/l1b-post-import-isolated-restore-acl-check.sh
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-aicc-check.py
+          ops/l1b-post-import-isolated-restore-check.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-count-check.py
+          ops/l1b-post-import-isolated-restore-review-check.sh
+          ops/l1b-post-import-isolated-restore-stdin-patch.py
+          ops/l1b-post-import-isolated-restore-telemetry.sh
+          ops/l1b-post-import-isolated-restore.sh
+          EOF
+          git diff --name-only "$BASE" "$NEW_COMMIT" | LC_ALL=C sort > "$RUNNER_TEMP/actual-pr97-files.txt"
+          diff -u "$RUNNER_TEMP/expected-pr97-files.txt" "$RUNNER_TEMP/actual-pr97-files.txt"
+
+          git push origin "$NEW_COMMIT:refs/heads/$STAGING_BRANCH" --force
+          [[ "$(git ls-remote origin "refs/heads/$STAGING_BRANCH" | awk '{print $1}')" == "$NEW_COMMIT" ]]
+          echo "new_commit=$NEW_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "new_tree=$TREE" >> "$GITHUB_OUTPUT"
+          echo "L1B_PR97_BUILT_COMMIT=$NEW_COMMIT"
+          echo "L1B_PR97_BUILT_TREE=$TREE"
+
+      - name: Publish bounded build evidence
+        shell: bash
+        run: |
+          set -euo pipefail
           {
-            echo "source_commit=$EXPECTED_SOURCE"
-            echo "source_tree=$EXPECTED_TREE"
-            echo "repository=$GITHUB_REPOSITORY"
-            echo "file_count=$(find "$OUT" -type f | wc -l | tr -d ' ')"
-          } > "$OUT/SOURCE-MANIFEST.txt"
-          chmod 600 "$OUT/SOURCE-MANIFEST.txt"
-
-          [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" -gt 100 ]]
-          [[ -f "$OUT/package.json" ]]
-          [[ -f "$OUT/build/secret-scan.mjs" ]]
-          [[ -f "$OUT/.github/workflows/l1b-post-import-isolated-restore.yml" ]]
-          [[ -f "$OUT/ops/l1b-post-import-isolated-restore.sh" ]]
-
-      - name: Upload exact full source packet for one day
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: dashboard-pr97-exact-full-source-${{ github.run_id }}
-          path: ${{ runner.temp }}/pr97-full-source
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 6
-          include-hidden-files: true
+            echo '## L1B PR #97 exact one-commit remediation candidate'
+            echo
+            echo "- Base: \`297854c09205097a6a58cbce4c64961c802cd7a3\`"
+            echo "- Superseded head: \`147d0926b3ea8f3f6711bc7025d2252ec55e41c3\`"
+            echo "- Built commit: \`${{ steps.build.outputs.new_commit }}\`"
+            echo "- Built tree: \`${{ steps.build.outputs.new_tree }}\`"
+            echo '- Patch SHA-256: `31780b84f11dd3391dfb69b45f8ddb0f4ebfea2a70d15e8ffeee13f8937685ec`'
+            echo '- npm test / verify / secret scan and B-2 source selftests: **PASS**'
+            echo '- Staging branch only; PR #97 has not been moved by this workflow.'
+            echo '- Production effect: **NONE**'
+          } >> "$GITHUB_STEP_SUMMARY"
