@@ -1,6 +1,6 @@
 # Temporary build-only runner for the approved PR #97 P2 remediation.
 # Never merge. No secrets, Environment, Production or provider access.
-name: L1B PR97 remediation runner v2
+name: L1B PR97 remediation runner v3
 
 on:
   pull_request:
@@ -12,11 +12,11 @@ on:
       - "ops/l1b-pr97-remediation-parts/part-003.patchpart.gz"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-remediated-one-commit:
-    name: Build verified PR97 one-commit candidate v2
+    name: Build and export verified PR97 candidate v3
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'ops/l1b-pr97-source-export'
@@ -28,9 +28,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Reconstruct patch and execute frozen build logic
+      - name: Reconstruct, test and freeze exact candidate
+        id: build
         shell: bash
         run: |
           set -euo pipefail
@@ -74,15 +75,10 @@ jobs:
             elif [[ "$index" == '003' ]]; then
               [[ "$raw_actual" == "$EXPECTED_RAW3_SHA" ]]
             fi
-            echo "PART_$index=$(stat -c '%s' "$raw")/$raw_actual"
             cat "$raw" >> "$PATCH_FILE"
           done
-          PATCH_BYTES_ACTUAL="$(stat -c '%s' "$PATCH_FILE")"
-          PATCH_SHA_ACTUAL="$(sha256sum "$PATCH_FILE" | awk '{print $1}')"
-          echo "PATCH_BYTES_ACTUAL=$PATCH_BYTES_ACTUAL"
-          echo "PATCH_SHA_ACTUAL=$PATCH_SHA_ACTUAL"
-          [[ "$PATCH_BYTES_ACTUAL" == "$EXPECTED_PATCH_BYTES" ]]
-          [[ "$PATCH_SHA_ACTUAL" == "$EXPECTED_PATCH_SHA" ]]
+          [[ "$(stat -c '%s' "$PATCH_FILE")" == "$EXPECTED_PATCH_BYTES" ]]
+          [[ "$(sha256sum "$PATCH_FILE" | awk '{print $1}')" == "$EXPECTED_PATCH_SHA" ]]
 
           python3 - "$APPLY_SCRIPT" <<'PY'
           from pathlib import Path
@@ -102,16 +98,96 @@ jobs:
                   body.append('')
               else:
                   raise SystemExit(f'unexpected YAML indentation while extracting build script: {line!r}')
-          if not body or "BASE='297854c09205097a6a58cbce4c64961c802cd7a3'" not in body:
+          payload = '\n'.join(body) + '\n'
+          old = '''git push origin "$NEW_COMMIT:refs/heads/$STAGING_BRANCH" --force
+          [[ "$(git ls-remote origin "refs/heads/$STAGING_BRANCH" | awk '{print $1}')" == "$NEW_COMMIT" ]]
+          '''
+          if payload.count(old) != 1:
+              raise SystemExit('unable to replace the prohibited workflow-file push block exactly once')
+          payload = payload.replace(
+              old,
+              '''printf '%s\\n' "$NEW_COMMIT" > "$RUNNER_TEMP/l1b-pr97-new-commit"\nprintf '%s\\n' "$TREE" > "$RUNNER_TEMP/l1b-pr97-new-tree"\n''',
+              1,
+          )
+          if "BASE='297854c09205097a6a58cbce4c64961c802cd7a3'" not in payload:
               raise SystemExit('frozen build script extraction failed')
-          Path(sys.argv[1]).write_text('\n'.join(body) + '\n', encoding='utf-8')
+          Path(sys.argv[1]).write_text(payload, encoding='utf-8')
           PY
           chmod 700 "$APPLY_SCRIPT"
           bash -n "$APPLY_SCRIPT"
           PATCH_FILE="$PATCH_FILE" bash "$APPLY_SCRIPT"
 
-      - name: Record runner boundary
-        if: always()
+          NEW_COMMIT="$(cat "$RUNNER_TEMP/l1b-pr97-new-commit")"
+          NEW_TREE="$(cat "$RUNNER_TEMP/l1b-pr97-new-tree")"
+          [[ "$NEW_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$NEW_TREE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse "$NEW_COMMIT^{tree}")" == "$NEW_TREE" ]]
+          echo "new_commit=$NEW_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "new_tree=$NEW_TREE" >> "$GITHUB_OUTPUT"
+          echo "L1B_PR97_BUILT_COMMIT=$NEW_COMMIT"
+          echo "L1B_PR97_BUILT_TREE=$NEW_TREE"
+
+          OUT="$RUNNER_TEMP/pr97-remediated-source"
+          mkdir -p "$OUT/.github/workflows" "$OUT/docs" "$OUT/ops"
+          chmod 700 "$OUT"
+          files=(
+            '.github/workflows/l1b-post-import-isolated-restore.yml'
+            'docs/L1B_POST_IMPORT_RESTORE.md'
+            'ops/l1b-post-import-isolated-restore-acl-check.sh'
+            'ops/l1b-post-import-isolated-restore-acl-patch.py'
+            'ops/l1b-post-import-isolated-restore-aicc-check.py'
+            'ops/l1b-post-import-isolated-restore-check.py'
+            'ops/l1b-post-import-isolated-restore-core.sh'
+            'ops/l1b-post-import-isolated-restore-count-check.py'
+            'ops/l1b-post-import-isolated-restore-review-check.sh'
+            'ops/l1b-post-import-isolated-restore-stdin-patch.py'
+            'ops/l1b-post-import-isolated-restore-telemetry.sh'
+            'ops/l1b-post-import-isolated-restore.sh'
+          )
+          for file in "${files[@]}"; do
+            [[ -f "$file" && ! -L "$file" ]]
+            cp --parents "$file" "$OUT"
+            chmod 600 "$OUT/$file"
+          done
+          {
+            echo "base=297854c09205097a6a58cbce4c64961c802cd7a3"
+            echo "superseded_head=147d0926b3ea8f3f6711bc7025d2252ec55e41c3"
+            echo "built_commit=$NEW_COMMIT"
+            echo "built_tree=$NEW_TREE"
+            echo "patch_sha256=$EXPECTED_PATCH_SHA"
+            echo "file_count=${#files[@]}"
+            for file in "${files[@]}"; do
+              printf '%s\t%s\t%s\t%s\n' \
+                "$(sha256sum "$file" | awk '{print $1}')" \
+                "$(git hash-object "$file")" \
+                "$(stat -c '%s' "$file")" \
+                "$file"
+            done
+          } > "$OUT/CANDIDATE-MANIFEST.tsv"
+          chmod 600 "$OUT/CANDIDATE-MANIFEST.tsv"
+          [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" == '13' ]]
+
+      - name: Upload exact verified candidate for connector commit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dashboard-pr97-remediated-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr97-remediated-source
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: true
+
+      - name: Publish bounded build evidence
         shell: bash
         run: |
-          echo 'L1B PR97 remediation runner v2 completed without Production access.' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '## L1B PR #97 exact verified candidate transfer'
+            echo
+            echo "- Base: \`297854c09205097a6a58cbce4c64961c802cd7a3\`"
+            echo "- Built local commit: \`${{ steps.build.outputs.new_commit }}\`"
+            echo "- Built tree: \`${{ steps.build.outputs.new_tree }}\`"
+            echo '- Patch SHA-256: `31780b84f11dd3391dfb69b45f8ddb0f4ebfea2a70d15e8ffeee13f8937685ec`'
+            echo '- npm test / verify / secret scan and B-2 source selftests: **PASS**'
+            echo '- Candidate exported for connector-side exact commit; target PR branch unchanged by this runner.'
+            echo '- Production effect: **NONE**'
+          } >> "$GITHUB_STEP_SUMMARY"
