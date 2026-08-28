@@ -47,10 +47,15 @@ jobs:
           [[ "$GITHUB_BASE_REF" == 'main' ]]
           [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
           [[ -f "$RAW3_GZ" && ! -L "$RAW3_GZ" ]]
-          [[ "$(sha256sum "$RAW3_GZ" | awk '{print $1}')" == "$EXPECTED_GZ_SHA" ]]
+          GZ_ACTUAL="$(sha256sum "$RAW3_GZ" | awk '{print $1}')"
+          echo "GZ_ACTUAL=$GZ_ACTUAL"
+          [[ "$GZ_ACTUAL" == "$EXPECTED_GZ_SHA" ]]
           gzip -dc "$RAW3_GZ" > "$RAW3"
           chmod 600 "$RAW3"
-          [[ "$(sha256sum "$RAW3" | awk '{print $1}')" == "$EXPECTED_RAW3_SHA" ]]
+          RAW3_ACTUAL="$(sha256sum "$RAW3" | awk '{print $1}')"
+          echo "RAW3_ACTUAL=$RAW3_ACTUAL"
+          echo "RAW3_BYTES=$(stat -c '%s' "$RAW3")"
+          [[ "$RAW3_ACTUAL" == "$EXPECTED_RAW3_SHA" ]]
 
           : > "$PATCH_FILE"
           chmod 600 "$PATCH_FILE"
@@ -60,11 +65,16 @@ jobs:
             else
               part="$PART_DIR/part-$index.b64"
               [[ -f "$part" && ! -L "$part" ]]
+              echo "DECODING_PART=$index TEXT_BYTES=$(stat -c '%s' "$part")"
               base64 --decode "$part" >> "$PATCH_FILE"
             fi
           done
-          [[ "$(stat -c '%s' "$PATCH_FILE")" == "$EXPECTED_PATCH_BYTES" ]]
-          [[ "$(sha256sum "$PATCH_FILE" | awk '{print $1}')" == "$EXPECTED_PATCH_SHA" ]]
+          PATCH_BYTES_ACTUAL="$(stat -c '%s' "$PATCH_FILE")"
+          PATCH_SHA_ACTUAL="$(sha256sum "$PATCH_FILE" | awk '{print $1}')"
+          echo "PATCH_BYTES_ACTUAL=$PATCH_BYTES_ACTUAL"
+          echo "PATCH_SHA_ACTUAL=$PATCH_SHA_ACTUAL"
+          [[ "$PATCH_BYTES_ACTUAL" == "$EXPECTED_PATCH_BYTES" ]]
+          [[ "$PATCH_SHA_ACTUAL" == "$EXPECTED_PATCH_SHA" ]]
 
           python3 - "$APPLY_SCRIPT" <<'PY'
           from pathlib import Path
