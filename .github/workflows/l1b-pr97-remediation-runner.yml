@@ -89,7 +89,7 @@ jobs:
           Path(sys.argv[1]).write_text('\n'.join(body) + '\n', encoding='utf-8')
           PY
           chmod 700 "$APPLY_SCRIPT"
-          PATCH_FILE="$PATCH_FILE" bash "$APPLY_SCRIPT"
+          PATCH_FILE="$PATCH_FILE" bash -x "$APPLY_SCRIPT"
 
       - name: Record runner boundary
         if: always()
