@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/l1b-pr97-remediation-runner.yml"
+      - "ops/l1b-pr97-remediation-parts/part-002.patchpart.gz"
       - "ops/l1b-pr97-remediation-parts/part-003.patchpart.gz"
 
 permissions:
@@ -35,41 +36,45 @@ jobs:
           set -euo pipefail
           EXPECTED_PATCH_SHA='31780b84f11dd3391dfb69b45f8ddb0f4ebfea2a70d15e8ffeee13f8937685ec'
           EXPECTED_PATCH_BYTES='25391'
-          EXPECTED_GZ_SHA='ba2847c3cf86c967dee136c0ef7a2dea2398d261ab6993f549b0d01bb7849bf3'
+          EXPECTED_GZ2_SHA='0c6b601f64ba2c03a079f6040e3ee02d44057b87b840f6852553f9fe33d98589'
+          EXPECTED_RAW2_SHA='dd662993f8baf0e57fe4e1741a804d0a18e3cac9f33a324f93b40731810cda7d'
+          EXPECTED_GZ3_SHA='ba2847c3cf86c967dee136c0ef7a2dea2398d261ab6993f549b0d01bb7849bf3'
           EXPECTED_RAW3_SHA='60e65ea35b3c4af504c4f50059a67d340f04838102e5500332964f938584c83d'
           PART_DIR='ops/l1b-pr97-remediation-parts'
-          RAW3_GZ="$PART_DIR/part-003.patchpart.gz"
-          RAW3="$RUNNER_TEMP/part-003.patchpart"
           PATCH_FILE="$RUNNER_TEMP/l1b-pr97-remediation.patch"
           APPLY_SCRIPT="$RUNNER_TEMP/l1b-pr97-apply.sh"
 
           [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
           [[ "$GITHUB_BASE_REF" == 'main' ]]
           [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr97-source-export' ]]
-          [[ -f "$RAW3_GZ" && ! -L "$RAW3_GZ" ]]
-          GZ_ACTUAL="$(sha256sum "$RAW3_GZ" | awk '{print $1}')"
-          echo "GZ_ACTUAL=$GZ_ACTUAL"
-          [[ "$GZ_ACTUAL" == "$EXPECTED_GZ_SHA" ]]
-          gzip -dc "$RAW3_GZ" > "$RAW3"
-          chmod 600 "$RAW3"
-          RAW3_ACTUAL="$(sha256sum "$RAW3" | awk '{print $1}')"
-          echo "RAW3_ACTUAL=$RAW3_ACTUAL"
-          echo "RAW3_BYTES=$(stat -c '%s' "$RAW3")"
-          [[ "$RAW3_ACTUAL" == "$EXPECTED_RAW3_SHA" ]]
 
           : > "$PATCH_FILE"
           chmod 600 "$PATCH_FILE"
           for index in 000 001 002 003 004 005 006; do
             raw="$RUNNER_TEMP/part-$index.raw"
-            if [[ "$index" == '003' ]]; then
-              cp "$RAW3" "$raw"
+            if [[ "$index" == '002' || "$index" == '003' ]]; then
+              gz="$PART_DIR/part-$index.patchpart.gz"
+              [[ -f "$gz" && ! -L "$gz" ]]
+              gz_actual="$(sha256sum "$gz" | awk '{print $1}')"
+              if [[ "$index" == '002' ]]; then
+                [[ "$gz_actual" == "$EXPECTED_GZ2_SHA" ]]
+              else
+                [[ "$gz_actual" == "$EXPECTED_GZ3_SHA" ]]
+              fi
+              gzip -dc "$gz" > "$raw"
             else
               part="$PART_DIR/part-$index.b64"
               [[ -f "$part" && ! -L "$part" ]]
               base64 --decode "$part" > "$raw"
             fi
             chmod 600 "$raw"
-            echo "PART_$index=$(stat -c '%s' "$raw")/$(sha256sum "$raw" | awk '{print $1}')"
+            raw_actual="$(sha256sum "$raw" | awk '{print $1}')"
+            if [[ "$index" == '002' ]]; then
+              [[ "$raw_actual" == "$EXPECTED_RAW2_SHA" ]]
+            elif [[ "$index" == '003' ]]; then
+              [[ "$raw_actual" == "$EXPECTED_RAW3_SHA" ]]
+            fi
+            echo "PART_$index=$(stat -c '%s' "$raw")/$raw_actual"
             cat "$raw" >> "$PATCH_FILE"
           done
           PATCH_BYTES_ACTUAL="$(stat -c '%s' "$PATCH_FILE")"
@@ -102,6 +107,7 @@ jobs:
           Path(sys.argv[1]).write_text('\n'.join(body) + '\n', encoding='utf-8')
           PY
           chmod 700 "$APPLY_SCRIPT"
+          bash -n "$APPLY_SCRIPT"
           PATCH_FILE="$PATCH_FILE" bash "$APPLY_SCRIPT"
 
       - name: Record runner boundary
