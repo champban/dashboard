@@ -60,14 +60,17 @@ jobs:
           : > "$PATCH_FILE"
           chmod 600 "$PATCH_FILE"
           for index in 000 001 002 003 004 005 006; do
+            raw="$RUNNER_TEMP/part-$index.raw"
             if [[ "$index" == '003' ]]; then
-              cat "$RAW3" >> "$PATCH_FILE"
+              cp "$RAW3" "$raw"
             else
               part="$PART_DIR/part-$index.b64"
               [[ -f "$part" && ! -L "$part" ]]
-              echo "DECODING_PART=$index TEXT_BYTES=$(stat -c '%s' "$part")"
-              base64 --decode "$part" >> "$PATCH_FILE"
+              base64 --decode "$part" > "$raw"
             fi
+            chmod 600 "$raw"
+            echo "PART_$index=$(stat -c '%s' "$raw")/$(sha256sum "$raw" | awk '{print $1}')"
+            cat "$raw" >> "$PATCH_FILE"
           done
           PATCH_BYTES_ACTUAL="$(stat -c '%s' "$PATCH_FILE")"
           PATCH_SHA_ACTUAL="$(sha256sum "$PATCH_FILE" | awk '{print $1}')"
@@ -99,23 +102,7 @@ jobs:
           Path(sys.argv[1]).write_text('\n'.join(body) + '\n', encoding='utf-8')
           PY
           chmod 700 "$APPLY_SCRIPT"
-
-          echo "APPLY_SCRIPT_LINES=$(wc -l < "$APPLY_SCRIPT" | tr -d ' ')"
-          echo "APPLY_SCRIPT_SHA256=$(sha256sum "$APPLY_SCRIPT" | awk '{print $1}')"
-          bash -n "$APPLY_SCRIPT"
-          sed -n '1,35p' "$APPLY_SCRIPT"
-
-          BASE='297854c09205097a6a58cbce4c64961c802cd7a3'
-          OLD_HEAD='147d0926b3ea8f3f6711bc7025d2252ec55e41c3'
-          TARGET_BRANCH='ops/l1b-post-import-isolated-restore'
-          git fetch --no-tags origin "+refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH"
-          echo "TARGET_REMOTE=$(git rev-parse "refs/remotes/origin/$TARGET_BRANCH")"
-          echo "BASE_TREE=$(git rev-parse "$BASE^{tree}")"
-          echo "OLD_TREE=$(git rev-parse "$OLD_HEAD^{tree}")"
-          echo "MERGE_BASE=$(git merge-base "$BASE" "$OLD_HEAD")"
-          echo "AHEAD_COUNT=$(git rev-list --count "$BASE".."$OLD_HEAD")"
-
-          PATCH_FILE="$PATCH_FILE" bash -x "$APPLY_SCRIPT"
+          PATCH_FILE="$PATCH_FILE" bash "$APPLY_SCRIPT"
 
       - name: Record runner boundary
         if: always()
