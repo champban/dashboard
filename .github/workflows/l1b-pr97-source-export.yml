@@ -44,6 +44,10 @@ jobs:
           printf '%s\n' '.github/workflows/l1b-pr97-source-export.yml' > "$RUNNER_TEMP/export-expected.txt"
           diff -u "$RUNNER_TEMP/export-expected.txt" "$RUNNER_TEMP/export-diff.txt"
 
+          # Validate the checked-out repository before creating the detached archive.
+          node build/secret-scan.mjs --selftest
+          node build/secret-scan.mjs
+
           OUT="$RUNNER_TEMP/pr97-full-source"
           mkdir -p "$OUT"
           chmod 700 "$OUT"
@@ -58,7 +62,10 @@ jobs:
           chmod 600 "$OUT/SOURCE-MANIFEST.txt"
 
           [[ "$(find "$OUT" -type f | wc -l | tr -d ' ')" -gt 100 ]]
-          (cd "$OUT" && node build/secret-scan.mjs --selftest && node build/secret-scan.mjs)
+          [[ -f "$OUT/package.json" ]]
+          [[ -f "$OUT/build/secret-scan.mjs" ]]
+          [[ -f "$OUT/.github/workflows/l1b-post-import-isolated-restore.yml" ]]
+          [[ -f "$OUT/ops/l1b-post-import-isolated-restore.sh" ]]
 
       - name: Upload exact full source packet for one day
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
