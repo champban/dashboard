@@ -20,10 +20,10 @@ merge and Production apply for one later exact Critical-Gate decision.
 
 ## Generated artifact evidence
 
-Current source provenance commit: `435ebe69cb5bbd5d5701a72a14660fe028466424`
-(parent `5aaf3533b17fa11a4f1d45cd91152df744a24bff`, generated
-`2026-08-29T06:36:40Z`). The commit freezes the byte-identical L1B contract and
-migration after the RPC-entry lock-order remediation. Exact-head CI and the
+Current source provenance commit: `cef3d1667da1f67fa1f12c9ea02a3f94573ad173`
+(parent `8376b10fc59d62402dcef3f571dc889b1739beef`, generated
+`2026-08-29T18:06:16Z`). The commit freezes the byte-identical L1A contract and
+migration after the direct UPDATE-versus-RPC lock-order remediation. Exact-head CI and the
 dedicated PostgreSQL 17 proof are required for the final evidence commit.
 Pinned Supabase CLI: `2.111.0`.
 
@@ -36,9 +36,9 @@ Historical GitHub artifact (superseded by current source remediation):
 Frozen operations:
 
 1. `supabase/migrations/20260825011714_l1a_direct_todo.sql`
-   - SHA-256: `d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf`
-   - Git blob: `03aa1f6dc34d6734dbef87b5a93d03896aacfec0`
-   - size: `35421` bytes
+   - SHA-256: `4bac012e5fa1375a89d207e669c60a52957bcddca512791952f0bc5580e9020a`
+   - Git blob: `5796a524a46d380aca0fb1fc941e497589f1e36e`
+   - size: `36344` bytes
    - byte-identical to `supabase/contracts/l1a_direct_todo.sql`
    - supersedes the historical artifact ZIP for the changed L1A bytes
 2. `supabase/migrations/20260825011716_l1b_planner_parity.sql`
@@ -118,9 +118,13 @@ against the exact source-controlled artifacts that:
 8. a second deterministic RPC proof shows the waiting same-owner
    `task.children.replace` call holds no task row lock before acquiring the
    owner advisory lock, then rejects the completing cycle with `L1D01`;
-9. distinct owners derive different advisory keys and complete independently
+9. a mixed direct UPDATE-versus-RPC proof holds the dependency tuple first,
+   proves the RPC owns the advisory lock while waiting on that tuple, then
+   requires the unqualified direct UPDATE to fail immediately with
+   `L1D02 dependency_lock_required` and no `40P01` deadlock;
+10. distinct owners derive different advisory keys and complete independently
    through both the direct trigger and public RPC paths under a 500 ms lock timeout;
-10. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
+11. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
    disposable state.
 
 This proves the SQL units can be executed safely as explicit transactions on
@@ -131,16 +135,17 @@ if that cannot be demonstrated.
 
 ## Fresh recovery gate status
 
-Fresh B-1 source is Draft PR #94 at corrected head
-`c8514e0619ccc13c48c96a6e9e7d334aded5ce11`. Source-safety and normal verify
-passed. The Owner-gated backup job in run `32796123583` failed **before any runner
-step** because the protected `production-backup` Environment did not admit the
-PR ref. No protected secret was materialized and no Production connection or
-backup occurred. A temporary exact Environment ref allowance is required before
-the one qualifying B-1 attempt; this remains within Q-L1B-002 but the current
-connector does not expose Environment-rule mutation.
+Fresh B-1 run `33233676310` succeeded at PR #100 head
+`f620c67909a7cbfd88acabe88ba75c404f44efe9`; encrypted artifact `9709317492`
+is unexpired through `2026-08-30T04:28:13Z` and Owner custody is confirmed.
+PR #97 source-only requalification at `35aeb51125d84363780819aa561135698475f38c`
+passed normal CI and the B-2 source/secret-safety job, but its exact restore job
+was `skipped` and is not recovery PASS. The latest actual execution remains run
+`33235213186`, which failed closed on an AICC catalog-digest mismatch. No
+Production write or promotion authority was added.
 
-Until fresh B-1 and exact B-2 pass, the final Production gate remains blocked.
+Until an exact Owner-approved B-2 restore job completes successfully against a
+still-valid qualifying B-1, the final Production gate remains blocked.
 
 ## Hard stops
 
