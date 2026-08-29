@@ -1,6 +1,6 @@
 # L1B Promotion Artifact — Targeted Security 6D Review
 
-Audit timestamp: `2026-08-30T01:54:34+07:00` (`Asia/Bangkok`)
+Audit timestamp: `2026-08-30T02:10:26+07:00` (`Asia/Bangkok`)
 
 Auditor: ChatGPT/Codex using GitHub and Supabase read-only evidence. This is a
 targeted security review by the implementing agent; it is **not** an independent
@@ -25,7 +25,7 @@ independent review, and the separately reserved Owner Critical Gate.
 
 - Repository: `champban/dashboard`
 - Branch: `ops/l1b-promotion-artifact-candidate`
-- Audited source head: `e13f78d49e6499578677a4f565f499c4c694cf2f`
+- Audited source head: `37772e2f0117e79726ab72bb09569d29cc45944c`
 - Base: `main@297854c09205097a6a58cbce4c64961c802cd7a3`
 - Environment: Draft PR / disposable PostgreSQL 17 only
 - Future Production project: `qjaywadzvwvcspdsjxth`
@@ -35,16 +35,16 @@ Frozen operation blobs reviewed:
 
 - L1A migration blob `49f2a9554be55cfb32eb972f890526b9ce59e32f`,
   SHA-256 `6e2df4dba24376a34acab308f20022bab9fb011efc12a7c0efb6568d618931a7`
-- L1B migration blob `b2c1a1849ee77a2c4c52a4a6ed13fdc0ba7b81cf`,
-  SHA-256 `0c37173ecde255db64f5b3e2d79117791735db464c25551a63a84a6a32fb435c`
+- L1B migration blob `1a36536058b84b1ef4a11d5125ea9cde11c09b4e`,
+  SHA-256 `264ea46b0706071bd30db5063453b5d41735d4cf71e9bfb84859d1e438c8e778`
 - private Storage operation blob `cc650ee24acdf68981964c909f1041f2603fcb4b`,
   SHA-256 `9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e`
 
 All three operation files are byte-identical to their current source contracts.
 The source provenance commit is
-`e13f78d49e6499578677a4f565f499c4c694cf2f` (parent
-`f955d80fef7e14525c3fbbca6b68619baed9f09d`, generated
-`2026-08-29T18:59:04Z`). Historical artifact ZIP digest
+`37772e2f0117e79726ab72bb09569d29cc45944c` (parent
+`6c80f180557538d23c699d02cc9bc23282090e3b`, generated
+`2026-08-29T19:10:26Z`). Historical artifact ZIP digest
 `1117444d1804b508d3269a4b25674fcfcb9071835e820b8a1688048a1c8f7624`
 is superseded for the changed L1A and L1B bytes and is not current evidence.
 
@@ -103,7 +103,8 @@ The dedicated proof checks same-owner RPC ordering with a `NOWAIT` probe, then
 creates the formerly-deadlocking mixed reactivation-versus-RPC order and requires
 immediate `L1D02 dependency_lock_required`, no `40P01`, and a successful RPC.
 Separate probes add a shared transaction lock or a forged GUC plus exclusive
-session lock; both still fail `L1D02` while the public RPC reactivation succeeds.
+session lock; both still fail `L1D02` while the public RPC reactivation succeeds,
+preserves the original dependency `created_at`, and increments its version.
 The dedicated workflow path filter includes every migration, contract, SQL test,
 operation and proof script consumed by the job. Exact-head CI
 and proof must pass after this source remediation.
