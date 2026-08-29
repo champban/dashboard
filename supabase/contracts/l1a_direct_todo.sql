@@ -266,8 +266,6 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
-declare
-  v_owners text := pg_catalog.current_setting('mtp.dependency_graph_xact_owners', true);
 begin
   if p_owner_id is null then
     raise exception 'dependency_owner_required' using errcode = 'L1D02';
@@ -275,13 +273,6 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || p_owner_id::text, 0)
   );
-  if pg_catalog.strpos(',' || coalesce(v_owners, '') || ',', ',' || p_owner_id::text || ',') = 0 then
-    perform pg_catalog.set_config(
-      'mtp.dependency_graph_xact_owners',
-      pg_catalog.concat_ws(',', nullif(v_owners, ''), p_owner_id::text),
-      true
-    );
-  end if;
 end;
 $$;
 
@@ -295,8 +286,6 @@ declare
   v_owner_id uuid;
   v_task_id uuid;
   v_depends_on_task_id uuid;
-  v_lock_key bigint;
-  v_lock_owners text;
 begin
   if not new.is_active then
     return new;
@@ -313,28 +302,14 @@ begin
   if v_task_id = v_depends_on_task_id then
     raise exception 'dependency_self_edge' using errcode = 'L1D01';
   end if;
-  v_lock_key := pg_catalog.hashtextextended(
-    'mtp_l1_dependency_graph:' || v_owner_id::text, 0
-  );
   if tg_op = 'UPDATE' then
-    -- PostgreSQL takes the target tuple lock before a row-level UPDATE trigger.
-    -- Never wait for the owner advisory lock from here: doing so can deadlock
-    -- with task.children.replace, which deliberately takes that advisory lock
-    -- before touching dependency tuples. Privileged direct UPDATE callers must
-    -- take the same transaction lock before issuing the statement.
-    v_lock_owners := pg_catalog.current_setting('mtp.dependency_graph_xact_owners', true);
-    if pg_catalog.strpos(',' || coalesce(v_lock_owners, '') || ',', ',' || v_owner_id::text || ',') = 0
-       or not exists (
-      select 1
-        from pg_catalog.pg_locks as l
-       where l.locktype = 'advisory'
-         and l.pid = pg_catalog.pg_backend_pid()
-         and l.granted
-         and l.mode = 'ExclusiveLock'
-         and l.objsubid = 1
-         and l.classid = ((v_lock_key >> 32) & 4294967295::bigint)::oid
-         and l.objid = (v_lock_key & 4294967295::bigint)::oid
-    ) then
+    -- A row-level UPDATE trigger runs only after PostgreSQL has locked the
+    -- target tuple, so it must never wait for the graph advisory lock. Active
+    -- to active changes do not alter graph topology because the later touch
+    -- trigger restores immutable edge identity. Reactivation changes topology
+    -- and is therefore rejected; the L1B entry point deletes the tombstone and
+    -- performs a serialized INSERT instead.
+    if not old.is_active and new.is_active then
       raise exception 'dependency_lock_required' using errcode = 'L1D02';
     end if;
   else
