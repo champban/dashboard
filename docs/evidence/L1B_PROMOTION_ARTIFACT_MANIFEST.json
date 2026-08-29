@@ -2,14 +2,14 @@
   "artifacts": [
     {
       "byte_identical_to_reviewed_source": true,
-      "bytes": 35421,
+      "bytes": 36344,
       "kind": "database_migration",
       "order": 1,
       "path": "supabase/migrations/20260825011714_l1a_direct_todo.sql",
       "provider_name": "l1a_direct_todo",
-      "reviewed_source_blob": "03aa1f6dc34d6734dbef87b5a93d03896aacfec0",
+      "reviewed_source_blob": "5796a524a46d380aca0fb1fc941e497589f1e36e",
       "reviewed_source_path": "supabase/contracts/l1a_direct_todo.sql",
-      "sha256": "d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf",
+      "sha256": "4bac012e5fa1375a89d207e669c60a52957bcddca512791952f0bc5580e9020a",
       "unit": "L1A"
     },
     {
@@ -39,8 +39,8 @@
   ],
   "base_sha": "297854c09205097a6a58cbce4c64961c802cd7a3",
   "client_activation_allowed": false,
-  "generated_utc": "2026-08-29T06:36:40Z",
-  "generation_parent_sha": "5aaf3533b17fa11a4f1d45cd91152df744a24bff",
+  "generated_utc": "2026-08-29T18:06:16Z",
+  "generation_parent_sha": "8376b10fc59d62402dcef3f571dc889b1739beef",
   "generic_db_push_allowed": false,
   "hard_stops": [
     "No Production operation without the later exact Owner Critical-Gate approval",
@@ -66,7 +66,7 @@
     "Storage catalog and policy verification"
   ],
   "schema_version": 1,
-  "source_sha": "435ebe69cb5bbd5d5701a72a14660fe028466424",
+  "source_sha": "cef3d1667da1f67fa1f12c9ea02a3f94573ad173",
   "supabase_cli_version": "2.111.0",
   "target_project_ref": "qjaywadzvwvcspdsjxth"
 }
