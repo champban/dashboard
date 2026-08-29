@@ -141,13 +141,15 @@ insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
 values (:'o1',:'b',:'c');
 SQL
 
-"${PSQL[@]}" -v o="$OWNER1" -v a="$A" -v b="$B" >"$TMP_DIR/session1.log" 2>&1 <<'SQL' &
+trigger_s1_fifo="$TMP_DIR/trigger-session1.sql"
+mkfifo "$trigger_s1_fifo"
+PGAPPNAME=l1b-trigger-cycle-session1 "${PSQL[@]}" -v o="$OWNER1" -v a="$A" -v b="$B" <"$trigger_s1_fifo" >"$TMP_DIR/session1.log" 2>&1 &
+s1=$!
+exec 8>"$trigger_s1_fifo"
+cat >&8 <<'SQL'
 begin;
 insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id) values (:'o',:'a',:'b');
-select pg_catalog.pg_sleep(3);
-commit;
 SQL
-s1=$!
 
 for _ in {1..100}; do
   [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER1',0) & 4294967295)::oid")" == "1" ]] && break
@@ -156,7 +158,7 @@ done
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER1',0) & 4294967295)::oid")" == "1" ]]
 
 set +e
-"${PSQL[@]}" -v o="$OWNER1" -v c="$C" -v a="$A" >"$TMP_DIR/session2.log" 2>&1 <<'SQL' &
+PGAPPNAME=l1b-trigger-cycle-session2 "${PSQL[@]}" -v o="$OWNER1" -v c="$C" -v a="$A" >"$TMP_DIR/session2.log" 2>&1 <<'SQL' &
 \set VERBOSITY verbose
 insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id) values (:'o',:'c',:'a');
 SQL
@@ -164,10 +166,10 @@ s2=$!
 set -e
 
 for _ in {1..100}; do
-  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where wait_event_type='Lock' and wait_event='advisory'")" -ge 1 ]] && break
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-trigger-cycle-session2' and wait_event_type='Lock' and wait_event='advisory'")" == "1" ]] && break
   sleep 0.05
 done
-[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where wait_event_type='Lock' and wait_event='advisory'")" -ge 1 ]]
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-trigger-cycle-session2' and wait_event_type='Lock' and wait_event='advisory'")" == "1" ]]
 
 # A different owner derives a different key and completes while OWNER1 is held.
 [[ "$("${PSQL[@]}" -Atqc "select (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER1',0) <> pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER2',0))::int")" == "1" ]]
@@ -176,6 +178,11 @@ set lock_timeout = '500ms';
 insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id) values (:'o',:'d',:'e');
 SQL
 
+# The same-owner waiter and distinct-owner probe have both completed while
+# session one still owns its transaction-scoped advisory lock. Release it only
+# now so the proof does not depend on runner timing.
+printf '%s\n' 'commit;' >&8
+exec 8>&-
 wait "$s1"
 if wait "$s2"; then echo "same-owner cycle unexpectedly committed" >&2; exit 1; fi
 grep -q 'dependency_cycle' "$TMP_DIR/session2.log"
