@@ -48,7 +48,7 @@ jobs:
           [[ "${{ github.run_attempt }}" == '1' ]]
           [[ "$(git rev-parse "$OLD_HEAD^{tree}")" == "$OLD_TREE" ]]
           [[ "$(git merge-base "$BASE" "$OLD_HEAD")" == "$BASE" ]]
-          [[ "$(git rev-list --count "$BASE".."$OLD_HEAD")" == '1' ]]
+          [[ "$(git rev-list --count "$BASE".."$OLD_HEAD")" == '3' ]]
 
           git fetch origin "refs/heads/$TARGET_BRANCH"
           [[ "$(git rev-parse FETCH_HEAD)" == "$OLD_HEAD" ]]
@@ -106,6 +106,20 @@ jobs:
           supabase/contracts/l1a_direct_todo.sql
           supabase/migrations/20260825011714_l1a_direct_todo.sql
           EOF
+
+          cat > "$RUNNER_TEMP/expected-final-files.txt" <<'EOF'
+          .github/workflows/l1b-promotion-artifact-proof.yml
+          PROJECT_CONTEXT.md
+          docs/L1B_PROMOTION_ARTIFACT_CANDIDATE.md
+          docs/L1B_PROMOTION_SECURITY_6D_REVIEW.md
+          docs/evidence/L1B_APPLY_ORDER.md
+          docs/evidence/L1B_PROMOTION_ARTIFACT_MANIFEST.json
+          ops/l1b-promotion-artifact-proof.sh
+          supabase/contracts/l1a_direct_todo.sql
+          supabase/migrations/20260825011714_l1a_direct_todo.sql
+          supabase/migrations/20260825011716_l1b_planner_parity.sql
+          supabase/operations/l1b_private_storage.sql
+          EOF
           git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
           diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
           git diff --check
@@ -148,7 +162,7 @@ jobs:
           [[ "$(git merge-base "$BASE" "$NEW_COMMIT")" == "$BASE" ]]
           [[ "$(git rev-list --count "$BASE".."$NEW_COMMIT")" == '1' ]]
           git diff --name-only "$BASE"..."$NEW_COMMIT" | LC_ALL=C sort > "$RUNNER_TEMP/final-files.txt"
-          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/final-files.txt"
+          diff -u "$RUNNER_TEMP/expected-final-files.txt" "$RUNNER_TEMP/final-files.txt"
 
           git push \
             --force-with-lease="refs/heads/$TARGET_BRANCH:$OLD_HEAD" \
@@ -161,7 +175,7 @@ jobs:
             echo "- previous head: \`$OLD_HEAD\`"
             echo "- new head: \`$NEW_COMMIT\`"
             echo "- new tree: \`$TREE\`"
-            echo '- exact changed files: **8**'
+            echo '- exact changed files: **11**'
             echo '- npm/source/parity/secret qualification: **PASS**'
             echo '- PostgreSQL 17 proof: **pending exact-head dedicated CI**'
             echo '- Production connection or mutation: **NONE**'
