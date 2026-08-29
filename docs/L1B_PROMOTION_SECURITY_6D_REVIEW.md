@@ -1,6 +1,6 @@
 # L1B Promotion Artifact — Targeted Security 6D Review
 
-Audit timestamp: `2026-08-30T01:06:16+07:00` (`Asia/Bangkok`)
+Audit timestamp: `2026-08-30T01:54:34+07:00` (`Asia/Bangkok`)
 
 Auditor: ChatGPT/Codex using GitHub and Supabase read-only evidence. This is a
 targeted security review by the implementing agent; it is **not** an independent
@@ -12,10 +12,10 @@ PRODUCTION PROMOTION.**
 The previously reported dependency-cycle findings are remediated in the candidate
 bytes by acquiring the owner-scoped transaction advisory lock at the
 `task.children.replace` RPC entry before any per-task row lock. Direct INSERT keeps
-the same trigger guard; direct active-edge UPDATE must enter through the helper
-that acquires the exclusive transaction lock and records a transaction-local owner
-marker, or the trigger fails immediately with `L1D02`. Shared and session-scoped
-locks without that marker are rejected. Deterministic PostgreSQL 17 evidence is
+the same trigger guard. Direct inactive-to-active UPDATE is rejected immediately
+with `L1D02`; the RPC reactivates by deleting the tombstone under the transaction
+lock and using the serialized INSERT path. No caller-writable marker or ambiguous
+lock-lifetime inference is trusted. Deterministic PostgreSQL 17 evidence is
 required at the exact remote head. No other new Critical, High, or Medium security
 finding was identified by the implementing review. Production promotion remains blocked by the
 fresh B-1/B-2 recovery gate, final exact-head CI/failure-safety evidence,
@@ -25,7 +25,7 @@ independent review, and the separately reserved Owner Critical Gate.
 
 - Repository: `champban/dashboard`
 - Branch: `ops/l1b-promotion-artifact-candidate`
-- Audited source head: `f5bba244658a8fd6f947fa6e320052f70419b3f9`
+- Audited source head: `c9db493cd216d8b42739c8a5cc06bb657a705daa`
 - Base: `main@297854c09205097a6a58cbce4c64961c802cd7a3`
 - Environment: Draft PR / disposable PostgreSQL 17 only
 - Future Production project: `qjaywadzvwvcspdsjxth`
@@ -33,18 +33,18 @@ independent review, and the separately reserved Owner Critical Gate.
 
 Frozen operation blobs reviewed:
 
-- L1A migration blob `036d010bcb79be939219415e977085ec55392d59`,
-  SHA-256 `46a721d90c1a66c4977c42d48958b45e6ca85dcfe678575174f7eac80c27fb30`
-- L1B migration blob `38b1c9f719f66cdfea8b0a89d265888ed27a4a47`,
-  SHA-256 `65fd6a7c4f1afdac85fd4367f1ff35ddc5ff6a00ff27097ab6b1dff660077713`
+- L1A migration blob `49f2a9554be55cfb32eb972f890526b9ce59e32f`,
+  SHA-256 `6e2df4dba24376a34acab308f20022bab9fb011efc12a7c0efb6568d618931a7`
+- L1B migration blob `b2c1a1849ee77a2c4c52a4a6ed13fdc0ba7b81cf`,
+  SHA-256 `0c37173ecde255db64f5b3e2d79117791735db464c25551a63a84a6a32fb435c`
 - private Storage operation blob `cc650ee24acdf68981964c909f1041f2603fcb4b`,
   SHA-256 `9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e`
 
 All three operation files are byte-identical to their current source contracts.
 The source provenance commit is
-`c540d0b53dbb98607cf4f2f2ebb899e8d1480a7d` (parent
-`20e507faed12d872eae7549e79f9c6811a53f329`, generated
-`2026-08-29T18:39:42Z`). Historical artifact ZIP digest
+`c9db493cd216d8b42739c8a5cc06bb657a705daa` (parent
+`75474b9ba492c41eb8a7dfdc0906fc81709c4ca1`, generated
+`2026-08-29T18:54:34Z`). Historical artifact ZIP digest
 `1117444d1804b508d3269a4b25674fcfcb9071835e820b8a1688048a1c8f7624`
 is superseded for the changed L1A and L1B bytes and is not current evidence.
 
@@ -52,7 +52,7 @@ is superseded for the changed L1A and L1B bytes and is not current evidence.
 
 | Dimension | Result | Evidence / residual gate |
 |---|---|---|
-| 1. Identity and access | PASS FOR CANDIDATE BYTES | L1A/L1B preserve the reviewed `auth.uid()` owner model, authenticated wrapper boundary, private `SECURITY DEFINER` core, explicit RLS and negative cross-owner/direct-write tests. Privileged direct dependency UPDATE must use a private entry point that acquires/retains the owner transaction lock and marker; shared/session-only locks fail closed. Production L1 objects are currently absent. No Auth/provider change is included. |
+| 1. Identity and access | PASS FOR CANDIDATE BYTES | L1A/L1B preserve the reviewed `auth.uid()` owner model, authenticated wrapper boundary, private `SECURITY DEFINER` core, explicit RLS and negative cross-owner/direct-write tests. Direct inactive-to-active dependency UPDATE always fails `L1D02`; the authenticated RPC reactivates only through delete-and-serialized-INSERT under the owner transaction lock. Forged GUC/session-lock and shared-lock probes fail closed. Production L1 objects are currently absent. No Auth/provider change is included. |
 | 2. Secrets and data | PASS FOR ARTIFACT BYTES | No secret value, service-role key, credential or Production data is added to this PR. Normal CI secret scan is required on the final head. Read-only preflight used aggregate/catalog evidence only; raw planner content was not read. Fresh encrypted B-1/B-2 remains mandatory before Production promotion. |
 | 3. Input and content safety | PASS FOR ARTIFACT BYTES / ACTIVATION STILL GATED | Reviewed payload allowlists, bounds, UUID ownership paths, active-content rejection, settings denylist, attachment MIME/size/path metadata and conflict semantics are unchanged. The private bucket remains absent and upload/client activation is not authorized. |
 | 4. Browser and network controls | PASS FOR THIS DRAFT SCOPE | No browser/runtime/CSP/network-origin/client-enable byte is changed. The already-published L1B bridge remains disabled (`enabled=false`, mode `off`). No new automatic enqueue/send path is introduced. |
@@ -96,13 +96,14 @@ Historical evidence retained for context:
   still running at the audit checkpoint.
 
 Current remediation evidence adds an RPC-entry lock before any task-row lock,
-retains the INSERT trigger guard, and requires direct active-edge UPDATE callers
-to enter through the helper that holds the same exclusive owner transaction lock before taking a dependency tuple. The
-dedicated proof checks same-owner RPC ordering with a `NOWAIT` probe, then creates
-the formerly-deadlocking mixed UPDATE-versus-RPC order and requires immediate
-`L1D02 dependency_lock_required`, no `40P01`, and a successful RPC. A separate
-negative probes hold only a shared transaction lock or an exclusive session lock
-and must still fail `L1D02`; the helper-based positive UPDATE succeeds.
+retains the INSERT trigger guard, and rejects every direct inactive-to-active
+UPDATE before any advisory-lock wait. The RPC removes an inactive tombstone only
+after taking the owner transaction lock, then recreates the edge through INSERT.
+The dedicated proof checks same-owner RPC ordering with a `NOWAIT` probe, then
+creates the formerly-deadlocking mixed reactivation-versus-RPC order and requires
+immediate `L1D02 dependency_lock_required`, no `40P01`, and a successful RPC.
+Separate probes add a shared transaction lock or a forged GUC plus exclusive
+session lock; both still fail `L1D02` while the public RPC reactivation succeeds.
 The dedicated workflow path filter includes every migration, contract, SQL test,
 operation and proof script consumed by the job. Exact-head CI
 and proof must pass after this source remediation.
