@@ -20,10 +20,10 @@ merge and Production apply for one later exact Critical-Gate decision.
 
 ## Generated artifact evidence
 
-Current source provenance commit: `31446f105d8753dfa7d8e1548955963daa85428b`
-(parent `c2918ecdacba35ab5b4d77a74944a2e1a4df6635`, generated
-`2026-08-29T18:19:34Z`). The commit freezes the byte-identical L1A contract and
-migration after the direct UPDATE-versus-RPC lock-order remediation. Exact-head CI and the
+Current source provenance commit: `c540d0b53dbb98607cf4f2f2ebb899e8d1480a7d`
+(parent `20e507faed12d872eae7549e79f9c6811a53f329`, generated
+`2026-08-29T18:39:42Z`). The commit freezes the byte-identical L1A/L1B contracts
+and migrations after the transaction-scoped dependency-lock remediation. Exact-head CI and the
 dedicated PostgreSQL 17 proof are required for the final evidence commit.
 The dedicated workflow path filter inventories every migration, contract, SQL
 test, operation and script consumed by that proof.
@@ -38,15 +38,15 @@ Historical GitHub artifact (superseded by current source remediation):
 Frozen operations:
 
 1. `supabase/migrations/20260825011714_l1a_direct_todo.sql`
-   - SHA-256: `b0cc480974995d15e667b14176e0ff70b77e34f977d83c732e1439a1a32b98fe`
-   - Git blob: `4cc4821bc023801ea3501400340c7ff57a28f71a`
-   - size: `36382` bytes
+   - SHA-256: `46a721d90c1a66c4977c42d48958b45e6ca85dcfe678575174f7eac80c27fb30`
+   - Git blob: `036d010bcb79be939219415e977085ec55392d59`
+   - size: `37501` bytes
    - byte-identical to `supabase/contracts/l1a_direct_todo.sql`
    - supersedes the historical artifact ZIP for the changed L1A bytes
 2. `supabase/migrations/20260825011716_l1b_planner_parity.sql`
-   - SHA-256: `9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4`
-   - Git blob: `f763e5ff25da166e35d569c76c35022884c956cd`
-   - size: `48775` bytes
+   - SHA-256: `65fd6a7c4f1afdac85fd4367f1ff35ddc5ff6a00ff27097ab6b1dff660077713`
+   - Git blob: `38b1c9f719f66cdfea8b0a89d265888ed27a4a47`
+   - size: `48699` bytes
    - byte-identical to `supabase/contracts/l1b_planner_parity.sql`
    - supersedes the historical artifact ZIP for the changed L1B bytes
 3. `supabase/operations/l1b_private_storage.sql`
@@ -126,9 +126,12 @@ against the exact source-controlled artifacts that:
    `L1D02 dependency_lock_required` and no `40P01` deadlock;
 10. a granted shared owner advisory lock is rejected with `L1D02`; only the
     exact exclusive transaction lock used by the RPC qualifies;
-11. distinct owners derive different advisory keys and complete independently
+11. a session-scoped exclusive advisory lock is also rejected; a positive
+    direct UPDATE must enter through `private.mtp_l1_lock_dependency_graph`,
+    which retains the transaction lock and a transaction-local owner marker;
+12. distinct owners derive different advisory keys and complete independently
    through both the direct trigger and public RPC paths under a 500 ms lock timeout;
-12. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
+13. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
    disposable state.
 
 This proves the SQL units can be executed safely as explicit transactions on
