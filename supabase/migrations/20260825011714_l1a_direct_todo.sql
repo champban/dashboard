@@ -260,6 +260,31 @@ create trigger mtp_task_dependencies_touch_version
 before update on public.mtp_task_dependencies
 for each row execute function private.mtp_l1_touch_dependency_version();
 
+create function private.mtp_l1_lock_dependency_graph(p_owner_id uuid)
+returns void
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_owners text := pg_catalog.current_setting('mtp.dependency_graph_xact_owners', true);
+begin
+  if p_owner_id is null then
+    raise exception 'dependency_owner_required' using errcode = 'L1D02';
+  end if;
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || p_owner_id::text, 0)
+  );
+  if pg_catalog.strpos(',' || coalesce(v_owners, '') || ',', ',' || p_owner_id::text || ',') = 0 then
+    perform pg_catalog.set_config(
+      'mtp.dependency_graph_xact_owners',
+      pg_catalog.concat_ws(',', nullif(v_owners, ''), p_owner_id::text),
+      true
+    );
+  end if;
+end;
+$$;
+
 create function private.mtp_l1_prevent_dependency_cycle()
 returns trigger
 language plpgsql
@@ -271,6 +296,7 @@ declare
   v_task_id uuid;
   v_depends_on_task_id uuid;
   v_lock_key bigint;
+  v_lock_owners text;
 begin
   if not new.is_active then
     return new;
@@ -296,7 +322,9 @@ begin
     -- with task.children.replace, which deliberately takes that advisory lock
     -- before touching dependency tuples. Privileged direct UPDATE callers must
     -- take the same transaction lock before issuing the statement.
-    if not exists (
+    v_lock_owners := pg_catalog.current_setting('mtp.dependency_graph_xact_owners', true);
+    if pg_catalog.strpos(',' || coalesce(v_lock_owners, '') || ',', ',' || v_owner_id::text || ',') = 0
+       or not exists (
       select 1
         from pg_catalog.pg_locks as l
        where l.locktype = 'advisory'
@@ -310,7 +338,7 @@ begin
       raise exception 'dependency_lock_required' using errcode = 'L1D02';
     end if;
   else
-    perform pg_catalog.pg_advisory_xact_lock(v_lock_key);
+    perform private.mtp_l1_lock_dependency_graph(v_owner_id);
   end if;
   if exists (
     with recursive walk(task_id) as (
@@ -776,6 +804,7 @@ create policy mtp_task_external_refs_owner_select on public.mtp_task_external_re
   for select to authenticated using (owner_id = (select auth.uid()));
 
 revoke all on function private.mtp_l1_touch_dependency_version() from public, anon, authenticated, service_role;
+revoke all on function private.mtp_l1_lock_dependency_graph(uuid) from public, anon, authenticated, service_role;
 revoke all on function private.mtp_l1_prevent_dependency_cycle() from public, anon, authenticated, service_role;
 revoke all on function private.mtp_l1_request_hash(jsonb) from public, anon, authenticated, service_role;
 revoke all on function private.mtp_l1_validate_task_payload(jsonb,boolean) from public, anon, authenticated, service_role;
