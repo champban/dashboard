@@ -349,6 +349,7 @@ declare
   v_item jsonb;
   v_id uuid;
   v_dep uuid;
+  v_dep_history public.mtp_task_dependencies;
   v_count integer;
 begin
   if p_payload is null or pg_catalog.jsonb_typeof(p_payload) <> 'object'
@@ -430,11 +431,15 @@ begin
     ) then raise exception 'task_not_available' using errcode='42501'; end if;
     delete from public.mtp_task_dependencies
      where owner_id=p_owner and task_id=p_task_id
-       and depends_on_task_id=v_dep and not is_active;
+       and depends_on_task_id=v_dep and not is_active
+     returning * into v_dep_history;
     insert into public.mtp_task_dependencies(
-      owner_id,task_id,depends_on_task_id,ordinal,is_active,source_deleted_at
+      owner_id,task_id,depends_on_task_id,ordinal,is_active,source_deleted_at,
+      version,created_at,updated_at
     ) values (
-      p_owner,p_task_id,v_dep,coalesce((v_item->>'ordinal')::integer,v_count),true,null
+      p_owner,p_task_id,v_dep,coalesce((v_item->>'ordinal')::integer,v_count),true,null,
+      coalesce(v_dep_history.version+1,1),
+      coalesce(v_dep_history.created_at,pg_catalog.now()),pg_catalog.now()
     ) on conflict(owner_id,task_id,depends_on_task_id) do update set
       ordinal=excluded.ordinal,is_active=true,source_deleted_at=null;
     v_count := v_count + 1;
