@@ -14,7 +14,7 @@ STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
 [[ "$(sha256sum "$L1A" | awk '{print $1}')" == "6e2df4dba24376a34acab308f20022bab9fb011efc12a7c0efb6568d618931a7" ]]
-[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "0c37173ecde255db64f5b3e2d79117791735db464c25551a63a84a6a32fb435c" ]]
+[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "264ea46b0706071bd30db5063453b5d41735d4cf71e9bfb84859d1e438c8e778" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
 cmp -s "$L1B" "$L1B_SOURCE"
@@ -451,8 +451,12 @@ values
   (:'o',:'p','personal','session-lock-p','session-lock-p','P','direct',decode(repeat('0f',32),'hex')),
   (:'o',:'q','personal','session-lock-q','session-lock-q','Q','direct',decode(repeat('10',32),'hex'));
 insert into public.mtp_task_dependencies(
-  owner_id,task_id,depends_on_task_id,is_active,source_deleted_at
-) values (:'o',:'p',:'q',false,pg_catalog.now());
+  owner_id,task_id,depends_on_task_id,is_active,source_deleted_at,
+  version,created_at,updated_at
+) values (
+  :'o',:'p',:'q',false,pg_catalog.now(),7,
+  '2026-01-02T03:04:05Z'::timestamptz,'2026-02-03T04:05:06Z'::timestamptz
+);
 SQL
 if "${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" >"$TMP_DIR/session-lock-update.log" 2>&1 <<'SQL'
 \set VERBOSITY verbose
@@ -475,7 +479,7 @@ then
 fi
 grep -q 'dependency_lock_required' "$TMP_DIR/session-lock-update.log"
 grep -q 'L1D02' "$TMP_DIR/session-lock-update.log"
-[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and not is_active and ordinal=0")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and not is_active and ordinal=0 and version=7 and created_at='2026-01-02T03:04:05Z'::timestamptz")" == "1" ]]
 
 "${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" <<'SQL'
 begin;
@@ -493,7 +497,7 @@ select public.mtp_task_children_replace_v1(
 );
 commit;
 SQL
-[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and is_active and ordinal=1")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and is_active and ordinal=1 and version=8 and created_at='2026-01-02T03:04:05Z'::timestamptz and updated_at>'2026-02-03T04:05:06Z'::timestamptz")" == "1" ]]
 
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$L1B" >/dev/null 2>&1; then
