@@ -9,6 +9,7 @@ on:
       - 'supabase/migrations/20260825011716_l1b_planner_parity.sql'
       - 'supabase/contracts/l1b_planner_parity.sql'
       - 'supabase/operations/l1b_private_storage.sql'
+      - 'supabase/contracts/l1b_private_storage.sql'
       - 'ops/l1b-promotion-artifact-proof.sh'
       - '.github/workflows/l1b-promotion-artifact-proof.yml'
 
