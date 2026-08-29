@@ -24,7 +24,7 @@ independent review, and the separately reserved Owner Critical Gate.
 
 - Repository: `champban/dashboard`
 - Branch: `ops/l1b-promotion-artifact-candidate`
-- Audited source head: `75095e7fcee434c7efb80e11f6021d67e4048147`
+- Audited source head: `40054b856a958b2afd3edeba6ea7903534932d12`
 - Base: `main@297854c09205097a6a58cbce4c64961c802cd7a3`
 - Environment: Draft PR / disposable PostgreSQL 17 only
 - Future Production project: `qjaywadzvwvcspdsjxth`
@@ -101,8 +101,8 @@ dedicated proof checks same-owner RPC ordering with a `NOWAIT` probe, then creat
 the formerly-deadlocking mixed UPDATE-versus-RPC order and requires immediate
 `L1D02 dependency_lock_required`, no `40P01`, and a successful RPC. A separate
 negative probe holds only the shared advisory lock and must still fail `L1D02`.
-The dedicated workflow path filter includes the Storage source contract read by
-the proof. Exact-head CI
+The dedicated workflow path filter includes every migration, contract, SQL test,
+operation and proof script consumed by the job. Exact-head CI
 and proof must pass after this source remediation.
 
 ## Residual risks and gates
