@@ -9,8 +9,7 @@ second-reviewer attestation.
 Decision: **CONDITIONAL PASS FOR DRAFT ARTIFACT/TEST PREPARATION; BLOCKED FOR
 PRODUCTION PROMOTION.**
 
-No new Critical, High, or Medium security finding was identified in the frozen
-L1A/L1B/Storage operation bytes. Production promotion remains blocked by the
+The previously reported Medium dependency-cycle concurrency finding is remediated in the candidate bytes by a standalone owner-scoped transaction advisory lock before the recursive graph read. UPDATE validation uses immutable `OLD` identity. Deterministic PostgreSQL 17 evidence is required at the exact remote head. No other new Critical, High, or Medium security finding was identified. Production promotion remains blocked by the
 fresh B-1/B-2 recovery gate, final exact-head CI/failure-safety evidence,
 independent review, and the separately reserved Owner Critical Gate.
 
@@ -26,8 +25,8 @@ independent review, and the separately reserved Owner Critical Gate.
 
 Frozen operation blobs reviewed:
 
-- L1A migration blob `c70b116b91615d9ea746c357dc337aa78b4936fe`,
-  SHA-256 `693a73b15aca115c9425267567e5b5fad2a1d43c9fa4ded0caf1420743d0cadb`
+- L1A migration blob `03aa1f6dc34d6734dbef87b5a93d03896aacfec0`,
+  SHA-256 `d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf`
 - L1B migration blob `245d91edc2e88341641381f2747edec44f94a4cd`,
   SHA-256 `c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91`
 - private Storage operation blob `cc650ee24acdf68981964c909f1041f2603fcb4b`,
@@ -41,7 +40,7 @@ The generated artifact ZIP digest is
 
 | Dimension | Result | Evidence / residual gate |
 |---|---|---|
-| 1. Identity and access | PASS FOR ARTIFACT BYTES | L1A/L1B preserve the reviewed `auth.uid()` owner model, authenticated wrapper boundary, private `SECURITY DEFINER` core, explicit RLS and negative cross-owner/direct-write tests. Production L1 objects are currently absent. No Auth/provider change is included. |
+| 1. Identity and access | PASS FOR CANDIDATE BYTES | L1A/L1B preserve the reviewed `auth.uid()` owner model, authenticated wrapper boundary, private `SECURITY DEFINER` core, explicit RLS and negative cross-owner/direct-write tests. Production L1 objects are currently absent. No Auth/provider change is included. |
 | 2. Secrets and data | PASS FOR ARTIFACT BYTES | No secret value, service-role key, credential or Production data is added to this PR. Normal CI secret scan is required on the final head. Read-only preflight used aggregate/catalog evidence only; raw planner content was not read. Fresh encrypted B-1/B-2 remains mandatory before Production promotion. |
 | 3. Input and content safety | PASS FOR ARTIFACT BYTES / ACTIVATION STILL GATED | Reviewed payload allowlists, bounds, UUID ownership paths, active-content rejection, settings denylist, attachment MIME/size/path metadata and conflict semantics are unchanged. The private bucket remains absent and upload/client activation is not authorized. |
 | 4. Browser and network controls | PASS FOR THIS DRAFT SCOPE | No browser/runtime/CSP/network-origin/client-enable byte is changed. The already-published L1B bridge remains disabled (`enabled=false`, mode `off`). No new automatic enqueue/send path is introduced. |

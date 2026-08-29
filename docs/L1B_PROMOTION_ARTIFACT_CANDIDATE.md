@@ -34,9 +34,11 @@ GitHub artifact:
 Frozen operations:
 
 1. `supabase/migrations/20260825011714_l1a_direct_todo.sql`
-   - SHA-256: `693a73b15aca115c9425267567e5b5fad2a1d43c9fa4ded0caf1420743d0cadb`
-   - Git blob: `c70b116b91615d9ea746c357dc337aa78b4936fe`
+   - SHA-256: `d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf`
+   - Git blob: `03aa1f6dc34d6734dbef87b5a93d03896aacfec0`
+   - size: `35421` bytes
    - byte-identical to `supabase/contracts/l1a_direct_todo.sql`
+   - supersedes the historical artifact ZIP for the changed L1A bytes
 2. `supabase/migrations/20260825011716_l1b_planner_parity.sql`
    - SHA-256: `c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91`
    - Git blob: `245d91edc2e88341641381f2747edec44f94a4cd`
@@ -104,7 +106,9 @@ against the exact source-controlled artifacts that:
 5. the Storage operation is a separate transaction/gate; failure leaves no
    `mtp-private` bucket/policies;
 6. a repeated Storage operation fails closed without catalog drift;
-7. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
+7. a deterministic PostgreSQL 17 two-session proof shows same-owner mutations wait, refresh their READ COMMITTED snapshot, reject the completing cycle with `L1D01 dependency_cycle`, commit at most one candidate edge, and leave an acyclic graph;
+8. distinct owners derive different advisory keys and complete independently under a 500 ms lock timeout;
+9. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
    disposable state.
 
 This proves the SQL units can be executed safely as explicit transactions on

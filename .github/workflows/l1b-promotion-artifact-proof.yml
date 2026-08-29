@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'supabase/migrations/20260825011714_l1a_direct_todo.sql'
+      - 'supabase/contracts/l1a_direct_todo.sql'
+      - 'supabase/tests/l1a_direct_todo.test.sql'
       - 'supabase/migrations/20260825011716_l1b_planner_parity.sql'
       - 'supabase/operations/l1b_private_storage.sql'
       - 'ops/l1b-promotion-artifact-proof.sh'

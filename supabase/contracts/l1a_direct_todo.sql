@@ -266,25 +266,41 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  v_owner_id uuid;
+  v_task_id uuid;
+  v_depends_on_task_id uuid;
 begin
   if not new.is_active then
     return new;
   end if;
-  if new.task_id = new.depends_on_task_id then
+  if tg_op = 'UPDATE' then
+    v_owner_id := old.owner_id;
+    v_task_id := old.task_id;
+    v_depends_on_task_id := old.depends_on_task_id;
+  else
+    v_owner_id := new.owner_id;
+    v_task_id := new.task_id;
+    v_depends_on_task_id := new.depends_on_task_id;
+  end if;
+  if v_task_id = v_depends_on_task_id then
     raise exception 'dependency_self_edge' using errcode = 'L1D01';
   end if;
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || v_owner_id::text, 0)
+  );
   if exists (
     with recursive walk(task_id) as (
-      select new.depends_on_task_id
+      select v_depends_on_task_id
       union
       select d.depends_on_task_id
         from public.mtp_task_dependencies as d
         join walk as w on w.task_id = d.task_id
-       where d.owner_id = new.owner_id and d.is_active
+       where d.owner_id = v_owner_id and d.is_active
          and (d.owner_id, d.task_id, d.depends_on_task_id)
-             <> (new.owner_id, new.task_id, new.depends_on_task_id)
+             <> (v_owner_id, v_task_id, v_depends_on_task_id)
     )
-    select 1 from walk where task_id = new.task_id
+    select 1 from walk where task_id = v_task_id
   ) then
     raise exception 'dependency_cycle' using errcode = 'L1D01';
   end if;

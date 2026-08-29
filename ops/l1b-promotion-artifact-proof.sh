@@ -13,7 +13,7 @@ L1B_SOURCE="$ROOT_DIR/supabase/contracts/l1b_planner_parity.sql"
 STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
-[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "693a73b15aca115c9425267567e5b5fad2a1d43c9fa4ded0caf1420743d0cadb" ]]
+[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf" ]]
 [[ "$(sha256sum "$L1B" | awk '{print $1}')" == "c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
@@ -116,6 +116,73 @@ assert_absent "select count(*) from pg_catalog.pg_namespace where nspname='priva
 
 "${PSQL[@]}" --single-transaction -f "$L1A"
 "${PSQL[@]}" -f "$ROOT_DIR/supabase/tests/l1a_direct_todo.test.sql"
+
+# Deterministic READ COMMITTED concurrency proof.  Session one adds A -> B and
+# holds the owner-scoped transaction lock.  Session two attempts C -> A against
+# existing B -> C: it must wait, refresh its snapshot after session one commits,
+# and then receive the preserved L1D01 dependency_cycle error.
+OWNER1=30000000-0000-4000-8000-000000000003
+OWNER2=40000000-0000-4000-8000-000000000004
+A=31000000-0000-4000-8000-000000000001
+B=31000000-0000-4000-8000-000000000002
+C=31000000-0000-4000-8000-000000000003
+D=41000000-0000-4000-8000-000000000001
+E=41000000-0000-4000-8000-000000000002
+"${PSQL[@]}" -v o1="$OWNER1" -v o2="$OWNER2" -v a="$A" -v b="$B" -v c="$C" -v d="$D" -v e="$E" <<'SQL'
+insert into auth.users(id) values (:'o1'),(:'o2') on conflict do nothing;
+insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,title,record_origin,content_hash)
+values
+  (:'o1',:'a','personal','cycle-a','cycle-a','A','direct',decode(repeat('01',32),'hex')),
+  (:'o1',:'b','personal','cycle-b','cycle-b','B','direct',decode(repeat('02',32),'hex')),
+  (:'o1',:'c','personal','cycle-c','cycle-c','C','direct',decode(repeat('03',32),'hex')),
+  (:'o2',:'d','personal','cycle-d','cycle-d','D','direct',decode(repeat('04',32),'hex')),
+  (:'o2',:'e','personal','cycle-e','cycle-e','E','direct',decode(repeat('05',32),'hex'));
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
+values (:'o1',:'b',:'c');
+SQL
+
+"${PSQL[@]}" -v o="$OWNER1" -v a="$A" -v b="$B" >"$TMP_DIR/session1.log" 2>&1 <<'SQL' &
+begin;
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id) values (:'o',:'a',:'b');
+select pg_catalog.pg_sleep(3);
+commit;
+SQL
+s1=$!
+
+for _ in {1..100}; do
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER1',0) & 4294967295)::oid")" == "1" ]] && break
+  sleep 0.05
+done
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER1',0) & 4294967295)::oid")" == "1" ]]
+
+set +e
+"${PSQL[@]}" -v o="$OWNER1" -v c="$C" -v a="$A" >"$TMP_DIR/session2.log" 2>&1 <<'SQL' &
+\set VERBOSITY verbose
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id) values (:'o',:'c',:'a');
+SQL
+s2=$!
+set -e
+
+for _ in {1..100}; do
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where wait_event_type='Lock' and wait_event='advisory'")" -ge 1 ]] && break
+  sleep 0.05
+done
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where wait_event_type='Lock' and wait_event='advisory'")" -ge 1 ]]
+
+# A different owner derives a different key and completes while OWNER1 is held.
+[[ "$("${PSQL[@]}" -Atqc "select (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER1',0) <> pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER2',0))::int")" == "1" ]]
+"${PSQL[@]}" -v o="$OWNER2" -v d="$D" -v e="$E" <<'SQL'
+set lock_timeout = '500ms';
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id) values (:'o',:'d',:'e');
+SQL
+
+wait "$s1"
+if wait "$s2"; then echo "same-owner cycle unexpectedly committed" >&2; exit 1; fi
+grep -q 'dependency_cycle' "$TMP_DIR/session2.log"
+grep -q 'L1D01' "$TMP_DIR/session2.log"
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER1' and is_active and (task_id,depends_on_task_id) in (('$A','$B'),('$C','$A'))")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "with recursive reach(start_id,task_id,path,cycle) as (select task_id,depends_on_task_id,array[task_id,depends_on_task_id],task_id=depends_on_task_id from public.mtp_task_dependencies where owner_id='$OWNER1' and is_active union all select r.start_id,d.depends_on_task_id,r.path||d.depends_on_task_id,d.depends_on_task_id=any(r.path) from reach r join public.mtp_task_dependencies d on d.owner_id='$OWNER1' and d.task_id=r.task_id and d.is_active where not r.cycle) select count(*) from reach where cycle")" == "0" ]]
+
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$L1A" >/dev/null 2>&1; then
   echo "L1A rerun unexpectedly succeeded" >&2; exit 1

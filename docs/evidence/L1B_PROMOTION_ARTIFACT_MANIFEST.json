@@ -2,14 +2,14 @@
   "artifacts": [
     {
       "byte_identical_to_reviewed_source": true,
-      "bytes": 34959,
+      "bytes": 35421,
       "kind": "database_migration",
       "order": 1,
       "path": "supabase/migrations/20260825011714_l1a_direct_todo.sql",
       "provider_name": "l1a_direct_todo",
-      "reviewed_source_blob": "c70b116b91615d9ea746c357dc337aa78b4936fe",
+      "reviewed_source_blob": "03aa1f6dc34d6734dbef87b5a93d03896aacfec0",
       "reviewed_source_path": "supabase/contracts/l1a_direct_todo.sql",
-      "sha256": "693a73b15aca115c9425267567e5b5fad2a1d43c9fa4ded0caf1420743d0cadb",
+      "sha256": "d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf",
       "unit": "L1A"
     },
     {

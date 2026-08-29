@@ -334,6 +334,12 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   High issue appeared. Browser + Google Drive remain authoritative. M6b closes
   first-import acceptance only and does not authorize a second import or L1.
 
+### Q-L1B-003 dependency-cycle concurrency remediation — Draft, not Production
+
+- The candidate now serializes active dependency insert/update/reactivation cycle checks per owner with a separate transaction-scoped advisory-lock statement before the recursive query. UPDATE validation uses immutable `OLD` identity because the later touch trigger restores identity.
+- The PostgreSQL 17 proof deterministically holds `A -> B` while racing `C -> A` against existing `B -> C`, proves the second same-owner transaction waits and rejects with `L1D01 dependency_cycle`, proves at most one candidate commits and the final graph is acyclic, and proves a distinct owner is not serialized.
+- L1A migration/contract remain byte-identical at SHA-256 `d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf`, Git blob `03aa1f6dc34d6734dbef87b5a93d03896aacfec0`, 35,421 bytes. Prior ZIP/hash evidence for L1A is superseded. PR #96 remains Draft/no-go pending exact-head CI and independent review; no Production action is authorized.
+
 ### L1A direct Todo source contract — merged/published, not Production
 
 - Owner activated L1 on `2026-08-24T10:50:50+07:00` from exact
