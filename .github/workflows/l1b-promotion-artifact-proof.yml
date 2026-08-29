@@ -3,11 +3,13 @@ name: L1B promotion artifact failure-safety proof
 on:
   pull_request:
     paths:
+      - 'supabase/migrations/20260820032749_l0b_data_foundation.sql'
       - 'supabase/migrations/20260825011714_l1a_direct_todo.sql'
       - 'supabase/contracts/l1a_direct_todo.sql'
       - 'supabase/tests/l1a_direct_todo.test.sql'
       - 'supabase/migrations/20260825011716_l1b_planner_parity.sql'
       - 'supabase/contracts/l1b_planner_parity.sql'
+      - 'supabase/tests/l1b_planner_parity.test.sql'
       - 'supabase/operations/l1b_private_storage.sql'
       - 'supabase/contracts/l1b_private_storage.sql'
       - 'ops/l1b-promotion-artifact-proof.sh'
