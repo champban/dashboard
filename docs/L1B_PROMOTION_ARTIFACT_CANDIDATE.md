@@ -20,9 +20,9 @@ merge and Production apply for one later exact Critical-Gate decision.
 
 ## Generated artifact evidence
 
-Current source provenance commit: `cef3d1667da1f67fa1f12c9ea02a3f94573ad173`
-(parent `8376b10fc59d62402dcef3f571dc889b1739beef`, generated
-`2026-08-29T18:06:16Z`). The commit freezes the byte-identical L1A contract and
+Current source provenance commit: `31446f105d8753dfa7d8e1548955963daa85428b`
+(parent `c2918ecdacba35ab5b4d77a74944a2e1a4df6635`, generated
+`2026-08-29T18:19:34Z`). The commit freezes the byte-identical L1A contract and
 migration after the direct UPDATE-versus-RPC lock-order remediation. Exact-head CI and the
 dedicated PostgreSQL 17 proof are required for the final evidence commit.
 Pinned Supabase CLI: `2.111.0`.
@@ -36,9 +36,9 @@ Historical GitHub artifact (superseded by current source remediation):
 Frozen operations:
 
 1. `supabase/migrations/20260825011714_l1a_direct_todo.sql`
-   - SHA-256: `4bac012e5fa1375a89d207e669c60a52957bcddca512791952f0bc5580e9020a`
-   - Git blob: `5796a524a46d380aca0fb1fc941e497589f1e36e`
-   - size: `36344` bytes
+   - SHA-256: `b0cc480974995d15e667b14176e0ff70b77e34f977d83c732e1439a1a32b98fe`
+   - Git blob: `4cc4821bc023801ea3501400340c7ff57a28f71a`
+   - size: `36382` bytes
    - byte-identical to `supabase/contracts/l1a_direct_todo.sql`
    - supersedes the historical artifact ZIP for the changed L1A bytes
 2. `supabase/migrations/20260825011716_l1b_planner_parity.sql`
@@ -122,9 +122,11 @@ against the exact source-controlled artifacts that:
    proves the RPC owns the advisory lock while waiting on that tuple, then
    requires the unqualified direct UPDATE to fail immediately with
    `L1D02 dependency_lock_required` and no `40P01` deadlock;
-10. distinct owners derive different advisory keys and complete independently
+10. a granted shared owner advisory lock is rejected with `L1D02`; only the
+    exact exclusive transaction lock used by the RPC qualifies;
+11. distinct owners derive different advisory keys and complete independently
    through both the direct trigger and public RPC paths under a 500 ms lock timeout;
-11. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
+12. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
    disposable state.
 
 This proves the SQL units can be executed safely as explicit transactions on
