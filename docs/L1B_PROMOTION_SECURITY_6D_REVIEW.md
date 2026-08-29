@@ -12,7 +12,7 @@ PRODUCTION PROMOTION.**
 The previously reported dependency-cycle findings are remediated in the candidate
 bytes by acquiring the owner-scoped transaction advisory lock at the
 `task.children.replace` RPC entry before any per-task row lock. Direct INSERT keeps
-the same trigger guard; direct active-edge UPDATE must already hold that lock before
+the same trigger guard; direct active-edge UPDATE must already hold the exclusive lock before
 the statement or the trigger fails immediately with `L1D02`, so it never waits on
 the advisory lock after taking a tuple lock. Deterministic PostgreSQL 17 evidence is
 required at the exact remote head. No other new Critical, High, or Medium security
@@ -32,8 +32,8 @@ independent review, and the separately reserved Owner Critical Gate.
 
 Frozen operation blobs reviewed:
 
-- L1A migration blob `5796a524a46d380aca0fb1fc941e497589f1e36e`,
-  SHA-256 `4bac012e5fa1375a89d207e669c60a52957bcddca512791952f0bc5580e9020a`
+- L1A migration blob `4cc4821bc023801ea3501400340c7ff57a28f71a`,
+  SHA-256 `b0cc480974995d15e667b14176e0ff70b77e34f977d83c732e1439a1a32b98fe`
 - L1B migration blob `f763e5ff25da166e35d569c76c35022884c956cd`,
   SHA-256 `9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4`
 - private Storage operation blob `cc650ee24acdf68981964c909f1041f2603fcb4b`,
@@ -41,9 +41,9 @@ Frozen operation blobs reviewed:
 
 All three operation files are byte-identical to their current source contracts.
 The source provenance commit is
-`cef3d1667da1f67fa1f12c9ea02a3f94573ad173` (parent
-`8376b10fc59d62402dcef3f571dc889b1739beef`, generated
-`2026-08-29T18:06:16Z`). Historical artifact ZIP digest
+`31446f105d8753dfa7d8e1548955963daa85428b` (parent
+`c2918ecdacba35ab5b4d77a74944a2e1a4df6635`, generated
+`2026-08-29T18:19:34Z`). Historical artifact ZIP digest
 `1117444d1804b508d3269a4b25674fcfcb9071835e820b8a1688048a1c8f7624`
 is superseded for the changed L1A and L1B bytes and is not current evidence.
 
@@ -96,10 +96,13 @@ Historical evidence retained for context:
 
 Current remediation evidence adds an RPC-entry lock before any task-row lock,
 retains the INSERT trigger guard, and requires direct active-edge UPDATE callers
-to hold the same owner transaction lock before taking a dependency tuple. The
+to hold the same exclusive owner transaction lock before taking a dependency tuple. The
 dedicated proof checks same-owner RPC ordering with a `NOWAIT` probe, then creates
 the formerly-deadlocking mixed UPDATE-versus-RPC order and requires immediate
-`L1D02 dependency_lock_required`, no `40P01`, and a successful RPC. Exact-head CI
+`L1D02 dependency_lock_required`, no `40P01`, and a successful RPC. A separate
+negative probe holds only the shared advisory lock and must still fail `L1D02`.
+The dedicated workflow path filter includes the Storage source contract read by
+the proof. Exact-head CI
 and proof must pass after this source remediation.
 
 ## Residual risks and gates
