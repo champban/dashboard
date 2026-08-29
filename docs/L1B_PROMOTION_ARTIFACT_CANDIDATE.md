@@ -20,9 +20,9 @@ merge and Production apply for one later exact Critical-Gate decision.
 
 ## Generated artifact evidence
 
-Current source provenance commit: `e13f78d49e6499578677a4f565f499c4c694cf2f`
-(parent `f955d80fef7e14525c3fbbca6b68619baed9f09d`, generated
-`2026-08-29T18:59:04Z`). The commit freezes the byte-identical L1A/L1B contracts
+Current source provenance commit: `37772e2f0117e79726ab72bb09569d29cc45944c`
+(parent `6c80f180557538d23c699d02cc9bc23282090e3b`, generated
+`2026-08-29T19:10:26Z`). The commit freezes the byte-identical L1A/L1B contracts
 and migrations after the transaction-scoped dependency-lock remediation. Exact-head CI and the
 dedicated PostgreSQL 17 proof are required for the final evidence commit.
 The dedicated workflow path filter inventories every migration, contract, SQL
@@ -44,9 +44,9 @@ Frozen operations:
    - byte-identical to `supabase/contracts/l1a_direct_todo.sql`
    - supersedes the historical artifact ZIP for the changed L1A bytes
 2. `supabase/migrations/20260825011716_l1b_planner_parity.sql`
-   - SHA-256: `0c37173ecde255db64f5b3e2d79117791735db464c25551a63a84a6a32fb435c`
-   - Git blob: `b2c1a1849ee77a2c4c52a4a6ed13fdc0ba7b81cf`
-   - size: `48849` bytes
+   - SHA-256: `264ea46b0706071bd30db5063453b5d41735d4cf71e9bfb84859d1e438c8e778`
+   - Git blob: `1a36536058b84b1ef4a11d5125ea9cde11c09b4e`
+   - size: `49087` bytes
    - byte-identical to `supabase/contracts/l1b_planner_parity.sql`
    - supersedes the historical artifact ZIP for the changed L1B bytes
 3. `supabase/operations/l1b_private_storage.sql`
@@ -130,7 +130,8 @@ against the exact source-controlled artifacts that:
 11. a forged caller-writable GUC plus a session-scoped exclusive advisory lock
     is also rejected. The public L1B entry point deletes the inactive tombstone
     only after acquiring the owner transaction lock, then uses the serialized
-    INSERT trigger path;
+    INSERT trigger path while preserving `created_at` and incrementing the
+    prior dependency `version`;
 12. distinct owners derive different advisory keys and complete independently
    through both the direct trigger and public RPC paths under a 500 ms lock timeout;
 13. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
