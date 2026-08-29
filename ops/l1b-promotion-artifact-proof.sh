@@ -13,7 +13,7 @@ L1B_SOURCE="$ROOT_DIR/supabase/contracts/l1b_planner_parity.sql"
 STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
-[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "4bac012e5fa1375a89d207e669c60a52957bcddca512791952f0bc5580e9020a" ]]
+[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "b0cc480974995d15e667b14176e0ff70b77e34f977d83c732e1439a1a32b98fe" ]]
 [[ "$(sha256sum "$L1B" | awk '{print $1}')" == "9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
@@ -402,6 +402,39 @@ if grep -q '40P01' "$TMP_DIR/mixed-direct.log" "$TMP_DIR/mixed-rpc.log"; then
   exit 1
 fi
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER5' and task_id='$K' and depends_on_task_id='$L' and is_active and ordinal=0")" == "1" ]]
+
+# A shared advisory lock is not sufficient to serialize dependency validation.
+# The UPDATE guard must require the exclusive transaction lock used by the RPC.
+OWNER6=80000000-0000-4000-8000-000000000008
+M=81000000-0000-4000-8000-000000000001
+N=81000000-0000-4000-8000-000000000002
+"${PSQL[@]}" -v o="$OWNER6" -v m="$M" -v n="$N" <<'SQL'
+insert into auth.users(id) values (:'o') on conflict do nothing;
+insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,title,record_origin,content_hash)
+values
+  (:'o',:'m','personal','shared-lock-m','shared-lock-m','M','direct',decode(repeat('0d',32),'hex')),
+  (:'o',:'n','personal','shared-lock-n','shared-lock-n','N','direct',decode(repeat('0e',32),'hex'));
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
+values (:'o',:'m',:'n');
+SQL
+if "${PSQL[@]}" -v o="$OWNER6" -v m="$M" -v n="$N" >"$TMP_DIR/shared-lock-update.log" 2>&1 <<'SQL'
+\set VERBOSITY verbose
+begin;
+select pg_catalog.pg_advisory_xact_lock_shared(
+  pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || :'o'::uuid::text, 0)
+);
+update public.mtp_task_dependencies
+   set ordinal=ordinal+1
+ where owner_id=:'o' and task_id=:'m' and depends_on_task_id=:'n';
+commit;
+SQL
+then
+  echo "direct dependency update with only a shared owner lock unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q 'dependency_lock_required' "$TMP_DIR/shared-lock-update.log"
+grep -q 'L1D02' "$TMP_DIR/shared-lock-update.log"
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER6' and task_id='$M' and depends_on_task_id='$N' and is_active and ordinal=0")" == "1" ]]
 
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$L1B" >/dev/null 2>&1; then
