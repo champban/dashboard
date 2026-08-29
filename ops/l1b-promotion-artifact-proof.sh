@@ -13,8 +13,8 @@ L1B_SOURCE="$ROOT_DIR/supabase/contracts/l1b_planner_parity.sql"
 STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
-[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "46a721d90c1a66c4977c42d48958b45e6ca85dcfe678575174f7eac80c27fb30" ]]
-[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "65fd6a7c4f1afdac85fd4367f1ff35ddc5ff6a00ff27097ab6b1dff660077713" ]]
+[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "6e2df4dba24376a34acab308f20022bab9fb011efc12a7c0efb6568d618931a7" ]]
+[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "0c37173ecde255db64f5b3e2d79117791735db464c25551a63a84a6a32fb435c" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
 cmp -s "$L1B" "$L1B_SOURCE"
