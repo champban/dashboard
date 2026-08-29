@@ -20,9 +20,9 @@ merge and Production apply for one later exact Critical-Gate decision.
 
 ## Generated artifact evidence
 
-Current source provenance commit: `c9db493cd216d8b42739c8a5cc06bb657a705daa`
-(parent `75474b9ba492c41eb8a7dfdc0906fc81709c4ca1`, generated
-`2026-08-29T18:54:34Z`). The commit freezes the byte-identical L1A/L1B contracts
+Current source provenance commit: `e13f78d49e6499578677a4f565f499c4c694cf2f`
+(parent `f955d80fef7e14525c3fbbca6b68619baed9f09d`, generated
+`2026-08-29T18:59:04Z`). The commit freezes the byte-identical L1A/L1B contracts
 and migrations after the transaction-scoped dependency-lock remediation. Exact-head CI and the
 dedicated PostgreSQL 17 proof are required for the final evidence commit.
 The dedicated workflow path filter inventories every migration, contract, SQL
