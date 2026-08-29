@@ -270,6 +270,7 @@ declare
   v_owner_id uuid;
   v_task_id uuid;
   v_depends_on_task_id uuid;
+  v_lock_key bigint;
 begin
   if not new.is_active then
     return new;
@@ -286,9 +287,30 @@ begin
   if v_task_id = v_depends_on_task_id then
     raise exception 'dependency_self_edge' using errcode = 'L1D01';
   end if;
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || v_owner_id::text, 0)
+  v_lock_key := pg_catalog.hashtextextended(
+    'mtp_l1_dependency_graph:' || v_owner_id::text, 0
   );
+  if tg_op = 'UPDATE' then
+    -- PostgreSQL takes the target tuple lock before a row-level UPDATE trigger.
+    -- Never wait for the owner advisory lock from here: doing so can deadlock
+    -- with task.children.replace, which deliberately takes that advisory lock
+    -- before touching dependency tuples. Privileged direct UPDATE callers must
+    -- take the same transaction lock before issuing the statement.
+    if not exists (
+      select 1
+        from pg_catalog.pg_locks as l
+       where l.locktype = 'advisory'
+         and l.pid = pg_catalog.pg_backend_pid()
+         and l.granted
+         and l.objsubid = 1
+         and l.classid = ((v_lock_key >> 32) & 4294967295::bigint)::oid
+         and l.objid = (v_lock_key & 4294967295::bigint)::oid
+    ) then
+      raise exception 'dependency_lock_required' using errcode = 'L1D02';
+    end if;
+  else
+    perform pg_catalog.pg_advisory_xact_lock(v_lock_key);
+  end if;
   if exists (
     with recursive walk(task_id) as (
       select v_depends_on_task_id
