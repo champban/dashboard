@@ -323,11 +323,11 @@ grep -q 'L1D01' "$TMP_DIR/rpc-session2.log"
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER3' and is_active and (task_id,depends_on_task_id) in (('$F','$G'),('$H','$F'))")" == "1" ]]
 [[ "$("${PSQL[@]}" -Atqc "with recursive reach(start_id,task_id,path,cycle) as (select task_id,depends_on_task_id,array[task_id,depends_on_task_id],task_id=depends_on_task_id from public.mtp_task_dependencies where owner_id='$OWNER3' and is_active union all select r.start_id,d.depends_on_task_id,r.path||d.depends_on_task_id,d.depends_on_task_id=any(r.path) from reach r join public.mtp_task_dependencies d on d.owner_id='$OWNER3' and d.task_id=r.task_id and d.is_active where not r.cycle) select count(*) from reach where cycle")" == "0" ]]
 
-# Mixed direct UPDATE-versus-RPC lock-order proof. A privileged direct session
-# first locks an existing dependency tuple without taking the owner advisory
-# lock. The RPC then takes the advisory lock and waits on that tuple. When the
-# direct session attempts UPDATE, the row trigger must fail immediately with
-# L1D02 instead of waiting on the advisory lock and forming a 40P01 deadlock.
+# Mixed direct reactivation-versus-RPC lock-order proof. A privileged direct
+# session first locks an inactive dependency tuple. The RPC takes the graph
+# transaction lock and waits to replace that tombstone with a serialized
+# INSERT. Direct reactivation must fail immediately with L1D02 without trying
+# to acquire the graph lock; the RPC must then complete without 40P01.
 OWNER5=70000000-0000-4000-8000-000000000007
 K=71000000-0000-4000-8000-000000000001
 L=71000000-0000-4000-8000-000000000002
@@ -337,8 +337,9 @@ insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,t
 values
   (:'o',:'k','personal','mixed-cycle-k','mixed-cycle-k','K','direct',decode(repeat('0b',32),'hex')),
   (:'o',:'l','personal','mixed-cycle-l','mixed-cycle-l','L','direct',decode(repeat('0c',32),'hex'));
-insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
-values (:'o',:'k',:'l');
+insert into public.mtp_task_dependencies(
+  owner_id,task_id,depends_on_task_id,is_active,source_deleted_at
+) values (:'o',:'k',:'l',false,pg_catalog.now());
 SQL
 
 mixed_direct_fifo="$TMP_DIR/mixed-direct-session.sql"
@@ -388,7 +389,7 @@ done
 
 cat >&7 <<'SQL'
 update public.mtp_task_dependencies
-   set ordinal=ordinal+1
+   set is_active=true,source_deleted_at=null
  where owner_id=:'o' and task_id=:'k' and depends_on_task_id=:'l';
 commit;
 SQL
@@ -403,8 +404,8 @@ if grep -q '40P01' "$TMP_DIR/mixed-direct.log" "$TMP_DIR/mixed-rpc.log"; then
 fi
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER5' and task_id='$K' and depends_on_task_id='$L' and is_active and ordinal=0")" == "1" ]]
 
-# A shared advisory lock is not sufficient to serialize dependency validation.
-# The UPDATE guard must require the exclusive transaction lock used by the RPC.
+# A shared transaction advisory lock cannot authorize direct reactivation.
+# Graph topology changes must enter through the serialized INSERT path.
 OWNER6=80000000-0000-4000-8000-000000000008
 M=81000000-0000-4000-8000-000000000001
 N=81000000-0000-4000-8000-000000000002
@@ -414,8 +415,9 @@ insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,t
 values
   (:'o',:'m','personal','shared-lock-m','shared-lock-m','M','direct',decode(repeat('0d',32),'hex')),
   (:'o',:'n','personal','shared-lock-n','shared-lock-n','N','direct',decode(repeat('0e',32),'hex'));
-insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
-values (:'o',:'m',:'n');
+insert into public.mtp_task_dependencies(
+  owner_id,task_id,depends_on_task_id,is_active,source_deleted_at
+) values (:'o',:'m',:'n',false,pg_catalog.now());
 SQL
 if "${PSQL[@]}" -v o="$OWNER6" -v m="$M" -v n="$N" >"$TMP_DIR/shared-lock-update.log" 2>&1 <<'SQL'
 \set VERBOSITY verbose
@@ -424,7 +426,7 @@ select pg_catalog.pg_advisory_xact_lock_shared(
   pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || :'o'::uuid::text, 0)
 );
 update public.mtp_task_dependencies
-   set ordinal=ordinal+1
+   set is_active=true,source_deleted_at=null
  where owner_id=:'o' and task_id=:'m' and depends_on_task_id=:'n';
 commit;
 SQL
@@ -434,11 +436,11 @@ then
 fi
 grep -q 'dependency_lock_required' "$TMP_DIR/shared-lock-update.log"
 grep -q 'L1D02' "$TMP_DIR/shared-lock-update.log"
-[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER6' and task_id='$M' and depends_on_task_id='$N' and is_active and ordinal=0")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER6' and task_id='$M' and depends_on_task_id='$N' and not is_active and ordinal=0")" == "1" ]]
 
-# A session-scoped exclusive advisory lock is also insufficient because its
-# caller can release it before commit. Only the helper-owned transaction lock
-# plus its transaction-local owner marker may qualify a direct UPDATE.
+# A caller-controlled marker plus a session-scoped exclusive advisory lock is
+# also insufficient. The trigger has no writable marker or lock-lifetime
+# heuristic: every direct inactive-to-active UPDATE fails closed.
 OWNER7=90000000-0000-4000-8000-000000000009
 O=91000000-0000-4000-8000-000000000001
 P=91000000-0000-4000-8000-000000000002
@@ -448,8 +450,9 @@ insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,t
 values
   (:'o',:'p','personal','session-lock-p','session-lock-p','P','direct',decode(repeat('0f',32),'hex')),
   (:'o',:'q','personal','session-lock-q','session-lock-q','Q','direct',decode(repeat('10',32),'hex'));
-insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
-values (:'o',:'p',:'q');
+insert into public.mtp_task_dependencies(
+  owner_id,task_id,depends_on_task_id,is_active,source_deleted_at
+) values (:'o',:'p',:'q',false,pg_catalog.now());
 SQL
 if "${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" >"$TMP_DIR/session-lock-update.log" 2>&1 <<'SQL'
 \set VERBOSITY verbose
@@ -457,8 +460,9 @@ begin;
 select pg_catalog.pg_advisory_lock(
   pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || :'o'::uuid::text, 0)
 );
+select pg_catalog.set_config('mtp.dependency_graph_xact_owners',:'o',true);
 update public.mtp_task_dependencies
-   set ordinal=ordinal+1
+   set is_active=true,source_deleted_at=null
  where owner_id=:'o' and task_id=:'p' and depends_on_task_id=:'q';
 select pg_catalog.pg_advisory_unlock(
   pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || :'o'::uuid::text, 0)
@@ -471,14 +475,22 @@ then
 fi
 grep -q 'dependency_lock_required' "$TMP_DIR/session-lock-update.log"
 grep -q 'L1D02' "$TMP_DIR/session-lock-update.log"
-[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and is_active and ordinal=0")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and not is_active and ordinal=0")" == "1" ]]
 
 "${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" <<'SQL'
 begin;
-select private.mtp_l1_lock_dependency_graph(:'o');
-update public.mtp_task_dependencies
-   set ordinal=ordinal+1
- where owner_id=:'o' and task_id=:'p' and depends_on_task_id=:'q';
+select pg_catalog.set_config('request.jwt.claim.sub',:'o',true);
+set local role authenticated;
+select public.mtp_task_children_replace_v1(
+  :'p',1,
+  pg_catalog.jsonb_build_object(
+    'subtasks','[]'::jsonb,
+    'dependencies',pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object('task_id',:'q','ordinal',1)
+    )
+  ),
+  'f8000000-0000-4000-8000-000000000005'
+);
 commit;
 SQL
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and is_active and ordinal=1")" == "1" ]]
