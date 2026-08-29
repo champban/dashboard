@@ -25,6 +25,8 @@ Current source provenance commit: `31446f105d8753dfa7d8e1548955963daa85428b`
 `2026-08-29T18:19:34Z`). The commit freezes the byte-identical L1A contract and
 migration after the direct UPDATE-versus-RPC lock-order remediation. Exact-head CI and the
 dedicated PostgreSQL 17 proof are required for the final evidence commit.
+The dedicated workflow path filter inventories every migration, contract, SQL
+test, operation and script consumed by that proof.
 Pinned Supabase CLI: `2.111.0`.
 
 Historical GitHub artifact (superseded by current source remediation):
