@@ -39,8 +39,8 @@
   ],
   "base_sha": "297854c09205097a6a58cbce4c64961c802cd7a3",
   "client_activation_allowed": false,
-  "generated_utc": "2026-08-29T18:54:34Z",
-  "generation_parent_sha": "75474b9ba492c41eb8a7dfdc0906fc81709c4ca1",
+  "generated_utc": "2026-08-29T18:59:04Z",
+  "generation_parent_sha": "f955d80fef7e14525c3fbbca6b68619baed9f09d",
   "generic_db_push_allowed": false,
   "hard_stops": [
     "No Production operation without the later exact Owner Critical-Gate approval",
@@ -66,7 +66,7 @@
     "Storage catalog and policy verification"
   ],
   "schema_version": 1,
-  "source_sha": "c9db493cd216d8b42739c8a5cc06bb657a705daa",
+  "source_sha": "e13f78d49e6499578677a4f565f499c4c694cf2f",
   "supabase_cli_version": "2.111.0",
   "target_project_ref": "qjaywadzvwvcspdsjxth"
 }
