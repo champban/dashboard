@@ -916,6 +916,15 @@ begin
   );
   if v_receipt.is_retry then return v_receipt.prior_result; end if;
 
+  -- Lock the owner's dependency graph before the task aggregate helper takes
+  -- any per-task row lock.  The dependency trigger retains the same guard for
+  -- direct active-edge writes that do not enter through this RPC.
+  if p_operation='task.children.replace' then
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || v_owner::text, 0)
+    );
+  end if;
+
   if p_operation='task.children.replace' then
     v_result := private.mtp_l1b_task_children_replace(v_owner,p_entity_id,p_expected_version,p_payload,v_receipt.request_hash);
   elsif p_operation='event.put' then
