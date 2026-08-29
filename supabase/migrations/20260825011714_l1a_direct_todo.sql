@@ -302,6 +302,7 @@ begin
        where l.locktype = 'advisory'
          and l.pid = pg_catalog.pg_backend_pid()
          and l.granted
+         and l.mode = 'ExclusiveLock'
          and l.objsubid = 1
          and l.classid = ((v_lock_key >> 32) & 4294967295::bigint)::oid
          and l.objid = (v_lock_key & 4294967295::bigint)::oid
