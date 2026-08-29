@@ -200,9 +200,10 @@ assert_absent "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_nam
 "${PSQL[@]}" --single-transaction -f "$L1B"
 
 # Deterministic RPC-entry lock-order proof. Session one replaces F's children
-# with F -> G and holds the owner advisory lock. Session two attempts H -> F
-# against existing G -> H. It must wait for the advisory lock before acquiring
-# H's task row lock, then reject the completed cycle after session one commits.
+# with F -> G, then the test driver holds its stdin FIFO open while it owns the
+# advisory lock. Session two attempts H -> F against existing G -> H. It must
+# wait for the advisory lock before acquiring H's task row lock, then reject the
+# completed cycle only after the driver explicitly commits session one.
 OWNER3=50000000-0000-4000-8000-000000000005
 OWNER4=60000000-0000-4000-8000-000000000006
 F=51000000-0000-4000-8000-000000000001
@@ -223,7 +224,12 @@ insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
 values (:'o3',:'g',:'h');
 SQL
 
-PGAPPNAME=l1b-rpc-cycle-session1 "${PSQL[@]}" -v o="$OWNER3" -v f="$F" -v g="$G" >"$TMP_DIR/rpc-session1.log" 2>&1 <<'SQL' &
+rpc_s1_fifo="$TMP_DIR/rpc-session1.sql"
+mkfifo "$rpc_s1_fifo"
+PGAPPNAME=l1b-rpc-cycle-session1 "${PSQL[@]}" -v o="$OWNER3" -v f="$F" -v g="$G" <"$rpc_s1_fifo" >"$TMP_DIR/rpc-session1.log" 2>&1 &
+rpc_s1=$!
+exec 9>"$rpc_s1_fifo"
+cat >&9 <<'SQL'
 begin;
 select pg_catalog.set_config('request.jwt.claim.sub',:'o',true);
 set local role authenticated;
@@ -235,10 +241,7 @@ select public.mtp_task_children_replace_v1(
   ),
   'f8000000-0000-4000-8000-000000000001'
 );
-select pg_catalog.pg_sleep(3);
-commit;
 SQL
-rpc_s1=$!
 
 for _ in {1..100}; do
   [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER3',0) & 4294967295)::oid")" == "1" ]] && break
@@ -302,6 +305,10 @@ select public.mtp_task_children_replace_v1(
 commit;
 SQL
 
+# The waiter, NOWAIT row probe, and distinct-owner RPC have all completed.
+# Release session one only now; EOF lets psql exit after the explicit commit.
+printf '%s\n' 'commit;' >&9
+exec 9>&-
 wait "$rpc_s1"
 if wait "$rpc_s2"; then echo "same-owner RPC cycle unexpectedly committed" >&2; exit 1; fi
 grep -q 'dependency_cycle' "$TMP_DIR/rpc-session2.log"
