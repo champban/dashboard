@@ -2,26 +2,26 @@
   "artifacts": [
     {
       "byte_identical_to_reviewed_source": true,
-      "bytes": 36382,
+      "bytes": 37501,
       "kind": "database_migration",
       "order": 1,
       "path": "supabase/migrations/20260825011714_l1a_direct_todo.sql",
       "provider_name": "l1a_direct_todo",
-      "reviewed_source_blob": "4cc4821bc023801ea3501400340c7ff57a28f71a",
+      "reviewed_source_blob": "036d010bcb79be939219415e977085ec55392d59",
       "reviewed_source_path": "supabase/contracts/l1a_direct_todo.sql",
-      "sha256": "b0cc480974995d15e667b14176e0ff70b77e34f977d83c732e1439a1a32b98fe",
+      "sha256": "46a721d90c1a66c4977c42d48958b45e6ca85dcfe678575174f7eac80c27fb30",
       "unit": "L1A"
     },
     {
       "byte_identical_to_reviewed_source": true,
-      "bytes": 48775,
+      "bytes": 48699,
       "kind": "database_migration",
       "order": 2,
       "path": "supabase/migrations/20260825011716_l1b_planner_parity.sql",
       "provider_name": "l1b_planner_parity",
-      "reviewed_source_blob": "f763e5ff25da166e35d569c76c35022884c956cd",
+      "reviewed_source_blob": "38b1c9f719f66cdfea8b0a89d265888ed27a4a47",
       "reviewed_source_path": "supabase/contracts/l1b_planner_parity.sql",
-      "sha256": "9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4",
+      "sha256": "65fd6a7c4f1afdac85fd4367f1ff35ddc5ff6a00ff27097ab6b1dff660077713",
       "unit": "L1B"
     },
     {
@@ -39,8 +39,8 @@
   ],
   "base_sha": "297854c09205097a6a58cbce4c64961c802cd7a3",
   "client_activation_allowed": false,
-  "generated_utc": "2026-08-29T18:19:34Z",
-  "generation_parent_sha": "c2918ecdacba35ab5b4d77a74944a2e1a4df6635",
+  "generated_utc": "2026-08-29T18:39:42Z",
+  "generation_parent_sha": "20e507faed12d872eae7549e79f9c6811a53f329",
   "generic_db_push_allowed": false,
   "hard_stops": [
     "No Production operation without the later exact Owner Critical-Gate approval",
@@ -66,7 +66,7 @@
     "Storage catalog and policy verification"
   ],
   "schema_version": 1,
-  "source_sha": "31446f105d8753dfa7d8e1548955963daa85428b",
+  "source_sha": "c540d0b53dbb98607cf4f2f2ebb899e8d1480a7d",
   "supabase_cli_version": "2.111.0",
   "target_project_ref": "qjaywadzvwvcspdsjxth"
 }
