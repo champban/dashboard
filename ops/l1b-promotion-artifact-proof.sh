@@ -13,7 +13,7 @@ L1B_SOURCE="$ROOT_DIR/supabase/contracts/l1b_planner_parity.sql"
 STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
-[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf" ]]
+[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "4bac012e5fa1375a89d207e669c60a52957bcddca512791952f0bc5580e9020a" ]]
 [[ "$(sha256sum "$L1B" | awk '{print $1}')" == "9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
@@ -322,6 +322,86 @@ grep -q 'dependency_cycle' "$TMP_DIR/rpc-session2.log"
 grep -q 'L1D01' "$TMP_DIR/rpc-session2.log"
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER3' and is_active and (task_id,depends_on_task_id) in (('$F','$G'),('$H','$F'))")" == "1" ]]
 [[ "$("${PSQL[@]}" -Atqc "with recursive reach(start_id,task_id,path,cycle) as (select task_id,depends_on_task_id,array[task_id,depends_on_task_id],task_id=depends_on_task_id from public.mtp_task_dependencies where owner_id='$OWNER3' and is_active union all select r.start_id,d.depends_on_task_id,r.path||d.depends_on_task_id,d.depends_on_task_id=any(r.path) from reach r join public.mtp_task_dependencies d on d.owner_id='$OWNER3' and d.task_id=r.task_id and d.is_active where not r.cycle) select count(*) from reach where cycle")" == "0" ]]
+
+# Mixed direct UPDATE-versus-RPC lock-order proof. A privileged direct session
+# first locks an existing dependency tuple without taking the owner advisory
+# lock. The RPC then takes the advisory lock and waits on that tuple. When the
+# direct session attempts UPDATE, the row trigger must fail immediately with
+# L1D02 instead of waiting on the advisory lock and forming a 40P01 deadlock.
+OWNER5=70000000-0000-4000-8000-000000000007
+K=71000000-0000-4000-8000-000000000001
+L=71000000-0000-4000-8000-000000000002
+"${PSQL[@]}" -v o="$OWNER5" -v k="$K" -v l="$L" <<'SQL'
+insert into auth.users(id) values (:'o') on conflict do nothing;
+insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,title,record_origin,content_hash)
+values
+  (:'o',:'k','personal','mixed-cycle-k','mixed-cycle-k','K','direct',decode(repeat('0b',32),'hex')),
+  (:'o',:'l','personal','mixed-cycle-l','mixed-cycle-l','L','direct',decode(repeat('0c',32),'hex'));
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
+values (:'o',:'k',:'l');
+SQL
+
+mixed_direct_fifo="$TMP_DIR/mixed-direct-session.sql"
+mkfifo "$mixed_direct_fifo"
+PGAPPNAME=l1b-mixed-direct-update "${PSQL[@]}" -v o="$OWNER5" -v k="$K" -v l="$L" <"$mixed_direct_fifo" >"$TMP_DIR/mixed-direct.log" 2>&1 &
+mixed_direct=$!
+exec 7>"$mixed_direct_fifo"
+cat >&7 <<'SQL'
+\set VERBOSITY verbose
+begin;
+select 1 from public.mtp_task_dependencies
+ where owner_id=:'o' and task_id=:'k' and depends_on_task_id=:'l'
+ for update;
+SQL
+
+for _ in {1..100}; do
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-mixed-direct-update' and state='idle in transaction'")" == "1" ]] && break
+  sleep 0.05
+done
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-mixed-direct-update' and state='idle in transaction'")" == "1" ]]
+
+set +e
+PGAPPNAME=l1b-mixed-rpc "${PSQL[@]}" -v o="$OWNER5" -v k="$K" -v l="$L" >"$TMP_DIR/mixed-rpc.log" 2>&1 <<'SQL' &
+\set VERBOSITY verbose
+begin;
+select pg_catalog.set_config('request.jwt.claim.sub',:'o',true);
+set local role authenticated;
+select public.mtp_task_children_replace_v1(
+  :'k',1,
+  pg_catalog.jsonb_build_object(
+    'subtasks','[]'::jsonb,
+    'dependencies',pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('task_id',:'l','ordinal',0))
+  ),
+  'f8000000-0000-4000-8000-000000000004'
+);
+commit;
+SQL
+mixed_rpc=$!
+set -e
+
+for _ in {1..100}; do
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-mixed-rpc' and wait_event_type='Lock' and coalesce(wait_event,'') <> 'advisory'")" == "1" ]] && break
+  sleep 0.05
+done
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-mixed-rpc' and wait_event_type='Lock' and coalesce(wait_event,'') <> 'advisory'")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks l join pg_catalog.pg_stat_activity a on a.pid=l.pid where a.application_name='l1b-mixed-rpc' and l.locktype='advisory' and l.granted and l.objid=(pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER5',0) & 4294967295)::oid")" == "1" ]]
+
+cat >&7 <<'SQL'
+update public.mtp_task_dependencies
+   set ordinal=ordinal+1
+ where owner_id=:'o' and task_id=:'k' and depends_on_task_id=:'l';
+commit;
+SQL
+exec 7>&-
+if wait "$mixed_direct"; then echo "direct dependency update without owner lock unexpectedly succeeded" >&2; exit 1; fi
+grep -q 'dependency_lock_required' "$TMP_DIR/mixed-direct.log"
+grep -q 'L1D02' "$TMP_DIR/mixed-direct.log"
+wait "$mixed_rpc"
+if grep -q '40P01' "$TMP_DIR/mixed-direct.log" "$TMP_DIR/mixed-rpc.log"; then
+  echo "mixed direct UPDATE and RPC produced a deadlock" >&2
+  exit 1
+fi
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER5' and task_id='$K' and depends_on_task_id='$L' and is_active and ordinal=0")" == "1" ]]
 
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$L1B" >/dev/null 2>&1; then
