@@ -13,8 +13,8 @@ L1B_SOURCE="$ROOT_DIR/supabase/contracts/l1b_planner_parity.sql"
 STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
-[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "b0cc480974995d15e667b14176e0ff70b77e34f977d83c732e1439a1a32b98fe" ]]
-[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4" ]]
+[[ "$(sha256sum "$L1A" | awk '{print $1}')" == "46a721d90c1a66c4977c42d48958b45e6ca85dcfe678575174f7eac80c27fb30" ]]
+[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "65fd6a7c4f1afdac85fd4367f1ff35ddc5ff6a00ff27097ab6b1dff660077713" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
 cmp -s "$L1B" "$L1B_SOURCE"
@@ -435,6 +435,53 @@ fi
 grep -q 'dependency_lock_required' "$TMP_DIR/shared-lock-update.log"
 grep -q 'L1D02' "$TMP_DIR/shared-lock-update.log"
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER6' and task_id='$M' and depends_on_task_id='$N' and is_active and ordinal=0")" == "1" ]]
+
+# A session-scoped exclusive advisory lock is also insufficient because its
+# caller can release it before commit. Only the helper-owned transaction lock
+# plus its transaction-local owner marker may qualify a direct UPDATE.
+OWNER7=90000000-0000-4000-8000-000000000009
+O=91000000-0000-4000-8000-000000000001
+P=91000000-0000-4000-8000-000000000002
+"${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" <<'SQL'
+insert into auth.users(id) values (:'o') on conflict do nothing;
+insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,title,record_origin,content_hash)
+values
+  (:'o',:'p','personal','session-lock-p','session-lock-p','P','direct',decode(repeat('0f',32),'hex')),
+  (:'o',:'q','personal','session-lock-q','session-lock-q','Q','direct',decode(repeat('10',32),'hex'));
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
+values (:'o',:'p',:'q');
+SQL
+if "${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" >"$TMP_DIR/session-lock-update.log" 2>&1 <<'SQL'
+\set VERBOSITY verbose
+begin;
+select pg_catalog.pg_advisory_lock(
+  pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || :'o'::uuid::text, 0)
+);
+update public.mtp_task_dependencies
+   set ordinal=ordinal+1
+ where owner_id=:'o' and task_id=:'p' and depends_on_task_id=:'q';
+select pg_catalog.pg_advisory_unlock(
+  pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || :'o'::uuid::text, 0)
+);
+commit;
+SQL
+then
+  echo "direct dependency update with only a session owner lock unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q 'dependency_lock_required' "$TMP_DIR/session-lock-update.log"
+grep -q 'L1D02' "$TMP_DIR/session-lock-update.log"
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and is_active and ordinal=0")" == "1" ]]
+
+"${PSQL[@]}" -v o="$OWNER7" -v p="$P" -v q="$O" <<'SQL'
+begin;
+select private.mtp_l1_lock_dependency_graph(:'o');
+update public.mtp_task_dependencies
+   set ordinal=ordinal+1
+ where owner_id=:'o' and task_id=:'p' and depends_on_task_id=:'q';
+commit;
+SQL
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER7' and task_id='$P' and depends_on_task_id='$O' and is_active and ordinal=1")" == "1" ]]
 
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$L1B" >/dev/null 2>&1; then
