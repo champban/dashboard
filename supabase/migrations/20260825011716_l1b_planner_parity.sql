@@ -428,6 +428,9 @@ begin
       select 1 from public.mtp_tasks
        where owner_id=p_owner and id=v_dep and is_active
     ) then raise exception 'task_not_available' using errcode='42501'; end if;
+    delete from public.mtp_task_dependencies
+     where owner_id=p_owner and task_id=p_task_id
+       and depends_on_task_id=v_dep and not is_active;
     insert into public.mtp_task_dependencies(
       owner_id,task_id,depends_on_task_id,ordinal,is_active,source_deleted_at
     ) values (
