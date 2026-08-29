@@ -25,7 +25,7 @@ independent review, and the separately reserved Owner Critical Gate.
 
 - Repository: `champban/dashboard`
 - Branch: `ops/l1b-promotion-artifact-candidate`
-- Audited source head: `c9db493cd216d8b42739c8a5cc06bb657a705daa`
+- Audited source head: `e13f78d49e6499578677a4f565f499c4c694cf2f`
 - Base: `main@297854c09205097a6a58cbce4c64961c802cd7a3`
 - Environment: Draft PR / disposable PostgreSQL 17 only
 - Future Production project: `qjaywadzvwvcspdsjxth`
@@ -42,9 +42,9 @@ Frozen operation blobs reviewed:
 
 All three operation files are byte-identical to their current source contracts.
 The source provenance commit is
-`c9db493cd216d8b42739c8a5cc06bb657a705daa` (parent
-`75474b9ba492c41eb8a7dfdc0906fc81709c4ca1`, generated
-`2026-08-29T18:54:34Z`). Historical artifact ZIP digest
+`e13f78d49e6499578677a4f565f499c4c694cf2f` (parent
+`f955d80fef7e14525c3fbbca6b68619baed9f09d`, generated
+`2026-08-29T18:59:04Z`). Historical artifact ZIP digest
 `1117444d1804b508d3269a4b25674fcfcb9071835e820b8a1688048a1c8f7624`
 is superseded for the changed L1A and L1B bytes and is not current evidence.
 
