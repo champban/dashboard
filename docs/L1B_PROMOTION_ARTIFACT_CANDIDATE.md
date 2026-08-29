@@ -2,7 +2,7 @@
 
 Status: **DRAFT / NO-GO FOR PRODUCTION APPLY**
 
-Evidence date: `2026-08-25` (`Asia/Bangkok`)
+Evidence date: `2026-08-29` (`Asia/Bangkok`)
 
 This PR materializes the exact L1A/L1B database migration files and the separate
 private Storage operation generated under Owner-approved `Q-L1B-003`. It is an
@@ -20,12 +20,14 @@ merge and Production apply for one later exact Critical-Gate decision.
 
 ## Generated artifact evidence
 
-Generation source branch head: `4a4b159d0009ca88105d5dd12818781d09e190de`.
-Generation workflow run `32796926635`: **PASS**.
-Normal verify run `32796926470`: **PASS**.
+Current source provenance commit: `435ebe69cb5bbd5d5701a72a14660fe028466424`
+(parent `5aaf3533b17fa11a4f1d45cd91152df744a24bff`, generated
+`2026-08-29T06:36:40Z`). The commit freezes the byte-identical L1B contract and
+migration after the RPC-entry lock-order remediation. Exact-head CI and the
+dedicated PostgreSQL 17 proof are required for the final evidence commit.
 Pinned Supabase CLI: `2.111.0`.
 
-GitHub artifact:
+Historical GitHub artifact (superseded by current source remediation):
 
 - ID: `9545153367`
 - name: `l1b-promotion-artifacts-4a4b159d0009ca88105d5dd12818781d09e190de`
@@ -40,16 +42,20 @@ Frozen operations:
    - byte-identical to `supabase/contracts/l1a_direct_todo.sql`
    - supersedes the historical artifact ZIP for the changed L1A bytes
 2. `supabase/migrations/20260825011716_l1b_planner_parity.sql`
-   - SHA-256: `c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91`
-   - Git blob: `245d91edc2e88341641381f2747edec44f94a4cd`
+   - SHA-256: `9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4`
+   - Git blob: `f763e5ff25da166e35d569c76c35022884c956cd`
+   - size: `48775` bytes
    - byte-identical to `supabase/contracts/l1b_planner_parity.sql`
+   - supersedes the historical artifact ZIP for the changed L1B bytes
 3. `supabase/operations/l1b_private_storage.sql`
    - SHA-256: `9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e`
    - Git blob: `cc650ee24acdf68981964c909f1041f2603fcb4b`
    - byte-identical to `supabase/contracts/l1b_private_storage.sql`
 
-Independent artifact inspection recomputed the ZIP/file hashes and Git blob hashes;
-all three operation files matched the reviewed source blobs byte-for-byte.
+The current manifest pins each operation to its reviewed source blob and hash.
+The old ZIP remains historical evidence only and is not claimed to contain the
+current L1A/L1B bytes. Exact-head CI must recompute current file hashes and
+contract/migration byte identity.
 
 ## Read-only Production preflight
 
@@ -106,9 +112,15 @@ against the exact source-controlled artifacts that:
 5. the Storage operation is a separate transaction/gate; failure leaves no
    `mtp-private` bucket/policies;
 6. a repeated Storage operation fails closed without catalog drift;
-7. a deterministic PostgreSQL 17 two-session proof shows same-owner mutations wait, refresh their READ COMMITTED snapshot, reject the completing cycle with `L1D01 dependency_cycle`, commit at most one candidate edge, and leave an acyclic graph;
-8. distinct owners derive different advisory keys and complete independently under a 500 ms lock timeout;
-9. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
+7. a deterministic PostgreSQL 17 trigger-guard proof shows same-owner direct
+   mutations wait, refresh their READ COMMITTED snapshot, reject the completing
+   cycle with `L1D01 dependency_cycle`, and leave an acyclic graph;
+8. a second deterministic RPC proof shows the waiting same-owner
+   `task.children.replace` call holds no task row lock before acquiring the
+   owner advisory lock, then rejects the completing cycle with `L1D01`;
+9. distinct owners derive different advisory keys and complete independently
+   through both the direct trigger and public RPC paths under a 500 ms lock timeout;
+10. existing L1A/L1B RLS/conflict/storage contract tests pass on the completed
    disposable state.
 
 This proves the SQL units can be executed safely as explicit transactions on

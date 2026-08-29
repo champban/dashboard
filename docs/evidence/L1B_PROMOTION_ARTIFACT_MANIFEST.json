@@ -14,14 +14,14 @@
     },
     {
       "byte_identical_to_reviewed_source": true,
-      "bytes": 48359,
+      "bytes": 48775,
       "kind": "database_migration",
       "order": 2,
       "path": "supabase/migrations/20260825011716_l1b_planner_parity.sql",
       "provider_name": "l1b_planner_parity",
-      "reviewed_source_blob": "245d91edc2e88341641381f2747edec44f94a4cd",
+      "reviewed_source_blob": "f763e5ff25da166e35d569c76c35022884c956cd",
       "reviewed_source_path": "supabase/contracts/l1b_planner_parity.sql",
-      "sha256": "c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91",
+      "sha256": "9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4",
       "unit": "L1B"
     },
     {
@@ -39,7 +39,8 @@
   ],
   "base_sha": "297854c09205097a6a58cbce4c64961c802cd7a3",
   "client_activation_allowed": false,
-  "generated_utc": "2026-08-25T01:17:17Z",
+  "generated_utc": "2026-08-29T06:36:40Z",
+  "generation_parent_sha": "5aaf3533b17fa11a4f1d45cd91152df744a24bff",
   "generic_db_push_allowed": false,
   "hard_stops": [
     "No Production operation without the later exact Owner Critical-Gate approval",
@@ -47,6 +48,14 @@
     "No client activation, reconciliation, Drive demotion, cleanup, or L1C cutover"
   ],
   "production_effect": "none",
+  "superseded_generation": {
+    "artifact_id": "9545153367",
+    "artifact_name": "l1b-promotion-artifacts-4a4b159d0009ca88105d5dd12818781d09e190de",
+    "generated_utc": "2026-08-25T01:17:17Z",
+    "source_sha": "4a4b159d0009ca88105d5dd12818781d09e190de",
+    "status": "historical_zip_superseded_by_source_remediation",
+    "zip_sha256": "1117444d1804b508d3269a4b25674fcfcb9071835e820b8a1688048a1c8f7624"
+  },
   "repository": "champban/dashboard",
   "required_order": [
     "L1A targeted apply",
@@ -57,7 +66,7 @@
     "Storage catalog and policy verification"
   ],
   "schema_version": 1,
-  "source_sha": "4a4b159d0009ca88105d5dd12818781d09e190de",
+  "source_sha": "435ebe69cb5bbd5d5701a72a14660fe028466424",
   "supabase_cli_version": "2.111.0",
   "target_project_ref": "qjaywadzvwvcspdsjxth"
 }

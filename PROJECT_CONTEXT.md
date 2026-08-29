@@ -336,9 +336,9 @@ project. Update this file whenever architecture, decisions, or open bugs change.
 
 ### Q-L1B-003 dependency-cycle concurrency remediation — Draft, not Production
 
-- The candidate now serializes active dependency insert/update/reactivation cycle checks per owner with a separate transaction-scoped advisory-lock statement before the recursive query. UPDATE validation uses immutable `OLD` identity because the later touch trigger restores identity.
-- The PostgreSQL 17 proof deterministically holds `A -> B` while racing `C -> A` against existing `B -> C`, proves the second same-owner transaction waits and rejects with `L1D01 dependency_cycle`, proves at most one candidate commits and the final graph is acyclic, and proves a distinct owner is not serialized.
-- L1A migration/contract remain byte-identical at SHA-256 `d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf`, Git blob `03aa1f6dc34d6734dbef87b5a93d03896aacfec0`, 35,421 bytes. Prior ZIP/hash evidence for L1A is superseded. PR #96 remains Draft/no-go pending exact-head CI and independent review; no Production action is authorized.
+- The candidate now acquires the owner-scoped transaction advisory lock at the `task.children.replace` RPC entry before its helper takes any per-task row lock. The dependency trigger retains the same lock before recursive validation for direct active-edge writes; UPDATE validation uses immutable `OLD` identity.
+- The PostgreSQL 17 proof covers both paths: the trigger guard rejects a raced completing cycle, and the RPC proof shows a same-owner call waits on the advisory lock while a third session can still lock its target task row with `NOWAIT`. Both proofs require `L1D01 dependency_cycle`, an acyclic final graph, and independent completion for a distinct owner.
+- L1A migration/contract remain byte-identical at SHA-256 `d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf`, Git blob `03aa1f6dc34d6734dbef87b5a93d03896aacfec0`, 35,421 bytes. L1B migration/contract are byte-identical at SHA-256 `9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4`, Git blob `f763e5ff25da166e35d569c76c35022884c956cd`, 48,775 bytes, pinned by source provenance commit `435ebe69cb5bbd5d5701a72a14660fe028466424` (parent `5aaf3533b17fa11a4f1d45cd91152df744a24bff`, `2026-08-29T06:36:40Z`). Historical ZIP evidence is superseded for both changed L1A/L1B bytes. PR #96 remains Draft/no-go pending exact-head CI and independent review; no Production action is authorized.
 
 ### L1A direct Todo source contract — merged/published, not Production
 

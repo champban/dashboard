@@ -14,7 +14,7 @@ STORAGE_SOURCE="$ROOT_DIR/supabase/contracts/l1b_private_storage.sql"
 PSQL=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
 [[ "$(sha256sum "$L1A" | awk '{print $1}')" == "d9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf" ]]
-[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91" ]]
+[[ "$(sha256sum "$L1B" | awk '{print $1}')" == "9980557bd01830a36da3da35a7de6f3e418a4b0fb82db1431e6d736f74ee88d4" ]]
 [[ "$(sha256sum "$STORAGE" | awk '{print $1}')" == "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e" ]]
 cmp -s "$L1A" "$L1A_SOURCE"
 cmp -s "$L1B" "$L1B_SOURCE"
@@ -117,7 +117,7 @@ assert_absent "select count(*) from pg_catalog.pg_namespace where nspname='priva
 "${PSQL[@]}" --single-transaction -f "$L1A"
 "${PSQL[@]}" -f "$ROOT_DIR/supabase/tests/l1a_direct_todo.test.sql"
 
-# Deterministic READ COMMITTED concurrency proof.  Session one adds A -> B and
+# Deterministic trigger-guard READ COMMITTED concurrency proof.  Session one adds A -> B and
 # holds the owner-scoped transaction lock.  Session two attempts C -> A against
 # existing B -> C: it must wait, refresh its snapshot after session one commits,
 # and then receive the preserved L1D01 dependency_cycle error.
@@ -198,6 +198,117 @@ assert_absent "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_nam
 [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('mtp_task_dependencies','mtp_task_external_refs','mtp_mutation_receipts')")" == "3" ]]
 
 "${PSQL[@]}" --single-transaction -f "$L1B"
+
+# Deterministic RPC-entry lock-order proof. Session one replaces F's children
+# with F -> G and holds the owner advisory lock. Session two attempts H -> F
+# against existing G -> H. It must wait for the advisory lock before acquiring
+# H's task row lock, then reject the completed cycle after session one commits.
+OWNER3=50000000-0000-4000-8000-000000000005
+OWNER4=60000000-0000-4000-8000-000000000006
+F=51000000-0000-4000-8000-000000000001
+G=51000000-0000-4000-8000-000000000002
+H=51000000-0000-4000-8000-000000000003
+I=61000000-0000-4000-8000-000000000001
+J=61000000-0000-4000-8000-000000000002
+"${PSQL[@]}" -v o3="$OWNER3" -v o4="$OWNER4" -v f="$F" -v g="$G" -v h="$H" -v i="$I" -v j="$J" <<'SQL'
+insert into auth.users(id) values (:'o3'),(:'o4') on conflict do nothing;
+insert into public.mtp_tasks(owner_id,id,task_kind,source_key,source_id_legacy,title,record_origin,content_hash)
+values
+  (:'o3',:'f','personal','rpc-cycle-f','rpc-cycle-f','F','direct',decode(repeat('06',32),'hex')),
+  (:'o3',:'g','personal','rpc-cycle-g','rpc-cycle-g','G','direct',decode(repeat('07',32),'hex')),
+  (:'o3',:'h','personal','rpc-cycle-h','rpc-cycle-h','H','direct',decode(repeat('08',32),'hex')),
+  (:'o4',:'i','personal','rpc-cycle-i','rpc-cycle-i','I','direct',decode(repeat('09',32),'hex')),
+  (:'o4',:'j','personal','rpc-cycle-j','rpc-cycle-j','J','direct',decode(repeat('0a',32),'hex'));
+insert into public.mtp_task_dependencies(owner_id,task_id,depends_on_task_id)
+values (:'o3',:'g',:'h');
+SQL
+
+PGAPPNAME=l1b-rpc-cycle-session1 "${PSQL[@]}" -v o="$OWNER3" -v f="$F" -v g="$G" >"$TMP_DIR/rpc-session1.log" 2>&1 <<'SQL' &
+begin;
+select pg_catalog.set_config('request.jwt.claim.sub',:'o',true);
+set local role authenticated;
+select public.mtp_task_children_replace_v1(
+  :'f',1,
+  pg_catalog.jsonb_build_object(
+    'subtasks','[]'::jsonb,
+    'dependencies',pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('task_id',:'g','ordinal',0))
+  ),
+  'f8000000-0000-4000-8000-000000000001'
+);
+select pg_catalog.pg_sleep(3);
+commit;
+SQL
+rpc_s1=$!
+
+for _ in {1..100}; do
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER3',0) & 4294967295)::oid")" == "1" ]] && break
+  sleep 0.05
+done
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_locks where locktype='advisory' and granted and objid = (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER3',0) & 4294967295)::oid")" == "1" ]]
+
+set +e
+PGAPPNAME=l1b-rpc-cycle-session2 "${PSQL[@]}" -v o="$OWNER3" -v h="$H" -v f="$F" >"$TMP_DIR/rpc-session2.log" 2>&1 <<'SQL' &
+\set VERBOSITY verbose
+begin;
+select pg_catalog.set_config('request.jwt.claim.sub',:'o',true);
+set local role authenticated;
+select public.mtp_task_children_replace_v1(
+  :'h',1,
+  pg_catalog.jsonb_build_object(
+    'subtasks','[]'::jsonb,
+    'dependencies',pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('task_id',:'f','ordinal',0))
+  ),
+  'f8000000-0000-4000-8000-000000000002'
+);
+commit;
+SQL
+rpc_s2=$!
+set -e
+
+for _ in {1..100}; do
+  [[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-rpc-cycle-session2' and wait_event_type='Lock' and wait_event='advisory'")" == "1" ]] && break
+  sleep 0.05
+done
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from pg_catalog.pg_stat_activity where application_name='l1b-rpc-cycle-session2' and wait_event_type='Lock' and wait_event='advisory'")" == "1" ]]
+
+# A NOWAIT probe can lock H while session two is waiting. This proves the RPC
+# has not taken its per-task row lock before the owner advisory lock.
+if ! "${PSQL[@]}" -v o="$OWNER3" -v h="$H" >"$TMP_DIR/rpc-row-probe.log" 2>&1 <<'SQL'
+begin;
+select id from public.mtp_tasks where owner_id=:'o' and id=:'h' for update nowait;
+rollback;
+SQL
+then
+  echo "waiting RPC acquired task row before owner advisory lock" >&2
+  exit 1
+fi
+
+# A different owner derives a different key and completes through the same RPC
+# while OWNER3 is held.
+[[ "$("${PSQL[@]}" -Atqc "select (pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER3',0) <> pg_catalog.hashtextextended('mtp_l1_dependency_graph:$OWNER4',0))::int")" == "1" ]]
+"${PSQL[@]}" -v o="$OWNER4" -v i="$I" -v j="$J" <<'SQL'
+begin;
+select pg_catalog.set_config('request.jwt.claim.sub',:'o',true);
+set local lock_timeout = '500ms';
+set local role authenticated;
+select public.mtp_task_children_replace_v1(
+  :'i',1,
+  pg_catalog.jsonb_build_object(
+    'subtasks','[]'::jsonb,
+    'dependencies',pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('task_id',:'j','ordinal',0))
+  ),
+  'f8000000-0000-4000-8000-000000000003'
+);
+commit;
+SQL
+
+wait "$rpc_s1"
+if wait "$rpc_s2"; then echo "same-owner RPC cycle unexpectedly committed" >&2; exit 1; fi
+grep -q 'dependency_cycle' "$TMP_DIR/rpc-session2.log"
+grep -q 'L1D01' "$TMP_DIR/rpc-session2.log"
+[[ "$("${PSQL[@]}" -Atqc "select count(*) from public.mtp_task_dependencies where owner_id='$OWNER3' and is_active and (task_id,depends_on_task_id) in (('$F','$G'),('$H','$F'))")" == "1" ]]
+[[ "$("${PSQL[@]}" -Atqc "with recursive reach(start_id,task_id,path,cycle) as (select task_id,depends_on_task_id,array[task_id,depends_on_task_id],task_id=depends_on_task_id from public.mtp_task_dependencies where owner_id='$OWNER3' and is_active union all select r.start_id,d.depends_on_task_id,r.path||d.depends_on_task_id,d.depends_on_task_id=any(r.path) from reach r join public.mtp_task_dependencies d on d.owner_id='$OWNER3' and d.task_id=r.task_id and d.is_active where not r.cycle) select count(*) from reach where cycle")" == "0" ]]
+
 before="$(catalog_fingerprint)"
 if "${PSQL[@]}" --single-transaction -f "$L1B" >/dev/null 2>&1; then
   echo "L1B rerun unexpectedly succeeded" >&2; exit 1
