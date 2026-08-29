@@ -920,9 +920,7 @@ begin
   -- any per-task row lock.  The dependency trigger retains the same guard for
   -- direct active-edge writes that do not enter through this RPC.
   if p_operation='task.children.replace' then
-    perform pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended('mtp_l1_dependency_graph:' || v_owner::text, 0)
-    );
+    perform private.mtp_l1_lock_dependency_graph(v_owner);
   end if;
 
   if p_operation='task.children.replace' then
