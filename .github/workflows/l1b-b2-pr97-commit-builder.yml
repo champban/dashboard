@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/l1b-b2-pr97-commit-builder.yml
       - ops/l1b-b2-pr97-commit-builder.py
+      - ops/l1b-b2-pr97-commit-builder-v2.py
 
 permissions:
   contents: write
@@ -22,6 +23,7 @@ env:
   EXPECTED_FIX_HEAD: 1fbaf773c1125bd54e5cd93b2a21afd761d36bf7
   EXPECTED_FIX_BLOB: 55fc12f22741d8e8bac1cb011b6994cacc9f5681
   EXPECTED_BUILDER_BLOB: 28af2ce2c448322a1045eb986c3ddec215d9d35b
+  EXPECTED_WRAPPER_BLOB: f7be45d9fad6ba4f617f93c0d04d3e49bf0421c6
 
 jobs:
   build-exact-commit:
@@ -64,15 +66,19 @@ jobs:
           [[ "$(git -C builder merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
           cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
           .github/workflows/l1b-b2-pr97-commit-builder.yml
+          ops/l1b-b2-pr97-commit-builder-v2.py
           ops/l1b-b2-pr97-commit-builder.py
           EOF
           git -C builder diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
           diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
           [[ "$(git -C builder hash-object ops/l1b-b2-pr97-commit-builder.py)" == "$EXPECTED_BUILDER_BLOB" ]]
+          [[ "$(git -C builder hash-object ops/l1b-b2-pr97-commit-builder-v2.py)" == "$EXPECTED_WRAPPER_BLOB" ]]
           [[ "$(git -C fix rev-parse HEAD)" == "$EXPECTED_FIX_HEAD" ]]
           [[ "$(git -C fix hash-object ops/l1b-b2-aicc-acl-recovery-fix.sh)" == "$EXPECTED_FIX_BLOB" ]]
           [[ "$(git -C target rev-parse HEAD)" == "$EXPECTED_TARGET_HEAD" ]]
-          python3 -m py_compile builder/ops/l1b-b2-pr97-commit-builder.py
+          python3 -m py_compile \
+            builder/ops/l1b-b2-pr97-commit-builder.py \
+            builder/ops/l1b-b2-pr97-commit-builder-v2.py
 
       - name: Build immutable one-commit PR97 object
         id: build
@@ -81,7 +87,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 builder/ops/l1b-b2-pr97-commit-builder.py target fix | tee "$RUNNER_TEMP/builder-result.txt"
+          python3 builder/ops/l1b-b2-pr97-commit-builder-v2.py target fix | tee "$RUNNER_TEMP/builder-result.txt"
           grep -Eq '^L1B_B2_PR97_REMEDIATED_COMMIT=[0-9a-f]{40}$' "$RUNNER_TEMP/builder-result.txt"
           grep -Eq '^L1B_B2_PR97_REMEDIATED_TREE=[0-9a-f]{40}$' "$RUNNER_TEMP/builder-result.txt"
 
