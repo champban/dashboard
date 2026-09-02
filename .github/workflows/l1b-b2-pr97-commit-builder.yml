@@ -5,6 +5,7 @@ on:
     branches: [ops/l1b-b2-pr97-commit-builder]
     paths:
       - .github/workflows/l1b-b2-pr97-commit-builder.yml
+      - ops/l1b-b2-pr97-commit-builder.py
 
 permissions:
   contents: write
@@ -17,10 +18,10 @@ env:
   EXPECTED_REPOSITORY_ID: '1297538303'
   EXPECTED_REF: refs/heads/ops/l1b-b2-pr97-commit-builder
   EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
-  EXPECTED_BASE_TREE: c25d9b044e7a46963c3fc5661bd53b08f48d83d6
   EXPECTED_TARGET_HEAD: fe1e175ac1b95b1dbf2f2813171d65376cd4c402
   EXPECTED_FIX_HEAD: 1fbaf773c1125bd54e5cd93b2a21afd761d36bf7
   EXPECTED_FIX_BLOB: 55fc12f22741d8e8bac1cb011b6994cacc9f5681
+  EXPECTED_BUILDER_BLOB: 28af2ce2c448322a1045eb986c3ddec215d9d35b
 
 jobs:
   build-exact-commit:
@@ -53,216 +54,45 @@ jobs:
           persist-credentials: false
           path: target
 
-      - name: Build and publish immutable commit object
-        id: build
+      - name: Validate exact builder boundary
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
           [[ "${{ github.ref }}" == "$EXPECTED_REF" ]]
           [[ "${{ github.run_attempt }}" == '1' ]]
           [[ "$(git -C builder merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
-          [[ "$(git -C builder rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
-          [[ "$(git -C builder diff --name-only "$EXPECTED_BASE_SHA"...HEAD)" == '.github/workflows/l1b-b2-pr97-commit-builder.yml' ]]
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-b2-pr97-commit-builder.yml
+          ops/l1b-b2-pr97-commit-builder.py
+          EOF
+          git -C builder diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          [[ "$(git -C builder hash-object ops/l1b-b2-pr97-commit-builder.py)" == "$EXPECTED_BUILDER_BLOB" ]]
           [[ "$(git -C fix rev-parse HEAD)" == "$EXPECTED_FIX_HEAD" ]]
           [[ "$(git -C fix hash-object ops/l1b-b2-aicc-acl-recovery-fix.sh)" == "$EXPECTED_FIX_BLOB" ]]
           [[ "$(git -C target rev-parse HEAD)" == "$EXPECTED_TARGET_HEAD" ]]
-          [[ "$(git -C target merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
-          [[ "$(git -C target rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          python3 -m py_compile builder/ops/l1b-b2-pr97-commit-builder.py
 
-          bash fix/ops/l1b-b2-aicc-acl-recovery-fix.sh target | tee "$RUNNER_TEMP/fix-result.txt"
-          grep -Fxq 'L1B_B2_AICC_ACL_RECOVERY_FIX=PASS' "$RUNNER_TEMP/fix-result.txt"
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root=Path('target')
-          workflow=root/'.github/workflows/l1b-post-import-isolated-restore.yml'
-          payload=workflow.read_text(encoding='utf-8')
-          replacements={
-              'f5e4493aef14b96c58f698afe13f654d2e55b59e':'35f1d24a57885e4836f41e778eb8c9e62e81711b',
-              'ec3a6fa2811ca0e4354ce77d6ca8953f261b32e4':'cd1b6f33235364b05b94051e9b1264f22437c85a',
-              '48d1333429095cb6922c16bb457875b12ba0b9ca':'2c853a685309f576d88d5ee3e49bc53c1ab2b7df',
-              '9f24a55337b5358f0c902c6ee852503625504dde':'78ed7ba8bb0ebc0673a1c0575728b23131a2c9de',
-          }
-          for old,new in replacements.items():
-              if old not in payload:
-                  raise SystemExit(f'missing workflow pin: {old}')
-              payload=payload.replace(old,new)
-          workflow.write_text(payload,encoding='utf-8',newline='\n')
-
-          doc=root/'docs/L1B_POST_IMPORT_RESTORE.md'
-          payload=doc.read_text(encoding='utf-8')
-          doc_replacements={
-              '19078dac4743025d0dcb220f8a8cc199721b37b1':'2fbe48b20d93ec7cebd843343c866953de5183d5',
-              'f5e4493aef14b96c58f698afe13f654d2e55b59e':'35f1d24a57885e4836f41e778eb8c9e62e81711b',
-              'ec3a6fa2811ca0e4354ce77d6ca8953f261b32e4':'cd1b6f33235364b05b94051e9b1264f22437c85a',
-              '48d1333429095cb6922c16bb457875b12ba0b9ca':'2c853a685309f576d88d5ee3e49bc53c1ab2b7df',
-              '9f24a55337b5358f0c902c6ee852503625504dde':'78ed7ba8bb0ebc0673a1c0575728b23131a2c9de',
-          }
-          for old,new in doc_replacements.items():
-              if payload.count(old)!=1:
-                  raise SystemExit(f'document pin count mismatch: {old}')
-              payload=payload.replace(old,new,1)
-          anchor='## Previous fail-closed attempts\n\n'
-          section='''## Previous fail-closed attempts
-
-### AICC default-function-ACL ordering — run `33630389296`
-
-The exact recovery source restored the encrypted B-1 into the network-disabled
-PostgreSQL 17 target and passed exact-count, post-import, catalog, index and
-complete schema-semantics checks. It then stopped fail closed at raw ACL
-reconciliation: AICC expected `305/e2aeb59ccf1b7cf4fd3d32799d1e91c6`
-but restored `299/8036afaa87de193d3ce344886499efb6`; the isolated
-work directory, containers, inherited volume, artifact files and passphrase
-were removed, and the sole recovery PASS marker was not emitted.
-
-A bounded read-only Production comparison proved the delta exactly. The six
-existing zero-argument AICC functions each have `PUBLIC EXECUTE` in Production,
-while the restored target lacked precisely those six ACL entries. The restored
-AICC function-ACL lane was `24/2f54344395605a43a14b2975d36bc8d6`; adding
-only those verified grants produces the exact Production lane
-`30/253113c16f13c2be2022b8db3453997b` and the already frozen complete
-AICC raw-ACL fingerprint. This is a deterministic logical-dump/default-ACL
-ordering effect: pg_dump omits privileges equal to the source creation defaults,
-while the disposable target intentionally revokes the postgres default function
-ACL before replaying schema DDL.
-
-The corrected recovery source therefore performs one narrowly bounded
-normalization inside the existing roles/schema/data transaction, after schema
-creation and before data loading. It first requires the exact 24-part restored
-fingerprint, grants `PUBLIC EXECUTE` to exactly
-`aicc_add_owner_membership()`, `aicc_audit_agent_status()`,
-`aicc_audit_message_insert()`, `aicc_audit_task_status()`,
-`aicc_set_updated_at()` and `aicc_task_timestamps()`, then requires the exact
-30-part Production fingerprint. Any missing, extra or changed ACL entry stops
-the restore before reconciliation PASS. No Production connection or write is
-introduced.
-
-'''
-          if payload.count(anchor)!=1:
-              raise SystemExit('document attempt anchor mismatch')
-          payload=payload.replace(anchor,section,1)
-          doc.write_text(payload,encoding='utf-8',newline='\n')
-          PY
-
-          git -C target diff --check
-          RUNNER_TEMP="$RUNNER_TEMP/selftest" bash target/ops/l1b-post-import-isolated-restore.sh --selftest \
-            >"$RUNNER_TEMP/wrapper-selftest.out" 2>&1
-          grep -Fxq 'L1B_B2_STDIN_SAFE_CORE_BLOB=2c853a685309f576d88d5ee3e49bc53c1ab2b7df' "$RUNNER_TEMP/wrapper-selftest.out"
-          grep -Fxq 'L1B_B2_REVIEWED_CORE_BLOB=78ed7ba8bb0ebc0673a1c0575728b23131a2c9de' "$RUNNER_TEMP/wrapper-selftest.out"
-          grep -Fxq 'L1B B-2 role-independent staged cleanup-hardened source verification: PASS' "$RUNNER_TEMP/wrapper-selftest.out"
-
-          python3 - <<'PY'
-          from pathlib import Path
-          expected={
-            '.github/workflows/l1b-post-import-isolated-restore.yml':'2fbe48b20d93ec7cebd843343c866953de5183d5',
-            'docs/L1B_POST_IMPORT_RESTORE.md':'ab1cca10f717b5eb95ddc0a5c6a05bd1b69ac5fb',
-            'ops/l1b-post-import-isolated-restore-acl-check.sh':'bf8c60e8c91025a8366edf0c26cf9b4920be8b5b',
-            'ops/l1b-post-import-isolated-restore-acl-patch.py':'102165a3f3af1dc8b654bb055775cf3d8f9c448f',
-            'ops/l1b-post-import-isolated-restore-aicc-check.py':'33fb7d4c1f4330e499cd426470bb9fb68ff1d4e2',
-            'ops/l1b-post-import-isolated-restore-check.py':'ecc8ba98880a234494b210e8f2f5c5c162f4b995',
-            'ops/l1b-post-import-isolated-restore-core.sh':'cd1b6f33235364b05b94051e9b1264f22437c85a',
-            'ops/l1b-post-import-isolated-restore-count-check.py':'e4ba0307a3154ab00bff7bbd016bf5f08bb4771c',
-            'ops/l1b-post-import-isolated-restore-review-check.sh':'cbe4ada3a7e9e9eeb9d93c178297a2a40931b293',
-            'ops/l1b-post-import-isolated-restore-stdin-patch.py':'838d2d68c9eb608ae56e92883c17cd3058fe0b0a',
-            'ops/l1b-post-import-isolated-restore-telemetry.sh':'97ef2ac0ccffba5631e032bca94583636ad19e59',
-            'ops/l1b-post-import-isolated-restore.sh':'35f1d24a57885e4836f41e778eb8c9e62e81711b',
-          }
-          Path('/tmp/expected-blobs.json').write_text(__import__('json').dumps(expected),encoding='utf-8')
-          PY
-
-          python3 - <<'PY'
-          import base64
-          import json
-          import os
-          from pathlib import Path
-          import urllib.request
-
-          repository='champban/dashboard'
-          api=f'https://api.github.com/repos/{repository}'
-          token=os.environ['GH_TOKEN']
-          base_sha=os.environ['EXPECTED_BASE_SHA']
-          base_tree=os.environ['EXPECTED_BASE_TREE']
-          expected=json.loads(Path('/tmp/expected-blobs.json').read_text(encoding='utf-8'))
-
-          def request(path,payload):
-              body=json.dumps(payload,separators=(',',':')).encode('utf-8')
-              req=urllib.request.Request(
-                  api+path,
-                  data=body,
-                  method='POST',
-                  headers={
-                      'Authorization':f'Bearer {token}',
-                      'Accept':'application/vnd.github+json',
-                      'X-GitHub-Api-Version':'2022-11-28',
-                      'Content-Type':'application/json',
-                  },
-              )
-              with urllib.request.urlopen(req,timeout=30) as response:
-                  return json.load(response)
-
-          entries=[]
-          for relative,expected_sha in expected.items():
-              path=Path('target')/relative
-              if not path.is_file() or path.is_symlink():
-                  raise SystemExit(f'unsafe source path: {relative}')
-              result=request('/git/blobs',{
-                  'content':base64.b64encode(path.read_bytes()).decode('ascii'),
-                  'encoding':'base64',
-              })
-              if result.get('sha')!=expected_sha:
-                  raise SystemExit(f'Git blob mismatch: {relative}')
-              entries.append({'path':relative,'mode':'100644','type':'blob','sha':expected_sha})
-
-          tree=request('/git/trees',{'base_tree':base_tree,'tree':entries})
-          tree_sha=tree.get('sha')
-          if not isinstance(tree_sha,str) or len(tree_sha)!=40:
-              raise SystemExit('tree creation failed')
-          commit=request('/git/commits',{
-              'message':'ops(l1b): normalize exact AICC ACL recovery semantics',
-              'tree':tree_sha,
-              'parents':[base_sha],
-          })
-          commit_sha=commit.get('sha')
-          if not isinstance(commit_sha,str) or len(commit_sha)!=40:
-              raise SystemExit('commit creation failed')
-          Path(os.environ['GITHUB_OUTPUT']).write_text(
-              f'commit_sha={commit_sha}\ntree_sha={tree_sha}\n',
-              encoding='utf-8',
-              append=True,
-          ) if False else None
-          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as output:
-              output.write(f'commit_sha={commit_sha}\ntree_sha={tree_sha}\n')
-          print(f'L1B_B2_PR97_REMEDIATED_COMMIT={commit_sha}')
-          print(f'L1B_B2_PR97_REMEDIATED_TREE={tree_sha}')
-          PY
-
-          rm -rf -- "$RUNNER_TEMP/selftest"
-          rm -f -- "$RUNNER_TEMP/fix-result.txt" "$RUNNER_TEMP/wrapper-selftest.out" /tmp/expected-blobs.json
-
-      - name: Verify immutable commit metadata
+      - name: Build immutable one-commit PR97 object
+        id: build
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 builder/ops/l1b-b2-pr97-commit-builder.py target fix | tee "$RUNNER_TEMP/builder-result.txt"
+          grep -Eq '^L1B_B2_PR97_REMEDIATED_COMMIT=[0-9a-f]{40}$' "$RUNNER_TEMP/builder-result.txt"
+          grep -Eq '^L1B_B2_PR97_REMEDIATED_TREE=[0-9a-f]{40}$' "$RUNNER_TEMP/builder-result.txt"
+
+      - name: Verify safe immutable outputs
+        shell: bash
         run: |
           set -euo pipefail
           commit='${{ steps.build.outputs.commit_sha }}'
           tree='${{ steps.build.outputs.tree_sha }}'
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
-          python3 - "$commit" "$tree" <<'PY'
-          import json,os,sys,urllib.request
-          commit,tree=sys.argv[1:]
-          req=urllib.request.Request(
-            f'https://api.github.com/repos/champban/dashboard/git/commits/{commit}',
-            headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
-          with urllib.request.urlopen(req,timeout=30) as response: data=json.load(response)
-          if data.get('tree',{}).get('sha')!=tree: raise SystemExit('commit tree mismatch')
-          if [p.get('sha') for p in data.get('parents',[])]!=[os.environ['EXPECTED_BASE_SHA']]:
-              raise SystemExit('commit parent mismatch')
-          PY
+          rm -f -- "$RUNNER_TEMP/builder-result.txt" "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
           echo "PR97_REMEDIATED_COMMIT=$commit"
           echo "PR97_REMEDIATED_TREE=$tree"
