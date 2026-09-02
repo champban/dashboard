@@ -1,0 +1,97 @@
+name: L1B B-2 patched source export
+
+on:
+  push:
+    branches: [ops/l1b-b2-patched-source-export]
+    paths:
+      - .github/workflows/l1b-b2-patched-source-export.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l1b-b2-patched-source-export
+  cancel-in-progress: false
+
+env:
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_EXPORT_REF: refs/heads/ops/l1b-b2-patched-source-export
+  EXPECTED_FIX_SOURCE_HEAD: 1fbaf773c1125bd54e5cd93b2a21afd761d36bf7
+  EXPECTED_TARGET_HEAD: fe1e175ac1b95b1dbf2f2813171d65376cd4c402
+  EXPECTED_FIX_BLOB: 55fc12f22741d8e8bac1cb011b6994cacc9f5681
+
+jobs:
+  export-source:
+    name: Export exact patched recovery source
+    if: github.repository == 'champban/dashboard' && github.ref == 'refs/heads/ops/l1b-b2-patched-source-export' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact fix source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: 1fbaf773c1125bd54e5cd93b2a21afd761d36bf7
+          fetch-depth: 0
+          persist-credentials: false
+          path: fix
+
+      - name: Checkout exact reviewed B-2 source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: fe1e175ac1b95b1dbf2f2813171d65376cd4c402
+          fetch-depth: 0
+          persist-credentials: false
+          path: target
+
+      - name: Apply exact fix and package reviewed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "${{ github.ref }}" == "$EXPECTED_EXPORT_REF" ]]
+          [[ "${{ github.run_attempt }}" == '1' ]]
+          [[ "$(git -C fix rev-parse HEAD)" == "$EXPECTED_FIX_SOURCE_HEAD" ]]
+          [[ "$(git -C fix hash-object ops/l1b-b2-aicc-acl-recovery-fix.sh)" == "$EXPECTED_FIX_BLOB" ]]
+          [[ "$(git -C target rev-parse HEAD)" == "$EXPECTED_TARGET_HEAD" ]]
+
+          bash fix/ops/l1b-b2-aicc-acl-recovery-fix.sh target | tee "$RUNNER_TEMP/result.txt"
+          grep -Fxq 'L1B_B2_AICC_ACL_RECOVERY_FIX=PASS' "$RUNNER_TEMP/result.txt"
+
+          cat > "$RUNNER_TEMP/files.txt" <<'EOF'
+          .github/workflows/l1b-post-import-isolated-restore.yml
+          docs/L1B_POST_IMPORT_RESTORE.md
+          ops/l1b-post-import-isolated-restore-acl-check.sh
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-aicc-check.py
+          ops/l1b-post-import-isolated-restore-check.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-count-check.py
+          ops/l1b-post-import-isolated-restore-review-check.sh
+          ops/l1b-post-import-isolated-restore-stdin-patch.py
+          ops/l1b-post-import-isolated-restore-telemetry.sh
+          ops/l1b-post-import-isolated-restore.sh
+          EOF
+          while IFS= read -r file; do
+            [[ -f "target/$file" && ! -L "target/$file" ]]
+          done < "$RUNNER_TEMP/files.txt"
+
+          tar --format=posix --sort=name --mtime='UTC 1970-01-01' \
+            --owner=0 --group=0 --numeric-owner \
+            -cf "$RUNNER_TEMP/l1b-b2-patched-source.tar" \
+            -C target -T "$RUNNER_TEMP/files.txt"
+          sha256sum "$RUNNER_TEMP/l1b-b2-patched-source.tar" | tee "$RUNNER_TEMP/l1b-b2-patched-source.sha256"
+          git -C target diff --check
+          [[ "$(git -C target diff --name-only | LC_ALL=C sort | tr '\n' ' ')" == \
+             'ops/l1b-post-import-isolated-restore-core.sh ops/l1b-post-import-isolated-restore.sh ' ]]
+          rm -f -- "$RUNNER_TEMP/result.txt" "$RUNNER_TEMP/files.txt"
+
+      - name: Upload exact patched source package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l1b-b2-patched-source-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/l1b-b2-patched-source.tar
+            ${{ runner.temp }}/l1b-b2-patched-source.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
