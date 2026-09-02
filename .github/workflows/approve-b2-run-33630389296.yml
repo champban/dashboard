@@ -1,0 +1,174 @@
+name: Approve exact B-2 pending deployment
+
+on:
+  push:
+    branches:
+      - ops/approve-b2-run-33630389296
+    paths:
+      - .github/workflows/approve-b2-run-33630389296.yml
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: approve-b2-run-33630389296
+  cancel-in-progress: false
+
+jobs:
+  approve-exact-b2:
+    name: Approve exact Owner-authorized B-2 job
+    if: github.repository == 'champban/dashboard' && github.ref == 'refs/heads/ops/approve-b2-run-33630389296' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Revalidate immutable gate and approve exact pending deployment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          readonly TARGET_RUN_ID='33630389296'
+          readonly TARGET_SOURCE_JOB_ID='100248089238'
+          readonly TARGET_RESTORE_JOB_ID='100248142838'
+          readonly EXPECTED_HEAD='fe1e175ac1b95b1dbf2f2813171d65376cd4c402'
+          readonly EXPECTED_WORKFLOW='L1B fresh post-import B-2 isolated restore'
+          readonly EXPECTED_ENVIRONMENT_ID='20104554704'
+          readonly EXPECTED_ENVIRONMENT_NAME='production-backup'
+          readonly ARTIFACT_ID='9805484584'
+          readonly ARTIFACT_RUN_ID='33409097769'
+          readonly ARTIFACT_SOURCE_SHA='25508b077a7ee81c1b6b6f42da2dbd704a7f247f'
+          readonly ARTIFACT_DIGEST='sha256:57a64b3e0276b7f5d431b2374576a3c64f8137b012499d6a280c936d27bbdb60'
+          readonly API='https://api.github.com/repos/champban/dashboard'
+          readonly RUN_JSON="$RUNNER_TEMP/run.json"
+          readonly JOBS_JSON="$RUNNER_TEMP/jobs.json"
+          readonly PENDING_JSON="$RUNNER_TEMP/pending.json"
+          readonly ARTIFACT_JSON="$RUNNER_TEMP/artifact.json"
+          readonly RESPONSE_JSON="$RUNNER_TEMP/approval-response.json"
+
+          headers=(
+            -H "Authorization: Bearer ${GH_TOKEN}"
+            -H 'Accept: application/vnd.github+json'
+            -H 'X-GitHub-Api-Version: 2022-11-28'
+          )
+
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$API/actions/runs/$TARGET_RUN_ID" > "$RUN_JSON"
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$API/actions/runs/$TARGET_RUN_ID/jobs" > "$JOBS_JSON"
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$API/actions/runs/$TARGET_RUN_ID/pending_deployments" > "$PENDING_JSON"
+          curl --fail --silent --show-error --location "${headers[@]}" \
+            "$API/actions/artifacts/$ARTIFACT_ID" > "$ARTIFACT_JSON"
+
+          python3 - "$RUN_JSON" "$JOBS_JSON" "$PENDING_JSON" "$ARTIFACT_JSON" <<'PY'
+          import datetime as dt
+          import json
+          import sys
+
+          run = json.load(open(sys.argv[1], encoding='utf-8'))
+          jobs = json.load(open(sys.argv[2], encoding='utf-8')).get('jobs', [])
+          pending = json.load(open(sys.argv[3], encoding='utf-8'))
+          artifact = json.load(open(sys.argv[4], encoding='utf-8'))
+
+          expected = {
+              'run_id': 33630389296,
+              'source_job': 100248089238,
+              'restore_job': 100248142838,
+              'head': 'fe1e175ac1b95b1dbf2f2813171d65376cd4c402',
+              'workflow': 'L1B fresh post-import B-2 isolated restore',
+              'environment_id': 20104554704,
+              'environment_name': 'production-backup',
+              'artifact_id': 9805484584,
+              'artifact_run': 33409097769,
+              'artifact_source': '25508b077a7ee81c1b6b6f42da2dbd704a7f247f',
+              'artifact_digest': 'sha256:57a64b3e0276b7f5d431b2374576a3c64f8137b012499d6a280c936d27bbdb60',
+          }
+          if run.get('id') != expected['run_id'] or run.get('head_sha') != expected['head']:
+              raise SystemExit('exact B-2 run identity mismatch')
+          if run.get('name') != expected['workflow'] or run.get('event') != 'pull_request':
+              raise SystemExit('exact B-2 workflow/event mismatch')
+          if run.get('run_attempt') != 1 or run.get('status') != 'waiting':
+              raise SystemExit('exact B-2 run is not the first waiting attempt')
+
+          by_id = {job.get('id'): job for job in jobs}
+          source = by_id.get(expected['source_job'])
+          restore = by_id.get(expected['restore_job'])
+          if not source or source.get('status') != 'completed' or source.get('conclusion') != 'success':
+              raise SystemExit('source-safety job is not successful')
+          if not restore or restore.get('status') != 'waiting' or restore.get('conclusion') is not None:
+              raise SystemExit('restore job is not the exact untouched waiting job')
+          if restore.get('head_sha') != expected['head'] or restore.get('run_attempt') != 1:
+              raise SystemExit('restore job head/attempt mismatch')
+
+          if len(pending) != 1:
+              raise SystemExit('pending deployment inventory is not exactly one')
+          environment = pending[0].get('environment') or {}
+          if environment.get('id') != expected['environment_id'] or environment.get('name') != expected['environment_name']:
+              raise SystemExit('protected Environment identity mismatch')
+
+          if artifact.get('id') != expected['artifact_id'] or artifact.get('expired') is not False:
+              raise SystemExit('B-1 artifact is absent or expired')
+          workflow_run = artifact.get('workflow_run') or {}
+          if workflow_run.get('id') != expected['artifact_run'] or workflow_run.get('head_sha') != expected['artifact_source']:
+              raise SystemExit('B-1 artifact run/source mismatch')
+          if artifact.get('digest') != expected['artifact_digest']:
+              raise SystemExit('B-1 artifact digest mismatch')
+          expires = dt.datetime.fromisoformat(artifact['expires_at'].replace('Z', '+00:00'))
+          if expires <= dt.datetime.now(dt.timezone.utc):
+              raise SystemExit('B-1 artifact expired during gate validation')
+          PY
+
+          body="$(python3 - <<'PY'
+          import json
+          print(json.dumps({
+              'environment_ids': [20104554704],
+              'state': 'approved',
+              'comment': 'Owner P Boy authorized completion of S4.3 for exact run 33630389296 / job 100248142838 at head fe1e175ac1b95b1dbf2f2813171d65376cd4c402. Recovery-only; no Production connection or apply authority.'
+          }, separators=(',', ':')))
+          PY
+          )"
+
+          code="$(curl --silent --show-error --location \
+            --output "$RESPONSE_JSON" --write-out '%{http_code}' \
+            --request POST "${headers[@]}" \
+            -H 'Content-Type: application/json' \
+            --data "$body" \
+            "$API/actions/runs/$TARGET_RUN_ID/pending_deployments")"
+          [[ "$code" == '200' ]]
+
+          python3 - "$RESPONSE_JSON" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))
+          if not isinstance(data, list) or len(data) != 1:
+              raise SystemExit('approval response inventory mismatch')
+          environment = data[0].get('environment') or ''
+          if 'production-backup' not in str(environment):
+              raise SystemExit('approval response Environment mismatch')
+          PY
+
+          released=0
+          for _ in $(seq 1 30); do
+            curl --fail --silent --show-error --location "${headers[@]}" \
+              "$API/actions/runs/$TARGET_RUN_ID/jobs" > "$JOBS_JSON"
+            state="$(python3 - "$JOBS_JSON" "$TARGET_RESTORE_JOB_ID" <<'PY'
+          import json, sys
+          jobs=json.load(open(sys.argv[1], encoding='utf-8')).get('jobs', [])
+          target=int(sys.argv[2])
+          for job in jobs:
+              if job.get('id') == target:
+                  print(job.get('status') or '')
+                  break
+          PY
+            )"
+            if [[ "$state" == 'queued' || "$state" == 'in_progress' || "$state" == 'completed' ]]; then
+              released=1
+              break
+            fi
+            sleep 2
+          done
+          [[ "$released" == '1' ]]
+
+          rm -f -- "$RUN_JSON" "$JOBS_JSON" "$PENDING_JSON" "$ARTIFACT_JSON" "$RESPONSE_JSON"
+          echo 'EXACT_B2_ENVIRONMENT_APPROVAL=PASS'
+          echo 'EXACT_B2_RESTORE_JOB_RELEASED=PASS'
