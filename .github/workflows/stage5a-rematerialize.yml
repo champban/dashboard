@@ -1,0 +1,108 @@
+name: Stage 5A deterministic source rematerialization
+
+on:
+  push:
+    branches:
+      - feature/stage5a-line-import-conflict
+    paths:
+      - .github/workflows/stage5a-rematerialize.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage5a-rematerialize-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rematerialize:
+    if: github.event.head_commit.message == 'ops(stage5a): enable deterministic rematerialization'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact Stage 5A branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/stage5a-line-import-conflict
+          fetch-depth: 0
+
+      - name: Validate branch and approved base ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
+          git merge-base --is-ancestor 7dc2081e903cf77ec99ef067121a7c80f75b02af HEAD
+          [[ -f ops/stage5a-rematerialize.py ]]
+          [[ -f ops/stage5a-rematerialize-run.py ]]
+          python3 -m py_compile ops/stage5a-rematerialize-run.py
+
+      - name: Apply deterministic exact-anchor patch
+        run: python3 ops/stage5a-rematerialize-run.py
+
+      - name: Validate source-only changed-file boundary before build
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/allowed-files.txt" <<'EOF'
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/allowed-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          ! grep -E '^(supabase/|\.github/|auth\.js$|line-sync\.js$)' "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Verify build and generated package
+        run: npm run verify
+
+      - name: Scan secrets
+        run: npm run scan-secrets
+
+      - name: Validate final source-only boundary and whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/final-files.txt"
+          cat > "$RUNNER_TEMP/final-allowed.txt" <<'EOF'
+          BUILD-MANIFEST.json
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          index.html
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/final-allowed.txt" "$RUNNER_TEMP/final-files.txt"
+          ! grep -E '^(supabase/|auth\.js$|line-sync\.js$)' "$RUNNER_TEMP/final-files.txt"
+
+      - name: Commit and push verified source candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'P Boy Stage5A Automation'
+          git config user.email 'champbanyat@gmail.com'
+          git add BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx
+          git diff --cached --quiet && { echo 'No source changes staged'; exit 1; }
+          git commit -m 'fix(stage5a): preserve LINE mutations on cloud conflict adoption'
+          git push origin HEAD:feature/stage5a-line-import-conflict
