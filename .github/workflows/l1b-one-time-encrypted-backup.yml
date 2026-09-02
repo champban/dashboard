@@ -1,0 +1,379 @@
+# One-time replacement B-1 after expiry of artifact 9805484584.
+# B-2 run 33639876203 stopped before artifact download because the pinned artifact had expired.
+# Production logical-read/export remains Owner-gated. Never merge this workflow to main.
+name: L1B fresh post-import encrypted Supabase backup refresh
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [main]
+    paths:
+      - ".github/workflows/l1b-one-time-encrypted-backup.yml"
+      - "ops/l1b-one-time-backup.sh"
+      - "docs/L1B_POST_IMPORT_BACKUP.md"
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: l1b-post-import-backup-refresh-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_REPOSITORY: champban/dashboard
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_PROJECT_REF: qjaywadzvwvcspdsjxth
+  EXPECTED_BASE_REF: main
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_HEAD_REF: ops/l1b-post-import-backup-refresh
+  EXPECTED_BACKUP_SCRIPT_BLOB: 932a6669eb2e84f66197e946cc4402bf51a4ae28
+  EXPECTED_OWNER_LOGIN: champban
+  EXPECTED_PRIOR_B1_RUN_ID: '33409097769'
+
+jobs:
+  source-safety:
+    name: L1B replacement B-1 source / secret-safety contract
+    if: >-
+      github.event.action == 'synchronize' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-post-import-backup-refresh'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact one-commit source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          [[ "$(git hash-object ops/l1b-one-time-backup.sh)" == "$EXPECTED_BACKUP_SCRIPT_BLOB" ]]
+
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-one-time-encrypted-backup.yml
+          docs/L1B_POST_IMPORT_BACKUP.md
+          ops/l1b-one-time-backup.sh
+          EOF
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Execute static source and secret-safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/l1b-one-time-backup.sh
+          python3 - <<'PY'
+          import pathlib
+          import re
+          from urllib.parse import urlsplit
+
+          workflow = pathlib.Path('.github/workflows/l1b-one-time-encrypted-backup.yml').read_text(encoding='utf-8')
+          script = pathlib.Path('ops/l1b-one-time-backup.sh').read_text(encoding='utf-8')
+
+          secret_refs = set(re.findall(r"\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*}}", workflow))
+          assert secret_refs == {'SUPABASE_DB_URL', 'BACKUP_PASSPHRASE'}, secret_refs
+
+          action_refs = re.findall(r'^\s*uses:\s*[^@\s]+@([^\s#]+)', workflow, re.MULTILINE)
+          assert action_refs and all(re.fullmatch(r'[0-9a-f]{40}', ref) for ref in action_refs)
+
+          forbidden_tokens = (
+              'pull_request' + '_target:',
+              'workflow' + '_dispatch:',
+              '\n' + 'push:',
+              'actions/' + 'download-artifact',
+              'supabase db ' + 'push',
+          )
+          assert all(token not in workflow for token in forbidden_tokens)
+
+          disabled_gate = "'" + 'PENDING_OWNER_B1_REFRESH' + "' == '" + 'OWNER_APPROVED_B1_REFRESH' + "'"
+          enabled_gate = "'" + 'OWNER_APPROVED_B1_REFRESH' + "' == '" + 'OWNER_APPROVED_B1_REFRESH' + "'"
+          assert disabled_gate not in workflow
+          assert workflow.count(enabled_gate) == 1
+
+          opener = chr(36) + '{{'
+          job_guard = 'github.run_' + 'attempt == 1'
+          step_guard = '[[ "' + opener + ' github.' + 'run_attempt }}" == ' + "'1'" + ' ]]'
+          assert workflow.count(job_guard) == 1
+          assert workflow.count(step_guard) == 1
+
+          assert 'types: [synchronize]' in workflow
+          assert "EXPECTED_OWNER_LOGIN: champban" in workflow
+          assert "EXPECTED_PRIOR_B1_RUN_ID: '33409097769'" in workflow
+          owner_marker = 'OWNER_' + 'APPROVED_B1_REFRESH'
+          head_expr = "'head_" + "sha=' + head"
+          run_expr = "'run_" + "id=' + run_id"
+          assert workflow.count(head_expr) == 1
+          assert workflow.count(run_expr) == 1
+          assert workflow.count(owner_marker) >= 3
+          assert 'gh api --paginate --slurp' in workflow
+          assert "urlsplit(os.environ['SUPABASE_DB_URL'])" in workflow
+          assert "host == f'db.{project_ref}.supabase.co'" in workflow
+          assert "host.endswith('.pooler.supabase.com')" in workflow
+          query_guard = "if parsed.path != '/postgres' or parsed.query or parsed.fragment:"
+          assert workflow.count(query_guard) == 2
+          head_concurrency = (
+              'group: l1b-post-import-backup-refresh-'
+              + opener + ' github.event.pull_request.number }}-'
+              + opener + ' github.event.pull_request.head.sha }}'
+          )
+          assert workflow.count(head_concurrency) == 1
+
+          def accepts_approved_target(uri):
+              candidate = urlsplit(uri)
+              candidate_host = (candidate.hostname or '').lower()
+              candidate_user = candidate.username or ''
+              candidate_port = candidate.port
+              if candidate.scheme not in {'postgres', 'postgresql'}:
+                  return False
+              if candidate.path != '/postgres' or candidate.query or candidate.fragment:
+                  return False
+              return (
+                  candidate_host == 'db.qjaywadzvwvcspdsjxth.supabase.co'
+                  and candidate_user == 'postgres'
+                  and candidate_port == 5432
+              ) or (
+                  candidate_host.endswith('.pooler.supabase.com')
+                  and candidate_user == 'postgres.qjaywadzvwvcspdsjxth'
+                  and candidate_port in {5432, 6543}
+              )
+
+          allowed_uris = (
+              'postgresql://postgres:pw@db.qjaywadzvwvcspdsjxth.supabase.co:5432/postgres',
+              'postgresql://postgres.qjaywadzvwvcspdsjxth:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres',
+          )
+          rejected_uris = (
+              allowed_uris[0] + '?host=db.other.supabase.co',
+              allowed_uris[0] + '?dbname=other',
+              allowed_uris[0] + '?host=db.other.supabase.co&dbname=other',
+              allowed_uris[0] + '?sslmode=require',
+          )
+          assert all(accepts_approved_target(uri) for uri in allowed_uris)
+          assert not any(accepts_approved_target(uri) for uri in rejected_uris)
+
+          required = (
+              'supabase db dump', '--role-only', '--data-only', '--use-copy',
+              '--symmetric', '--cipher-algo AES256', 'sha256sum -c SHA256SUMS.txt',
+              'trap cleanup EXIT', 'BACKUP_ARTIFACT_PATH', 'BACKUP_MANIFEST_PATH',
+          )
+          assert all(token in script for token in required)
+
+          for pattern in (
+              r'\bset\s+-x\b', r'\bcurl\b', r'\bwget\b',
+              r'actions/upload-artifact', r'supabase\s+db\s+push',
+              r'\.supabase\.co', r'pooler\.supabase',
+          ):
+              assert re.search(pattern, script, re.MULTILINE) is None, pattern
+          PY
+
+  encrypted-logical-backup:
+    name: Replacement fresh post-import encrypted logical backup (Owner-gated)
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.action == 'synchronize' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-post-import-backup-refresh' &&
+      'OWNER_APPROVED_B1_REFRESH' == 'OWNER_APPROVED_B1_REFRESH'
+    needs: source-safety
+    environment: production-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind exact Owner-approved head and one workflow event
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]
+          [[ "${{ github.event.action }}" == 'synchronize' ]]
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$EXPECTED_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_HEAD_SHA" ]]
+
+          comments_file="$(mktemp)"
+          runs_file="$(mktemp)"
+          cleanup_gate() {
+            rm -f -- "$comments_file" "$runs_file"
+          }
+          trap cleanup_gate EXIT
+
+          gh api --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/$GITHUB_REPOSITORY/issues/$EXPECTED_PR_NUMBER/comments?per_page=100" \
+            > "$comments_file"
+          gh api --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/l1b-one-time-encrypted-backup.yml/runs?branch=$EXPECTED_HEAD_REF&event=pull_request&per_page=100" \
+            > "$runs_file"
+
+          python3 - "$comments_file" "$runs_file" <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          comment_pages = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          run_pages = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
+          comments = [comment for page in comment_pages for comment in page]
+          runs = [run for page in run_pages for run in page.get('workflow_runs', [])]
+
+          head = os.environ['EXPECTED_HEAD_SHA']
+          run_id = os.environ['EXPECTED_RUN_ID']
+          marker = '\n'.join((
+              'OWNER_APPROVED_B1_REFRESH',
+              'head_sha=' + head,
+              'run_id=' + run_id,
+              'operation=production-logical-read-export-once',
+          ))
+          matches = [
+              comment for comment in comments
+              if comment.get('user', {}).get('login') == os.environ['EXPECTED_OWNER_LOGIN']
+              and comment.get('body') == marker
+          ]
+          if len(matches) != 1:
+              raise SystemExit('exact Owner head/run approval marker is absent or ambiguous')
+
+          current = int(run_id)
+          baseline = int(os.environ['EXPECTED_PRIOR_B1_RUN_ID'])
+          if current <= baseline:
+              raise SystemExit('current workflow run is not newer than the frozen prior B-1 run')
+          other_new_events = [
+              run for run in runs
+              if int(run.get('id', 0)) > baseline and int(run.get('id', 0)) != current
+          ]
+          if other_new_events:
+              raise SystemExit('another post-baseline B-1 workflow event already exists')
+          PY
+          echo 'Exact Owner head/run and one-event gate: PASS'
+
+      - name: Revalidate exact source and protected inputs
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          [[ "${{ github.run_attempt }}" == '1' ]]
+          [[ "$GITHUB_REPOSITORY" == "$EXPECTED_REPOSITORY" ]]
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '1' ]]
+          [[ "$(git hash-object ops/l1b-one-time-backup.sh)" == "$EXPECTED_BACKUP_SCRIPT_BLOB" ]]
+
+          if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
+            echo "::error::Missing production-backup environment secret SUPABASE_DB_URL"
+            exit 1
+          fi
+          if [[ -z "${BACKUP_PASSPHRASE:-}" || ${#BACKUP_PASSPHRASE} -lt 24 ]]; then
+            echo "::error::Missing or invalid production-backup BACKUP_PASSPHRASE"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          project_ref = os.environ['EXPECTED_PROJECT_REF']
+          try:
+              parsed = urlsplit(os.environ['SUPABASE_DB_URL'])
+              host = (parsed.hostname or '').lower()
+              user = parsed.username or ''
+              port = parsed.port
+          except (TypeError, ValueError) as exc:
+              raise SystemExit('SUPABASE_DB_URL is not a structurally valid PostgreSQL URI') from exc
+
+          if parsed.scheme not in {'postgres', 'postgresql'}:
+              raise SystemExit('SUPABASE_DB_URL must use the postgres or postgresql scheme')
+          if parsed.path != '/postgres' or parsed.query or parsed.fragment:
+              raise SystemExit('SUPABASE_DB_URL must target the postgres database without query parameters or a fragment')
+
+          direct = host == f'db.{project_ref}.supabase.co' and user == 'postgres' and port == 5432
+          pooler = (
+              host.endswith('.pooler.supabase.com')
+              and user == f'postgres.{project_ref}'
+              and port in {5432, 6543}
+          )
+          if not (direct or pooler):
+              raise SystemExit('SUPABASE_DB_URL host/user/port does not identify the approved Dashboard project')
+          PY
+          echo "Exact branch/base/project/protected-input gate: PASS"
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@aa3515eac405eac768fa4a72147c22d88a283c7b
+        with:
+          version: 2.111.0
+
+      - name: Ensure encryption tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gpg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gnupg
+          fi
+          [[ "$(supabase --version)" == '2.111.0' ]]
+          gpg --version | head -n 1
+
+      - name: Export, encrypt and verify the replacement backup
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: bash ops/l1b-one-time-backup.sh
+
+      - name: Verify plaintext cleanup before artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 \
+            \( -type d -name 'dashboard-l1b-post-import-backup-*' \
+               -o -type d -name 'dashboard-l1b-post-import-verify-*' \
+               -o -type f -name 'dashboard-l1b-post-import-backup-*.tar.gz' \
+               -o -type f -name 'dashboard-l1b-post-import-backup-*.verify.tar.gz' \
+               -o -type f -name '.dashboard-l1b-backup-passphrase-*' \) \
+            -print -quit | grep -q .; then
+            echo '::error::Plaintext B-1 material remains before artifact upload'
+            exit 1
+          fi
+          echo 'L1B_B1_PLAINTEXT_CLEANUP_VERIFIED'
+
+      - name: Upload encrypted replacement backup for one day
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dashboard-l1b-post-import-backup-${{ env.BACKUP_STAMP }}
+          path: |
+            ${{ env.BACKUP_ARTIFACT_PATH }}
+            ${{ env.BACKUP_MANIFEST_PATH }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
