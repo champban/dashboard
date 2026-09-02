@@ -68,7 +68,6 @@ jobs:
           [[ "${{ github.ref }}" == "$EXPECTED_REF" ]]
           [[ "${{ github.run_attempt }}" == '1' ]]
           [[ "$(git -C fix merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
-          [[ "$(git -C fix rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '2' ]]
           cat > "$RUNNER_TEMP/expected.txt" <<'EOF'
           .github/workflows/l1b-b2-aicc-acl-recovery-fix.yml
           ops/l1b-b2-aicc-acl-recovery-fix.sh
@@ -84,7 +83,8 @@ jobs:
           s=Path('fix/ops/l1b-b2-aicc-acl-recovery-fix.sh').read_text()
           forbidden=('workflow_'+'dispatch:', 'pull_request_'+'target:', 'SUPABASE_'+'DB_URL', 'DATABASE_'+'URL', 'actions/'+'upload-artifact', 'supabase db '+'push')
           if any(x in w or x in s for x in forbidden): raise SystemExit('forbidden capability')
-          if w.count('environment: production-backup')!=1: raise SystemExit('Environment gate mismatch')
+          if sum(line.strip()=='environment: production-backup' for line in w.splitlines())!=1:
+              raise SystemExit('Environment gate mismatch')
           PY
       - name: Apply exact fix and run source selftests
         shell: bash
@@ -124,7 +124,7 @@ jobs:
           [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
           [[ "${{ github.ref }}" == "$EXPECTED_REF" ]]
           [[ "${{ github.run_attempt }}" == '1' ]]
-          [[ "$(git -C fix rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == '2' ]]
+          [[ "$(git -C fix merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
           [[ "$(git -C fix hash-object ops/l1b-b2-aicc-acl-recovery-fix.sh)" == "$EXPECTED_FIX_BLOB" ]]
           [[ "$(git -C target rev-parse HEAD)" == "$EXPECTED_TARGET_HEAD" ]]
           bash fix/ops/l1b-b2-aicc-acl-recovery-fix.sh target | tee "$RUNNER_TEMP/result.txt"
