@@ -106,3 +106,29 @@ Required before this Stage 5A source increment can be called complete:
    finding
 
 Rollback is branch deletion or commit revert; Production remains unchanged.
+
+
+## Implementation record
+
+Status: **IMPLEMENTED ON DRAFT SOURCE BRANCH / VERIFICATION REQUIRED**
+
+Changed source and test boundary:
+
+- `src/App.jsx` — final cloud-wins import decision prepares pending LINE
+  mutations, uploads the merged payload before completing IDs/adopting locally,
+  and retains the unresolved conflict on upload failure.
+- `mobile/index.html` — final downloaded cloud payload follows prepare → upload
+  → complete → adopt ordering; failed uploads do not close the conflict.
+- `build/sync-content-check.test.mjs` — executable success/failure ordering
+  regressions for Full and Mobile.
+- `build/line-contract.test.mjs` — static ordering, rejection-message and
+  fail-closed contract pins.
+- `PROJECT_CONTEXT.md` — backlog closure and `LINE-CLOUD-ADOPT-1` prevention
+  control.
+- `CHANGELOG.md` — source-only candidate record.
+- Generated `index.html` and `BUILD-MANIFEST.json` are refreshed only by the
+  normal repository verification/package pipeline.
+
+This implementation does not change Database, migrations, Storage, Auth, RLS,
+providers, Environment, secrets, backup/recovery, import/reconciliation,
+activation, deployment or Production. PR merge remains a separate Owner gate.

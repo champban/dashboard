@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02
+
+- Full local-file conflict → **Keep what is on Drive** now prepares confirmed
+  LINE mutations against the selected cloud payload, uploads the merged payload
+  first, and completes mutation IDs only after Drive accepts it.
+- Mobile conflict **Cloud → Local** applies the same final-download ordering and
+  preserves the unresolved conflict when the upload fails.
+- Added success/failure runtime coverage plus Full/Mobile ordering contracts.
+- Closed the `importUseCloud` backlog gap and added a recurrence-prevention rule
+  for every cloud-adopt decision point.
+- Source-only candidate: no Database, migration, Storage, Auth, RLS, provider,
+  secret, backup, deployment, merge, activation, reconciliation or Production
+  operation is included.
+
 ## Unreleased — L0b normalized data foundation — 2026-08-20
 
 - Added an unapplied nine-table Supabase migration with owner-composite foreign

@@ -35,6 +35,31 @@ const mobileMutationCommitAt = mobile.indexOf("state.data=payload", mobilePrepar
 assert.ok(mobilePrepareAt >= 0 && mobileMutationUploadAt > mobilePrepareAt
   && mobileMutationCommitAt > mobileMutationUploadAt,
 "Mobile must not expose a queued LINE mutation in local state before Drive accepts it");
+const fullImportCloudAt = full.indexOf("const importUseCloud = async () => {");
+const fullImportPrepareAt = full.indexOf("prepareLineMutations(ic.cloud.payload)", fullImportCloudAt);
+const fullImportUploadAt = full.indexOf("await GDrive.updateFile", fullImportPrepareAt);
+const fullImportCompleteAt = full.indexOf("completeMutations", fullImportUploadAt);
+const fullImportAdoptAt = full.indexOf("await applyPayloadLive(merged)", fullImportCompleteAt);
+const fullImportClearAt = full.indexOf("setImportConflict(null)", fullImportAdoptAt);
+assert.ok(fullImportCloudAt >= 0 && fullImportPrepareAt > fullImportCloudAt
+  && fullImportUploadAt > fullImportPrepareAt && fullImportCompleteAt > fullImportUploadAt
+  && fullImportAdoptAt > fullImportCompleteAt && fullImportClearAt > fullImportAdoptAt,
+"Full import cloud-wins must prepare, upload, complete, adopt, then clear the conflict");
+const mobileConflictAt = mobile.indexOf("function showConflict(meta){");
+const mobileConflictDownloadAt = mobile.indexOf("const text=await driveDownload", mobileConflictAt);
+const mobileConflictPrepareAt = mobile.indexOf("prepareMutations(downloaded)", mobileConflictDownloadAt);
+const mobileConflictUploadAt = mobile.indexOf("await driveUpdate", mobileConflictPrepareAt);
+const mobileConflictCompleteAt = mobile.indexOf("completeMutations", mobileConflictUploadAt);
+const mobileConflictAdoptAt = mobile.indexOf("pushHistory('Resolve conflict from cloud')", mobileConflictCompleteAt);
+const mobileConflictCloseAt = mobile.indexOf("pendingConflictMeta=null;closeModal()", mobileConflictAdoptAt);
+assert.ok(mobileConflictAt >= 0 && mobileConflictDownloadAt > mobileConflictAt
+  && mobileConflictPrepareAt > mobileConflictDownloadAt && mobileConflictUploadAt > mobileConflictPrepareAt
+  && mobileConflictCompleteAt > mobileConflictUploadAt && mobileConflictAdoptAt > mobileConflictCompleteAt
+  && mobileConflictCloseAt > mobileConflictAdoptAt,
+"Mobile cloud pull must prepare the final download, upload, complete, adopt, then close");
+const mobileConflictBlock = mobile.slice(mobileConflictAt, mobile.indexOf("function bindSync(){", mobileConflictAt));
+assert.match(mobileConflictBlock, /lineSaveToastText\(linePrepared\.rejected/);
+assert.match(mobileConflictBlock, /catch\(e\)\{state\.driveError=e\.message;toast\(e\.message\);render\(\)\}/);
 
 assert.doesNotMatch(browserBridge, /LINE_CHANNEL_(?:SECRET|ACCESS_TOKEN)/);
 assert.doesNotMatch(browserBridge, /service_role|sb_secret_/);

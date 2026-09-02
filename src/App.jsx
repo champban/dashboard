@@ -14082,13 +14082,46 @@ export default function App() {
   };
 
   // direction 2: the cloud wins — ignore the file, load what is on Drive
+  // Stage 5A: prepare against the FINAL cloud payload. Preparing earlier is not
+  // sufficient because this rare path downloads/adopts a different copy after
+  // the normal sync preparation point.
   const importUseCloud = async () => {
     const ic = importConflict; if (!ic) return;
-    setImportConflict(null);
-    await applyPayloadLive(ic.cloud.payload);
-    await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: ic.cloud.modifiedTime });
-    void publishLineSnapshot(ic.cloud.payload);
-    setGsyncStatus("synced");
+    try {
+      const prepared = await prepareLineMutations(ic.cloud.payload);
+      const payload = prepared.payload;
+      if (prepared.mutationIds.length) {
+        if (!gsync.fileId) throw new Error("No Google Drive file is linked.");
+        const stamp = new Date().toISOString();
+        const merged = { ...payload, dataLastUpdated: stamp };
+        const pushedFp = dataFingerprint(merged);
+        const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(merged, null, 2));
+        setDataLastUpdated(stamp);
+        await persistGsync({ ...gsync, lastSyncAt: Date.now(),
+          lastCloudModified: updated.modifiedTime || ic.cloud.modifiedTime,
+          lastPushedStamp: stamp, lastPushedFp: pushedFp });
+        await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
+        await applyPayloadLive(merged);
+        void publishLineSnapshot(merged);
+        setImportConflict(null);
+        setGsyncStatus("synced");
+        noteLineSaveResult(prepared.rejected);
+        return;
+      }
+      await applyPayloadLive(payload);
+      await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: ic.cloud.modifiedTime });
+      void publishLineSnapshot(payload);
+      setImportConflict(null);
+      setGsyncStatus("synced");
+      if (prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
+    } catch (error) {
+      // Keep the conflict open. A failed Drive upload must not complete queued
+      // mutation IDs, replace local data, or report a successful resolution.
+      const message = error?.message || "Could not apply the Google Drive copy.";
+      setGsyncStatus("error");
+      setGsyncError(message);
+      note("error", message);
+    }
   };
 
   // ── N104: open a JSON from Drive on the very first run ────────────────────

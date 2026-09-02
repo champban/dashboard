@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-J3LeE9HJ/C2oHiAJPxdjTNoTjZyaYpbZcoUSKqHKK1c=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-1xQGcPzWyeTw2UamIJPJzJ98GTbQXK1IHfAldvNhFtg=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -438,10 +438,24 @@ function showConflict(meta){
   const cloudTime=syncTimestamp(meta.modifiedTime),localTime=syncTimestamp(state.data.savedAt),cloudNewer=cloudTime>localTime,localNewer=localTime>cloudTime,recommendation=cloudNewer?'Cloud → Local':localNewer?'Local → Cloud':'Either copy';
   showModal(tr('conflict'),`<p class="note" style="font-size:14px">Both copies changed. Compare their timestamps, then choose the direction. <strong>Recommended: ${recommendation}</strong></p><div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>Cloud ${cloudNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(meta.modifiedTime))}</span></div><span aria-hidden="true">→</span></div><div class="file-row"><div class="file-icon">📱</div><div class="file-info"><strong>Local ${localNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(state.data.savedAt))}</span></div><span aria-hidden="true">→</span></div><div class="sync-actions" style="margin-top:12px"><button class="${cloudNewer?'primary':'secondary'}" id="conflictPull">☁️ → 📱 ${tr('pullCloud')} ${cloudNewer?'· Recommended':''}</button><button class="${localNewer?'primary':'secondary'}" id="conflictPush">📱 → ☁️ ${tr('pushLocal')} ${localNewer?'· Recommended':''}</button><button class="secondary" id="conflictExport">${tr('exportFirst')}</button></div>`);
   const pull=async()=>{
-    const text=await driveDownload(state.sync.fileId),data=normalizeProfile(JSON.parse(text));
-    pushHistory('Resolve conflict from cloud');state.data=data;state.lang=state.data.config?.lang||state.lang;
-    state.sync.lastCloudModified=meta.modifiedTime;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
-    saveLocal(false);void publishLineSnapshot(data);pendingConflictMeta=null;closeModal();render();
+    try{
+      const text=await driveDownload(state.sync.fileId),downloaded=normalizeProfile(JSON.parse(text));
+      const linePrepared=window.__MTP_LINE__?.prepareMutations
+        ?await window.__MTP_LINE__.prepareMutations(downloaded)
+        :{payload:downloaded,mutationIds:[],rejected:[]};
+      const mutationIds=Array.isArray(linePrepared.mutationIds)?linePrepared.mutationIds:[];
+      let data=normalizeProfile(linePrepared.payload||downloaded),cloudModified=meta.modifiedTime;
+      if(mutationIds.length){
+        const payload=prepareProfileForSave(data),r=await driveUpdate(state.sync.fileId,JSON.stringify(payload,null,2));
+        data=normalizeProfile(payload);cloudModified=r.modifiedTime||meta.modifiedTime;
+        await window.__MTP_LINE__?.completeMutations?.(mutationIds);
+      }
+      pushHistory('Resolve conflict from cloud');state.data=data;state.lang=state.data.config?.lang||state.lang;
+      state.sync.lastCloudModified=cloudModified;state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
+      saveLocal(false);void publishLineSnapshot(data);pendingConflictMeta=null;closeModal();
+      if(linePrepared.rejected?.length)toast(lineSaveToastText(linePrepared.rejected,'↓ '+tr('synced')));
+      render();
+    }catch(e){state.driveError=e.message;toast(e.message);render()}
   };
   const push=async()=>{
     const payload=prepareForSave(),r=await driveUpdate(state.sync.fileId,JSON.stringify(payload,null,2));
