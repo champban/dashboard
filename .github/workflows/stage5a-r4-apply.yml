@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/feature/stage5a-line-import-conflict" ]]
-          [[ "$(git log -1 --format=%s)" == "ops(stage5a): run verified single-payload patch" ]]
+          [[ "$(git log -1 --format=%s)" == "ops(stage5a): run exact staged payload" ]]
           git merge-base --is-ancestor 921a7d780713dead2ab1c8b554dddaad0c59b4d2 HEAD
           git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- \
             BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tr -d '[:space:]' < .stage5a-r4/patch.py.gz.b64 > "$RUNNER_TEMP/patch.b64"
+          tr -d '[:space:]' < .stage5a-r4/patch.py.gz.b64.exact > "$RUNNER_TEMP/patch.b64"
           payload_sha="$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)"
           echo "payload_sha=$payload_sha"
           [[ "$payload_sha" == "4aa90f9ae9758b0959aab589922bcd11c72454faf52660bb181e66f0affe55fb" ]] || { echo "payload checksum mismatch"; exit 21; }
