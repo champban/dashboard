@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/feature/stage5a-line-import-conflict" ]]
-          [[ "$(git log -1 --format=%s)" == "ops(stage5a): apply verified round-4 patch" ]]
+          [[ "$(git log -1 --format=%s)" == "ops(stage5a): diagnose exact patch transfer" ]]
           git merge-base --is-ancestor 921a7d780713dead2ab1c8b554dddaad0c59b4d2 HEAD
           git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- \
             BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
@@ -44,11 +44,15 @@ jobs:
           set -euo pipefail
           cat .stage5a-r4/chunk0.b64 .stage5a-r4/chunk1.b64 \
               .stage5a-r4/chunk2.b64 .stage5a-r4/chunk3.b64 > "$RUNNER_TEMP/patch.b64"
-          [[ "$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)" == "5da645edc94f1369b3dc32a3b624fbc606360e595cde7082b6ddd383d8bd40d3" ]]
+          payload_sha="$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)"
+          echo "payload_sha=$payload_sha"
+          [[ "$payload_sha" == "5da645edc94f1369b3dc32a3b624fbc606360e595cde7082b6ddd383d8bd40d3" ]] || { echo "payload checksum mismatch"; exit 21; }
           base64 -d "$RUNNER_TEMP/patch.b64" | gzip -d > "$RUNNER_TEMP/stage5a-r4.py"
-          [[ "$(sha256sum "$RUNNER_TEMP/stage5a-r4.py" | cut -d' ' -f1)" == "c1e5c9043b2c8dadb33b44a4d53a776dc0c6cb2cc79a5934be2443c8d8edb087" ]]
+          script_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py" | cut -d' ' -f1)"
+          echo "script_sha=$script_sha"
+          [[ "$script_sha" == "c1e5c9043b2c8dadb33b44a4d53a776dc0c6cb2cc79a5934be2443c8d8edb087" ]] || { echo "script checksum mismatch"; exit 22; }
           python3 -m py_compile "$RUNNER_TEMP/stage5a-r4.py"
-          python3 "$RUNNER_TEMP/stage5a-r4.py"
+          PYTHONUNBUFFERED=1 python3 "$RUNNER_TEMP/stage5a-r4.py"
 
       - name: Validate source-only boundary before build
         shell: bash
