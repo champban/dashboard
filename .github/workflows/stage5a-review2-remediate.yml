@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): refresh CSP before tests' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): build before CSP package' ]]
           git merge-base --is-ancestor 29746ce2c0f9f5ba7298555d5ed7bb5f56ce05c3 HEAD
           [[ -f ops/stage5a-review2-remediate.py ]]
           python3 -m py_compile ops/stage5a-review2-remediate.py
@@ -80,8 +80,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Refresh generated package and Mobile CSP
-        run: npm run package
+      - name: Build and refresh generated package / Mobile CSP
+        run: npm run build && npm run package
 
       - name: Run regression tests
         run: npm test
