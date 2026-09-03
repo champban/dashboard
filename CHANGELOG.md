@@ -2,14 +2,21 @@
 
 ## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02
 
-- Full local-file conflict → **Keep what is on Drive** now prepares confirmed
-  LINE mutations against the selected cloud payload, uploads the merged payload
-  first, and completes mutation IDs only after Drive accepts it.
-- Mobile conflict **Cloud → Local** applies the same final-download ordering and
-  preserves the unresolved conflict when the upload fails.
-- Added success/failure runtime coverage plus Full/Mobile ordering contracts.
-- Closed the `importUseCloud` backlog gap and added a recurrence-prevention rule
-  for every cloud-adopt decision point.
+- Full local-file conflict → **Keep what is on Drive** now revalidates the
+  selected Drive revision/content, uses an ETag write precondition, and reopens
+  the conflict rather than overwriting a newer cloud save.
+- After Drive accepts a merged LINE mutation, Full retains the exact payload and
+  IDs as a completion checkpoint; an ambiguous completion response retries only
+  the idempotent queue update and never falls back to stale cloud bytes.
+- Mobile persists a temporary post-upload checkpoint containing the exact
+  payload/IDs/rejections. Reload or retry completes those IDs without preparing
+  or applying the mutation a second time, then adopts the exact uploaded payload.
+- Mobile preserves the downloaded cloud profile language, and Full/Mobile report
+  earlier rejected mutations even when upload or completion later fails.
+- Added stale-Drive, completion-response-loss, completion-only retry, language,
+  rejection, success and failure coverage plus Full/Mobile static contracts.
+- Closed the `importUseCloud` backlog gap and strengthened the
+  `LINE-CLOUD-ADOPT-1` recurrence-prevention rule.
 - Source-only candidate: no Database, migration, Storage, Auth, RLS, provider,
   secret, backup, deployment, merge, activation, reconciliation or Production
   operation is included.

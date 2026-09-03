@@ -47,7 +47,14 @@ Update `src/App.jsx` only within the `importUseCloud` flow:
    successful Drive write.
 6. Reuse the existing rejected-mutation notice helper.
 7. When no mutation IDs exist, retain the current cloud-wins behaviour.
-8. On Drive failure, do not complete mutation IDs and do not claim sync success.
+8. Re-read current Drive metadata/content immediately before writing and use
+   the current ETag as an `If-Match` precondition. If Drive advanced, refresh the
+   conflict instead of overwriting it.
+9. After upload succeeds, retain the exact payload, modified time, fingerprint,
+   IDs and rejections in a completion checkpoint. A retry performs only the
+   idempotent queue completion and adopts that checkpoint payload.
+10. On upload/completion failure, keep the conflict/checkpoint and report both
+    the later error and any earlier rejected mutations.
 
 ### Mobile app
 
@@ -61,7 +68,13 @@ Update `mobile/index.html` only within the conflict `Cloud → Local` handler:
 5. Persist the returned `modifiedTime`; surface rejected mutations with the
    existing `lineSaveToastText(...)` mechanism.
 6. If no mutation IDs exist, preserve current behaviour.
-7. On failure, do not complete IDs and do not silently mark the conflict resolved.
+7. Persist a temporary exact post-upload checkpoint before completion. A
+   retry/reload completes only those exact IDs and does not re-run mutation
+   preparation; clear the checkpoint only after exact local adoption succeeds.
+8. Preserve the downloaded cloud profile language when serialising the merged
+   upload.
+9. On upload/completion failure, keep the conflict/checkpoint and report both
+   the later error and any earlier rejected mutations.
 
 ## Tests
 
@@ -71,8 +84,12 @@ Update `mobile/index.html` only within the conflict `Cloud → Local` handler:
   and completed only after upload.
 - Prove a failed upload leaves the mutation uncompleted and does not report a
   successful adoption.
-- Extend `build/line-contract.test.mjs`, or add one focused Mobile test, to pin
-  prepare → upload → complete → adopt ordering for the Mobile cloud-pull path.
+- Prove stale Drive revisions are refreshed, ETag preconditions are supplied,
+  ambiguous completion responses retain exact recovery state, and retries do
+  not re-prepare or duplicate a mutation.
+- Prove Mobile persists completion-only recovery, preserves cloud language and
+  surfaces earlier rejections on later failure.
+- Extend `build/line-contract.test.mjs` to pin these Full/Mobile contracts.
 - Preserve all existing sync, LINE, build, packaging and secret-scan tests.
 
 ## Durable records
@@ -110,19 +127,20 @@ Rollback is branch deletion or commit revert; Production remains unchanged.
 
 ## Implementation record
 
-Status: **IMPLEMENTED ON DRAFT SOURCE BRANCH / VERIFICATION REQUIRED**
+Status: **REMEDIATED ON DRAFT SOURCE BRANCH / EXACT-HEAD VERIFICATION REQUIRED**
 
 Changed source and test boundary:
 
-- `src/App.jsx` — final cloud-wins import decision prepares pending LINE
-  mutations, uploads the merged payload before completing IDs/adopting locally,
-  and retains the unresolved conflict on upload failure.
-- `mobile/index.html` — final downloaded cloud payload follows prepare → upload
-  → complete → adopt ordering; failed uploads do not close the conflict.
-- `build/sync-content-check.test.mjs` — executable success/failure ordering
-  regressions for Full and Mobile.
-- `build/line-contract.test.mjs` — static ordering, rejection-message and
-  fail-closed contract pins.
+- `src/App.jsx` — final cloud-wins import decision revalidates Drive,
+  applies an ETag precondition, checkpoints exact post-upload state, retries only
+  queue completion after ambiguous responses, and reports earlier rejections.
+- `mobile/index.html` — final downloaded cloud payload preserves cloud language,
+  persists an exact completion-only checkpoint and never re-prepares a mutation
+  after Drive accepts it.
+- `build/sync-content-check.test.mjs` — executable stale-revision,
+  response-loss, completion-only retry, language/rejection and failure regressions.
+- `build/line-contract.test.mjs` — static ETag/revalidation, checkpoint,
+  exact-adoption, language, rejection-message and fail-closed contract pins.
 - `PROJECT_CONTEXT.md` — backlog closure and `LINE-CLOUD-ADOPT-1` prevention
   control.
 - `CHANGELOG.md` — source-only candidate record.

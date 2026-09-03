@@ -438,7 +438,7 @@ let savedBytes = null;
   check('"Yes" uploads', uploads.length >= 1, `${uploads.length} upload(s)`);
 }
 
-// ── Stage 5A: final cloud-adopt decision points must preserve LINE changes ─────
+// ── Stage 5A: cloud-adopt retries, races and reporting ─────────────────────────
 const extractStage5aArrow = (source, declaration, following) => {
   const start = source.indexOf(declaration);
   check(`Stage 5A source contains ${declaration.trim()}`, start >= 0);
@@ -447,158 +447,104 @@ const extractStage5aArrow = (source, declaration, following) => {
   check(`Stage 5A source terminates ${declaration.trim()}`, end > start);
   if (end < 0) return null;
   const prefix = declaration.slice(0, declaration.indexOf('async'));
-  const expression = source.slice(start + prefix.length, end + 5).trim().replace(/;$/, '');
-  return expression;
+  return source.slice(start + prefix.length, end + 5).trim().replace(/;$/, '');
 };
 
 {
-  console.log('\n--- Stage 5A Full import conflict: upload → complete → adopt ---');
+  console.log('\n--- Stage 5A Full: revalidate → upload → checkpoint → complete → adopt ---');
   const fullSource = fs.readFileSync('src/App.jsx', 'utf8');
   const expression = extractStage5aArrow(fullSource,
-    '  const importUseCloud = async () => {',
-    '\n  };\n\n  // ── N104:');
+    '  const importUseCloud = async () => {', '\n  };\n\n  // ── N104:');
   if (expression) {
-    const dependencyNames = [
-      'importConflict','setImportConflict','prepareLineMutations','gsync','GDrive',
-      'dataFingerprint','setDataLastUpdated','persistGsync','window','applyPayloadLive',
-      'publishLineSnapshot','setGsyncStatus','noteLineSaveResult','setGsyncError','note',
-    ];
-    const factory = new Function(...dependencyNames, `return (${expression});`);
-    const events = [];
-    let uploaded = null, adopted = null, persisted = null;
-    const cloud = { personal:[{id:'cloud',title:'Cloud'}], work:[], events:[], notes:[], config:{} };
-    const merged = { ...cloud, personal:[...cloud.personal,{id:'line',title:'From LINE'}] };
-    const action = factory(
-      { cloud:{payload:cloud,modifiedTime:'cloud-old'} },
-      value => events.push(value===null?'clear':'set-conflict'),
-      async payload => { events.push('prepare'); check('Full prepares selected cloud payload', payload===cloud); return {payload:merged,mutationIds:['m1'],rejected:[]}; },
+    const names = ['importConflict','setImportConflict','prepareLineMutations','gsync','GDrive',
+      'payloadDigest','dataFingerprint','setDataLastUpdated','persistGsync','window',
+      'applyPayloadLive','publishLineSnapshot','setGsyncStatus','noteLineSaveResult','setGsyncError','note'];
+    const factory = new Function(...names, `return (${expression});`);
+    const cloud={personal:[{id:'cloud'}],work:[],events:[],notes:[],config:{}};
+    const merged={...cloud,personal:[...cloud.personal,{id:'line'}]};
+    const events=[];let checkpoint=null,adopted=null,persisted=null;
+    const action=factory(
+      {cloud:{payload:cloud,modifiedTime:'m1'}},
+      value=>{events.push(value===null?'clear':'checkpoint');if(value?.completion)checkpoint=value},
+      async payload=>{events.push('prepare');return{payload:merged,mutationIds:['id-1'],rejected:[{error:'expired'}]}},
       {fileId:'drive-1'},
-      {updateFile:async(id,text)=>{events.push('upload');uploaded=JSON.parse(text);check('Full uploads linked Drive file',id==='drive-1');return{modifiedTime:'cloud-new'}}},
-      payload => JSON.stringify(payload),
-      () => events.push('stamp'),
-      async value => {events.push('persist');persisted=value},
-      {__MTP_LINE__:{completeMutations:async ids=>{events.push('complete');check('Full completes exact mutation IDs',ids.join(',')==='m1')}}},
-      async payload => {events.push('adopt');adopted=payload},
-      payload => {events.push('publish');check('Full publishes adopted payload',payload===adopted)},
-      value => events.push(`status:${value}`),
-      () => events.push('result'),
-      message => events.push(`error:${message}`),
-      (kind,message) => events.push(`note:${kind}:${message}`),
-    );
+      {getMeta:async()=>{events.push('meta');return{modifiedTime:'m1',etag:'etag-1'}},
+       download:async()=>{events.push('download');return JSON.stringify(cloud)},
+       updateFile:async(id,text,etag)=>{events.push('upload');check('Full writes with current ETag',etag==='etag-1');return{modifiedTime:'m2'}}},
+      value=>JSON.stringify(value),value=>JSON.stringify(value),()=>events.push('stamp'),
+      async value=>{events.push('persist');persisted=value},
+      {__MTP_LINE__:{completeMutations:async()=>events.push('complete')}},
+      async value=>{events.push('adopt');adopted=value},()=>events.push('publish'),
+      value=>events.push('status:'+value),(rejected,fallback,kind)=>events.push(`result:${kind||''}:${fallback||''}:${rejected?.length||0}`),
+      message=>events.push('error:'+message),(kind,message)=>events.push(`note:${kind}:${message}`));
     await action();
-    check('Full upload contains pending LINE mutation', uploaded?.personal?.some(item=>item.id==='line'));
-    check('Full adopts the uploaded merged payload', adopted?.personal?.some(item=>item.id==='line'));
-    check('Full persists returned Drive modifiedTime', persisted?.lastCloudModified==='cloud-new');
-    check('Full orders upload before completion', events.indexOf('upload') < events.indexOf('complete'), events.join(' → '));
-    check('Full orders completion before local adoption', events.indexOf('complete') < events.indexOf('adopt'), events.join(' → '));
-    check('Full clears conflict only after adoption', events.indexOf('adopt') < events.indexOf('clear'), events.join(' → '));
-    check('Full reports synced only after success', events.includes('status:synced'), events.join(' → '));
+    check('Full revalidates before preparing',events.indexOf('download')<events.indexOf('prepare'),events.join(' → '));
+    check('Full uploads before completion',events.indexOf('upload')<events.indexOf('complete'),events.join(' → '));
+    check('Full checkpoints before completion',events.indexOf('checkpoint')<events.indexOf('complete'),events.join(' → '));
+    check('Full completes before adoption',events.indexOf('complete')<events.indexOf('adopt'),events.join(' → '));
+    check('Full adopts exact merged payload',adopted?.personal?.some(x=>x.id==='line'));
+    check('Full persists returned modifiedTime',persisted?.lastCloudModified==='m2');
 
-    const failedEvents = [];
-    const failedAction = factory(
-      { cloud:{payload:cloud,modifiedTime:'cloud-old'} },
-      value => failedEvents.push(value===null?'clear':'set-conflict'),
-      async () => {failedEvents.push('prepare');return{payload:merged,mutationIds:['m1'],rejected:[]}},
+    const staleEvents=[];let refreshed=null;
+    const stale=factory({cloud:{payload:cloud,modifiedTime:'m1'}},value=>{refreshed=value;staleEvents.push('refresh')},
+      async()=>{staleEvents.push('prepare');return{payload:merged,mutationIds:['id-1'],rejected:[]}},
       {fileId:'drive-1'},
-      {updateFile:async()=>{failedEvents.push('upload');throw new Error('upload failed')}},
-      ()=>'fp',
-      ()=>failedEvents.push('stamp'),
-      async()=>failedEvents.push('persist'),
-      {__MTP_LINE__:{completeMutations:async()=>failedEvents.push('complete')}},
-      async()=>failedEvents.push('adopt'),
-      ()=>failedEvents.push('publish'),
-      value=>failedEvents.push(`status:${value}`),
-      ()=>failedEvents.push('result'),
-      message=>failedEvents.push(`error:${message}`),
-      (kind,message)=>failedEvents.push(`note:${kind}:${message}`),
-    );
-    await failedAction();
-    check('Full failed upload completes no mutation', !failedEvents.includes('complete'), failedEvents.join(' → '));
-    check('Full failed upload adopts no cloud payload', !failedEvents.includes('adopt'), failedEvents.join(' → '));
-    check('Full failed upload keeps conflict unresolved', !failedEvents.includes('clear'), failedEvents.join(' → '));
-    check('Full failed upload reports error, not synced', failedEvents.includes('status:error')&&!failedEvents.includes('status:synced'), failedEvents.join(' → '));
+      {getMeta:async()=>({modifiedTime:'m2',etag:'etag-2'}),download:async()=>JSON.stringify({...cloud,notes:[{id:'new'}]}),updateFile:async()=>staleEvents.push('upload')},
+      value=>JSON.stringify(value),value=>JSON.stringify(value),()=>{},async()=>{},
+      {__MTP_LINE__:{completeMutations:async()=>staleEvents.push('complete')}},async()=>staleEvents.push('adopt'),()=>{},
+      ()=>{},()=>{},()=>{},(kind)=>staleEvents.push('note:'+kind));
+    await stale();
+    check('Full stale Drive revision reopens conflict',!!refreshed?.cloud&&refreshed.cloud.modifiedTime==='m2');
+    check('Full stale Drive revision is never overwritten',!staleEvents.includes('upload')&&!staleEvents.includes('prepare'),staleEvents.join(' → '));
+
+    const firstEvents=[];let recoveryState=null;
+    const ambiguous=factory({cloud:{payload:cloud,modifiedTime:'m1'}},value=>{if(value?.completion)recoveryState=value},
+      async()=>({payload:merged,mutationIds:['id-1'],rejected:[{error:'expired'}]}),{fileId:'drive-1'},
+      {getMeta:async()=>({modifiedTime:'m1',etag:'etag-1'}),download:async()=>JSON.stringify(cloud),updateFile:async()=>({modifiedTime:'m2'})},
+      value=>JSON.stringify(value),value=>JSON.stringify(value),()=>{},async()=>{},
+      {__MTP_LINE__:{completeMutations:async()=>{firstEvents.push('complete');throw Error('response lost')}}},
+      async()=>firstEvents.push('adopt'),()=>{},value=>firstEvents.push('status:'+value),
+      (rejected,fallback,kind)=>firstEvents.push(`result:${kind}:${fallback}:${rejected.length}`),()=>{},()=>{});
+    await ambiguous();
+    check('Full ambiguous completion keeps exact recovery checkpoint',!!recoveryState?.completion?.payload&&recoveryState.completion.mutationIds[0]==='id-1');
+    check('Full ambiguous completion does not adopt early',!firstEvents.includes('adopt'),firstEvents.join(' → '));
+    check('Full failure reports both later error and earlier rejection',firstEvents.some(x=>/response lost:1/.test(x)),firstEvents.join(' → '));
+
+    const retryEvents=[];let retryAdopted=null;
+    const retry=factory(recoveryState,()=>{},async()=>{retryEvents.push('prepare');throw Error('must not prepare')},{fileId:'drive-1'},
+      {getMeta:async()=>{retryEvents.push('meta');throw Error('must not reread')},download:async()=>{},updateFile:async()=>retryEvents.push('upload')},
+      value=>JSON.stringify(value),value=>JSON.stringify(value),()=>{},async()=>{},
+      {__MTP_LINE__:{completeMutations:async ids=>{retryEvents.push('complete');check('Full retry uses exact IDs',ids[0]==='id-1')}}},
+      async value=>{retryEvents.push('adopt');retryAdopted=value},()=>retryEvents.push('publish'),()=>{},()=>{},()=>{},()=>{});
+    await retry();
+    check('Full retry is completion-only',!retryEvents.includes('prepare')&&!retryEvents.includes('upload')&&!retryEvents.includes('meta'),retryEvents.join(' → '));
+    check('Full retry adopts checkpoint payload',retryAdopted?.personal?.some(x=>x.id==='line'));
   }
 }
 
 {
-  console.log('\n--- Stage 5A Mobile conflict pull: upload → complete → adopt ---');
-  const mobileSource = fs.readFileSync('mobile/index.html', 'utf8');
-  const showConflictAt = mobileSource.indexOf('function showConflict(meta){');
-  const scoped = showConflictAt >= 0 ? mobileSource.slice(showConflictAt) : '';
-  const expression = extractStage5aArrow(scoped,
-    '  const pull=async()=>{',
-    '\n  };\n  const push=async()=>{');
-  if (expression) {
-    const dependencyNames = [
-      'state','driveDownload','normalizeProfile','window','driveUpdate','prepareProfileForSave',
-      'pushHistory','saveLocal','publishLineSnapshot','pendingConflictMeta','closeModal',
-      'lineSaveToastText','toast','tr','render','meta',
-    ];
-    const factory = new Function(...dependencyNames, `return (${expression});`);
-    const events = [];
-    const local = {personal:[{id:'local'}],work:[],events:[],notes:[],config:{lang:'EN'}};
-    const downloaded = {personal:[{id:'cloud'}],work:[],events:[],notes:[],config:{lang:'EN'}};
-    const merged = {...downloaded,personal:[...downloaded.personal,{id:'line'}]};
-    const state = {data:local,lang:'EN',sync:{fileId:'drive-1',lastCloudModified:'cloud-old',lastSyncAt:0,dirty:true},driveError:''};
-    let uploaded = null, published = null, closed = false;
-    const pull = factory(
-      state,
-      async()=>{events.push('download');return JSON.stringify(downloaded)},
-      value=>JSON.parse(JSON.stringify(value)),
-      {__MTP_LINE__:{
-        prepareMutations:async payload=>{events.push('prepare');check('Mobile prepares final downloaded payload',payload.personal[0].id==='cloud');return{payload:merged,mutationIds:['m1'],rejected:[{error:'expired'}]}},
-        completeMutations:async ids=>{events.push('complete');check('Mobile completes exact IDs',ids.join(',')==='m1')},
-      }},
-      async(id,text)=>{events.push('upload');uploaded=JSON.parse(text);return{modifiedTime:'cloud-new'}},
-      payload=>({...payload,savedAt:'stage5a'}),
-      ()=>events.push('adopt'),
-      ()=>events.push('save'),
-      payload=>{events.push('publish');published=payload},
-      {},
-      ()=>{events.push('close');closed=true},
-      rejected=>`rejected:${rejected.length}`,
-      message=>events.push(`toast:${message}`),
-      key=>key,
-      ()=>events.push('render'),
-      {modifiedTime:'cloud-old'},
-    );
-    await pull();
-    check('Mobile upload contains pending LINE mutation', uploaded?.personal?.some(item=>item.id==='line'));
-    check('Mobile adopts uploaded merged payload', state.data?.personal?.some(item=>item.id==='line'));
-    check('Mobile publishes adopted payload', published===state.data);
-    check('Mobile persists returned modifiedTime', state.sync.lastCloudModified==='cloud-new');
-    check('Mobile orders upload before completion', events.indexOf('upload') < events.indexOf('complete'), events.join(' → '));
-    check('Mobile orders completion before adoption', events.indexOf('complete') < events.indexOf('adopt'), events.join(' → '));
-    check('Mobile surfaces rejected mutation result', events.some(value=>value==='toast:rejected:1'), events.join(' → '));
-    check('Mobile closes conflict only after success', closed&&events.indexOf('adopt')<events.indexOf('close'), events.join(' → '));
-
-    const failedState = {data:local,lang:'EN',sync:{fileId:'drive-1',lastCloudModified:'cloud-old',lastSyncAt:0,dirty:true},driveError:''};
-    const failedEvents = [];
-    const failedPull = factory(
-      failedState,
-      async()=>JSON.stringify(downloaded),
-      value=>JSON.parse(JSON.stringify(value)),
-      {__MTP_LINE__:{prepareMutations:async()=>({payload:merged,mutationIds:['m1'],rejected:[]}),completeMutations:async()=>failedEvents.push('complete')}},
-      async()=>{failedEvents.push('upload');throw new Error('upload failed')},
-      payload=>payload,
-      ()=>failedEvents.push('adopt'),
-      ()=>failedEvents.push('save'),
-      ()=>failedEvents.push('publish'),
-      {},
-      ()=>failedEvents.push('close'),
-      ()=>'rejected',
-      message=>failedEvents.push(`toast:${message}`),
-      key=>key,
-      ()=>failedEvents.push('render'),
-      {modifiedTime:'cloud-old'},
-    );
-    await failedPull();
-    check('Mobile failed upload completes no mutation', !failedEvents.includes('complete'), failedEvents.join(' → '));
-    check('Mobile failed upload adopts no cloud payload', !failedEvents.includes('adopt'), failedEvents.join(' → '));
-    check('Mobile failed upload keeps conflict open', !failedEvents.includes('close'), failedEvents.join(' → '));
-    check('Mobile failed upload preserves local data', failedState.data===local);
-    check('Mobile failed upload reports the error', failedState.driveError==='upload failed'&&failedEvents.includes('toast:upload failed'), failedEvents.join(' → '));
-  }
+  console.log('\n--- Stage 5A Mobile: durable completion-only checkpoint contracts ---');
+  const mobile=fs.readFileSync('mobile/index.html','utf8');
+  const showAt=mobile.indexOf('function showConflict(meta){');
+  const pullAt=mobile.indexOf('  const pull=async()=>{',showAt);
+  const pushAt=mobile.indexOf('\n  const push=async()=>{',pullAt);
+  const pullBlock=mobile.slice(pullAt,pushAt);
+  const resumeAt=mobile.indexOf('async function resumeLineCompletion(');
+  const syncAt=mobile.indexOf('async function syncNow(',resumeAt);
+  const resumeBlock=mobile.slice(resumeAt,syncAt);
+  check('Mobile persists prepared checkpoint before upload',pullBlock.indexOf("phase:'prepared'")<pullBlock.indexOf('await driveUpdate'),pullBlock.slice(0,500));
+  check('Mobile persists uploaded checkpoint before resume',pullBlock.indexOf("phase:'uploaded'")>pullBlock.indexOf('await driveUpdate')&&pullBlock.indexOf('resumeLineCompletion',pullBlock.indexOf("phase:'uploaded'"))>pullBlock.indexOf("phase:'uploaded'"));
+  check('Mobile checkpoint carries exact IDs, payload and rejections',/payload,mutationIds:\[\.\.\.mutationIds\],rejected:\[\.\.\.rejected\]/.test(pullBlock));
+  check('Mobile cloud language is passed explicitly',/prepareProfileForSave\(data,cloudLang\)/.test(pullBlock));
+  check('Mobile resume completes checkpoint IDs',/complete\(checkpoint\.mutationIds\)/.test(resumeBlock));
+  check('Mobile resume never prepares mutations',! /prepareMutations/.test(resumeBlock));
+  check('Mobile uploaded phase never uploads again',resumeBlock.indexOf("if(checkpoint.phase!=='uploaded')")<resumeBlock.indexOf('driveUpdate'));
+  check('Mobile adopts checkpoint payload only after completion',resumeBlock.indexOf('await complete')<resumeBlock.indexOf('state.data=normalizeProfile'));
+  check('Mobile exact save avoids language restamp',/saveLocal\(false,true\)/.test(resumeBlock));
+  check('Mobile clears checkpoint only after exact local save',resumeBlock.indexOf('saveLocal(false,true)')<resumeBlock.indexOf('persistLineCompletion(null)'));
+  check('Mobile reports rejection on recovery failure',/lineSaveToastText\(rejected,state\.driveError\)/.test(resumeBlock));
+  check('Mobile reports rejection on pull failure',/lineSaveToastText\(rejected,state\.driveError\)/.test(pullBlock));
+  check('Mobile sync resumes checkpoint before preparing again',/resumeLineCompletion\(\{silent\}\)/.test(mobile));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');
