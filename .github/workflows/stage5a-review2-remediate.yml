@@ -30,10 +30,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): recalculate Mobile CSP' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): run extracted CSP remediation' ]]
           git merge-base --is-ancestor 29746ce2c0f9f5ba7298555d5ed7bb5f56ce05c3 HEAD
           [[ -f ops/stage5a-review2-remediate.py ]]
-          python3 -m py_compile ops/stage5a-review2-remediate.py
+          [[ -f ops/stage5a-refresh-mobile-csp.py ]]
+          python3 -m py_compile ops/stage5a-review2-remediate.py ops/stage5a-refresh-mobile-csp.py
 
       - name: Apply deterministic four-finding remediation
         run: python3 ops/stage5a-review2-remediate.py
@@ -55,46 +56,7 @@ jobs:
           PYCODE
 
       - name: Recalculate Mobile inline CSP hashes
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PYCODE'
-          import base64
-          import hashlib
-          import re
-          from pathlib import Path
-
-          path = Path('mobile/index.html')
-          text = path.read_text(encoding='utf-8')
-          scripts = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>', text)
-          if not scripts:
-              raise SystemExit('no Mobile inline scripts found')
-          hashes = []
-          for script in scripts:
-              value = base64.b64encode(hashlib.sha256(script.encode('utf-8')).digest()).decode('ascii')
-              if value not in hashes:
-                  hashes.append(value)
-
-          pattern = re.compile(r'(<meta http-equiv="Content-Security-Policy" content=")([^"]+)(">)')
-          match = pattern.search(text)
-          if not match:
-              raise SystemExit('Mobile CSP meta tag not found')
-          directives = [part.strip() for part in match.group(2).split(';') if part.strip()]
-          updated = False
-          for index, directive in enumerate(directives):
-              tokens = directive.split()
-              if tokens and tokens[0] == 'script-src':
-                  base_tokens = [token for token in tokens if not token.startswith("'sha256-")]
-                  directives[index] = ' '.join(base_tokens + [f"'sha256-{value}'" for value in hashes])
-                  updated = True
-                  break
-          if not updated:
-              raise SystemExit('Mobile script-src directive not found')
-          content = '; '.join(directives)
-          text = text[:match.start(2)] + content + text[match.end(2):]
-          path.write_text(text, encoding='utf-8')
-          print(f'Mobile CSP refreshed for {len(scripts)} inline scripts / {len(hashes)} unique hashes')
-          PYCODE
+        run: python3 ops/stage5a-refresh-mobile-csp.py
 
       - name: Validate source-only boundary before build
         shell: bash
