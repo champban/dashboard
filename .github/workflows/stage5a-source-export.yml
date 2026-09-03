@@ -1,0 +1,38 @@
+name: Stage 5A source export
+
+on:
+  push:
+    branches:
+      - work/stage5a-pr105-export
+    paths:
+      - .github/workflows/stage5a-source-export.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: work/stage5a-pr105-export
+          fetch-depth: 0
+      - name: Verify source ancestor and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 11e23332038b0271c211edca55cfbe73e0e5497b HEAD
+          git archive --format=zip --output=stage5a-source.zip 11e23332038b0271c211edca55cfbe73e0e5497b
+          sha256sum stage5a-source.zip > stage5a-source.zip.sha256
+      - name: Upload source workspace
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stage5a-source-11e2333
+          path: |
+            stage5a-source.zip
+            stage5a-source.zip.sha256
+          retention-days: 1
+          if-no-files-found: error
