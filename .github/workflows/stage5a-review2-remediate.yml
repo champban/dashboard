@@ -30,13 +30,29 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): retry second-review remediation' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): fix generated review contract' ]]
           git merge-base --is-ancestor 29746ce2c0f9f5ba7298555d5ed7bb5f56ce05c3 HEAD
           [[ -f ops/stage5a-review2-remediate.py ]]
           python3 -m py_compile ops/stage5a-review2-remediate.py
 
       - name: Apply deterministic four-finding remediation
         run: python3 ops/stage5a-review2-remediate.py
+
+      - name: Correct generated line-contract newline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path('build/line-contract.test.mjs')
+          text = path.read_text(encoding='utf-8')
+          bad = 'const at=full.indexOf(marker),end=full.indexOf("' + '\n' + '  };",at);'
+          good = r'const at=full.indexOf(marker),end=full.indexOf("\n  };",at);'
+          count = text.count(bad)
+          if count != 1:
+              raise SystemExit(f'generated line-contract anchor drifted: {count} matches')
+          path.write_text(text.replace(bad, good, 1), encoding='utf-8')
+          PYCODE
 
       - name: Validate source-only boundary before build
         shell: bash
