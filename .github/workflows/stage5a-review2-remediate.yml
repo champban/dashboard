@@ -16,7 +16,6 @@ concurrency:
 
 jobs:
   remediate:
-    if: github.event.head_commit.message == 'ops(stage5a): run second-review remediation'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -31,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): run second-review remediation' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): retry second-review remediation' ]]
           git merge-base --is-ancestor 29746ce2c0f9f5ba7298555d5ed7bb5f56ce05c3 HEAD
           [[ -f ops/stage5a-review2-remediate.py ]]
           python3 -m py_compile ops/stage5a-review2-remediate.py
