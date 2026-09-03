@@ -623,6 +623,7 @@ const BOTTOM_NAV = [
 const GDRIVE_CLIENT_ID = "369687041884-heue2bffon430f0kfaetcp8mv8kbh8q2.apps.googleusercontent.com";
 const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GSYNC_KEY = "lifeplanner-gdrive-sync-v1"; // {fileId, fileName, lastSyncAt, lastCloudModified, lastPushedStamp}
+const FULL_LINE_COMPLETION_KIND = "import-cloud-conflict-v2";
 
 // ─── Is what is on screen the same data as what is in the cloud file? ─────────
 //
@@ -12658,6 +12659,21 @@ export default function App() {
     try{ await window.storage.set(pk(GSYNC_KEY), JSON.stringify(next)); }catch{}
   };
 
+  // A post-upload LINE completion checkpoint is a correctness record, not a UI
+  // preference. Unlike ordinary sync metadata, failure to persist it must stop
+  // before queue completion so a reload can never re-prepare an already-uploaded
+  // `add` and create a duplicate task.
+  const persistGsyncStrict = async (next) => {
+    await window.storage.set(pk(GSYNC_KEY), JSON.stringify(next));
+    setGsync(next);
+    return next;
+  };
+  const persistFullLineCompletion = async (checkpoint, base=gsync) => {
+    const next={...base};
+    if(checkpoint) next.lineCompletion=checkpoint; else delete next.lineCompletion;
+    return persistGsyncStrict(next);
+  };
+
   // Preload the Google sign-in script as soon as the app opens (not on click) —
   // otherwise the network fetch happens between the user's click and the popup
   // call, and Safari/iOS silently blocks popups that aren't triggered synchronously
@@ -12734,6 +12750,92 @@ export default function App() {
     return bridge?.prepareMutations?bridge.prepareMutations(payload):{payload,mutationIds:[]};
   };
 
+  const reopenFullLineCompletionConflict = async (checkpoint, rejected, message) => {
+    const meta=await GDrive.getMeta(checkpoint.fileId);
+    if(meta.trashed) throw new Error("The cloud file was deleted.");
+    const text=await GDrive.download(checkpoint.fileId);
+    const payload=JSON.parse(text);
+    await persistFullLineCompletion(null);
+    setImportConflict({
+      parsed:checkpoint.localPayload||buildSavePayload(),
+      fileName:checkpoint.localFileName||gsync.localName||"opened file",
+      handle:null,
+      cloud:{payload,modifiedTime:meta.modifiedTime||"",etag:meta.etag||""},
+    });
+    setGsyncStatus("idle"); setGsyncError("");
+    noteLineSaveResult(rejected,message,rejected.length?"partial":"later");
+  };
+
+  // Resume a durable checkpoint before any normal sync operation. Prepared
+  // checkpoints revalidate/rebase before upload; uploaded checkpoints never run
+  // mutation preparation again and retry only the idempotent completion RPC.
+  const finishFullLineCompletion = async (provided=null) => {
+    let checkpoint=provided||gsync.lineCompletion;
+    if(!checkpoint||checkpoint.kind!==FULL_LINE_COMPLETION_KIND
+        ||!checkpoint.fileId||checkpoint.fileId!==gsync.fileId) return false;
+    const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];
+    try{
+      if(checkpoint.phase!=="uploaded"){
+        const meta=await GDrive.getMeta(checkpoint.fileId);
+        if(meta.trashed) throw new Error("The cloud file was deleted.");
+        const currentText=await GDrive.download(checkpoint.fileId);
+        const currentPayload=JSON.parse(currentText);
+        const currentDigest=payloadDigest(currentPayload);
+        const targetDigest=payloadDigest(checkpoint.payload);
+        const alreadyUploaded=currentDigest===targetDigest;
+        const etagChanged=!!checkpoint.baseEtag&&!!meta.etag&&meta.etag!==checkpoint.baseEtag;
+        const timeChanged=(meta.modifiedTime||"")!==(checkpoint.baseModifiedTime||"");
+        const contentChanged=!!checkpoint.baseDigest&&currentDigest!==checkpoint.baseDigest;
+        if(!alreadyUploaded&&(etagChanged||timeChanged||contentChanged)){
+          await reopenFullLineCompletionConflict(checkpoint,rejected,
+            "Google Drive changed — review the updated cloud copy before choosing again");
+          return true;
+        }
+        if(!alreadyUploaded){
+          let updated;
+          try{
+            updated=await GDrive.updateFile(checkpoint.fileId,
+              JSON.stringify(checkpoint.payload,null,2),meta.etag||checkpoint.baseEtag||"");
+          }catch(error){
+            const message=error?.message||"Could not update Google Drive.";
+            if(/Drive error 412|Precondition Failed/i.test(message)){
+              await reopenFullLineCompletionConflict(checkpoint,rejected,
+                "Google Drive changed — review the updated cloud copy before choosing again");
+              return true;
+            }
+            throw error;
+          }
+          checkpoint={...checkpoint,phase:"uploaded",
+            modifiedTime:updated.modifiedTime||meta.modifiedTime||""};
+        }else{
+          checkpoint={...checkpoint,phase:"uploaded",
+            modifiedTime:meta.modifiedTime||checkpoint.modifiedTime||""};
+        }
+        await persistFullLineCompletion(checkpoint);
+      }
+
+      const complete=window.__MTP_LINE__?.completeMutations;
+      if(typeof complete!=="function") throw new Error("LINE sync module is not ready. Reload and try again.");
+      await complete(checkpoint.mutationIds);
+      setDataLastUpdated(checkpoint.stamp);
+      await applyPayloadLive(checkpoint.payload);
+      void publishLineSnapshot(checkpoint.payload);
+      const next={...gsync,lastSyncAt:Date.now(),
+        lastCloudModified:checkpoint.modifiedTime||checkpoint.baseModifiedTime||"",
+        lastPushedStamp:checkpoint.stamp,lastPushedFp:checkpoint.fingerprint};
+      delete next.lineCompletion;
+      await persistGsyncStrict(next);
+      setImportConflict(null);
+      setGsyncStatus("synced"); setGsyncError("");
+      noteLineSaveResult(rejected);
+    }catch(error){
+      const message=error?.message||"LINE completion recovery failed.";
+      setGsyncStatus("error"); setGsyncError(message);
+      noteLineSaveResult(rejected,message,"error");
+    }
+    return true;
+  };
+
   const refreshLineStatus = async () => {
     const bridge=window.__MTP_LINE__;
     if(!bridge?.getStatus){
@@ -12770,6 +12872,7 @@ export default function App() {
     gsyncBusy.current = true;
     if (!silent) setGsyncStatus("syncing");
     try {
+      if(await finishFullLineCompletion()) return;
       // Keep the payload object: its dataLastUpdated is exactly what went into the
       // file, and that is what lastPushedStamp has to record.
       const { stamp, payload:screenPayload } = pushPayload();
@@ -12807,6 +12910,7 @@ export default function App() {
     if (!GDrive.isSignedIn()) { const ok=await gsyncConnect(); if(!ok) return; }
     gsyncBusy.current = true; setGsyncStatus("syncing");
     try {
+      if(await finishFullLineCompletion()) return;
       const meta = await GDrive.getMeta(gsync.fileId);
       if (meta.trashed) throw new Error("The cloud file was deleted.");
       const cloudNewer = meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
@@ -12905,6 +13009,7 @@ export default function App() {
     if (!gsync.fileId) { await gsyncPush({}); return; }  // first time — just create the file
     gsyncBusy.current = true; setGsyncStatus("syncing"); setGsyncError("");
     try {
+      if(await finishFullLineCompletion()) return;
       const meta = await GDrive.getMeta(gsync.fileId);
       if (meta.trashed) throw new Error("The cloud file was deleted.");
       const cloudChanged = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
@@ -13066,6 +13171,7 @@ export default function App() {
     if (!gsync.fileId) { await gsyncPush({}); return; }   // no file yet → create one
     gsyncBusy.current = true; setGsyncStatus("syncing"); setGsyncError("");
     try {
+      if(await finishFullLineCompletion()) return;
       const meta = await GDrive.getMeta(gsync.fileId);
       if (meta.trashed) throw new Error("The cloud file was deleted.");
       const cloudChanged = !!meta.modifiedTime && meta.modifiedTime !== gsync.lastCloudModified;
@@ -14089,97 +14195,74 @@ export default function App() {
   // completion checkpoint so an ambiguous Supabase response can only retry the
   // idempotent queue update — never reapply an add/edit/delete mutation.
   const importUseCloud = async () => {
-    const ic = importConflict; if (!ic) return;
-    let recovery = ic.completion || null;
-    let rejected = Array.isArray(recovery?.rejected) ? recovery.rejected : [];
-    const refreshConflict = async () => {
-      const meta = await GDrive.getMeta(gsync.fileId);
-      if (meta.trashed) throw new Error("The cloud file was deleted.");
-      const text = await GDrive.download(gsync.fileId);
-      const payload = JSON.parse(text);
-      setImportConflict({ ...ic, completion:null,
-        cloud:{ payload, modifiedTime:meta.modifiedTime||"", etag:meta.etag||"" } });
-      setGsyncStatus("idle"); setGsyncError("");
-      note("later","Google Drive changed — review the updated cloud copy before choosing again");
-    };
-    try {
-      if (!gsync.fileId) throw new Error("No Google Drive file is linked.");
-      if (recovery) {
-        const complete = window.__MTP_LINE__?.completeMutations;
-        if (typeof complete !== "function") throw new Error("LINE sync module is not ready. Reload and try again.");
-        await complete(recovery.mutationIds);
-        setDataLastUpdated(recovery.stamp);
-        await persistGsync({ ...gsync, lastSyncAt:Date.now(),
-          lastCloudModified:recovery.modifiedTime||"",
-          lastPushedStamp:recovery.stamp, lastPushedFp:recovery.fingerprint });
-        await applyPayloadLive(recovery.payload);
-        void publishLineSnapshot(recovery.payload);
-        setImportConflict(null);
-        setGsyncStatus("synced"); setGsyncError("");
-        noteLineSaveResult(rejected);
-        return;
-      }
-
-      const latestMeta = await GDrive.getMeta(gsync.fileId);
-      if (latestMeta.trashed) throw new Error("The cloud file was deleted.");
-      const latestText = await GDrive.download(gsync.fileId);
-      const latestPayload = JSON.parse(latestText);
-      const driveAdvanced = (latestMeta.modifiedTime||"") !== (ic.cloud.modifiedTime||"")
-        || payloadDigest(latestPayload) !== payloadDigest(ic.cloud.payload);
-      if (driveAdvanced) {
-        setImportConflict({ ...ic, completion:null,
-          cloud:{ payload:latestPayload, modifiedTime:latestMeta.modifiedTime||"", etag:latestMeta.etag||"" } });
+    const ic=importConflict;
+    const durable=gsync.lineCompletion;
+    if(durable){ await finishFullLineCompletion(durable); return; }
+    if(!ic) return;
+    let rejected=[];
+    try{
+      if(!gsync.fileId) throw new Error("No Google Drive file is linked.");
+      const latestMeta=await GDrive.getMeta(gsync.fileId);
+      if(latestMeta.trashed) throw new Error("The cloud file was deleted.");
+      const latestText=await GDrive.download(gsync.fileId);
+      const latestPayload=JSON.parse(latestText);
+      const driveAdvanced=(latestMeta.modifiedTime||"")!==(ic.cloud.modifiedTime||"")
+        ||payloadDigest(latestPayload)!==payloadDigest(ic.cloud.payload);
+      if(driveAdvanced){
+        setImportConflict({...ic,completion:null,
+          cloud:{payload:latestPayload,modifiedTime:latestMeta.modifiedTime||"",etag:latestMeta.etag||""}});
         setGsyncStatus("idle"); setGsyncError("");
         note("later","Google Drive changed — review the updated cloud copy before choosing again");
         return;
       }
 
-      const prepared = await prepareLineMutations(latestPayload);
-      rejected = Array.isArray(prepared.rejected) ? prepared.rejected : [];
-      const mutationIds = Array.isArray(prepared.mutationIds) ? prepared.mutationIds : [];
-      if (mutationIds.length) {
-        const stamp = new Date().toISOString();
-        const merged = { ...prepared.payload, dataLastUpdated:stamp };
-        const fingerprint = dataFingerprint(merged);
-        const updated = await GDrive.updateFile(
-          gsync.fileId, JSON.stringify(merged, null, 2), latestMeta.etag||"");
-        recovery = { payload:merged, mutationIds:[...mutationIds], rejected:[...rejected],
-          stamp, fingerprint, modifiedTime:updated.modifiedTime||latestMeta.modifiedTime||"" };
-        setImportConflict({ ...ic, cloud:{ payload:latestPayload,
-          modifiedTime:latestMeta.modifiedTime||"", etag:latestMeta.etag||"" }, completion:recovery });
-
-        const complete = window.__MTP_LINE__?.completeMutations;
-        if (typeof complete !== "function") throw new Error("LINE sync module is not ready. Reload and try again.");
-        await complete(recovery.mutationIds);
-        setDataLastUpdated(stamp);
-        await persistGsync({ ...gsync, lastSyncAt:Date.now(),
-          lastCloudModified:recovery.modifiedTime,
-          lastPushedStamp:stamp, lastPushedFp:fingerprint });
-        await applyPayloadLive(merged);
-        void publishLineSnapshot(merged);
-        setImportConflict(null);
-        setGsyncStatus("synced"); setGsyncError("");
-        noteLineSaveResult(rejected);
+      const prepared=await prepareLineMutations(latestPayload);
+      rejected=Array.isArray(prepared.rejected)?prepared.rejected:[];
+      const mutationIds=Array.isArray(prepared.mutationIds)?prepared.mutationIds:[];
+      if(mutationIds.length){
+        const stamp=new Date().toISOString();
+        const payload={...prepared.payload,dataLastUpdated:stamp};
+        const checkpoint={kind:FULL_LINE_COMPLETION_KIND,phase:"prepared",
+          fileId:gsync.fileId,baseModifiedTime:latestMeta.modifiedTime||"",
+          baseEtag:latestMeta.etag||"",baseDigest:payloadDigest(latestPayload),
+          payload,mutationIds:[...mutationIds],rejected:[...rejected],stamp,
+          fingerprint:dataFingerprint(payload),localPayload:ic.parsed,
+          localFileName:ic.fileName||"opened file"};
+        await persistFullLineCompletion(checkpoint);
+        setImportConflict({...ic,cloud:{payload:latestPayload,
+          modifiedTime:latestMeta.modifiedTime||"",etag:latestMeta.etag||""},completion:checkpoint});
+        await finishFullLineCompletion(checkpoint);
         return;
       }
 
       await applyPayloadLive(latestPayload);
-      await persistGsync({ ...gsync, lastSyncAt:Date.now(),
-        lastCloudModified:latestMeta.modifiedTime||"" });
+      await persistGsync({...gsync,lastSyncAt:Date.now(),
+        lastCloudModified:latestMeta.modifiedTime||""});
       void publishLineSnapshot(latestPayload);
       setImportConflict(null);
       setGsyncStatus("synced"); setGsyncError("");
-      if (rejected.length) noteLineSaveResult(rejected);
-    } catch (error) {
-      const message = error?.message || "Could not apply the Google Drive copy.";
-      if (!recovery && /Drive error 412|Precondition Failed/i.test(message)) {
-        try { await refreshConflict(); return; } catch {}
+      if(rejected.length) noteLineSaveResult(rejected);
+    }catch(error){
+      const message=error?.message||"Could not apply the Google Drive copy.";
+      if(/Drive error 412|Precondition Failed/i.test(message)){
+        try{
+          const meta=await GDrive.getMeta(gsync.fileId);
+          const payload=JSON.parse(await GDrive.download(gsync.fileId));
+          await persistFullLineCompletion(null);
+          setImportConflict({...ic,completion:null,
+            cloud:{payload,modifiedTime:meta.modifiedTime||"",etag:meta.etag||""}});
+          setGsyncStatus("idle"); setGsyncError("");
+          noteLineSaveResult(rejected,
+            "Google Drive changed — review the updated cloud copy before choosing again",
+            rejected.length?"partial":"later");
+          return;
+        }catch{}
       }
-      if (recovery) setImportConflict({ ...ic, completion:recovery });
       setGsyncStatus("error"); setGsyncError(message);
-      noteLineSaveResult(rejected, message, "error");
+      noteLineSaveResult(rejected,message,"error");
     }
   };
+
 
   // ── N104: open a JSON from Drive on the very first run ────────────────────
   // The onboarding gate returns early, above every modal and panel here, so the

@@ -150,3 +150,21 @@ Changed source and test boundary:
 This implementation does not change Database, migrations, Storage, Auth, RLS,
 providers, Environment, secrets, backup/recovery, import/reconciliation,
 activation, deployment or Production. PR merge remains a separate Owner gate.
+
+## Exact-head review remediation round 2
+
+The second exact-head review required four additional source-only controls:
+
+- Full prepared/uploaded completion state is profile-scoped and durable in the
+  existing Drive sync record, so reload recovery never re-prepares an already
+  uploaded mutation.
+- Mobile metadata retains the Drive ETag and every conflict upload uses an
+  `If-Match` precondition after final revision revalidation.
+- A stale Mobile prepared checkpoint is deleted before the latest conflict is
+  reopened; it cannot permanently short-circuit later sync attempts.
+- Full 412/stale-revision recovery preserves and surfaces preparation rejections
+  while refreshing the conflict.
+
+Focused contracts cover durable phase ordering, completion-only retry, exact
+payload adoption, Mobile stale-checkpoint reopening, ETag preconditions, and
+rejection reporting. The source boundary remains no-migration/no-Production.

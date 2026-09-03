@@ -36,33 +36,44 @@ assert.ok(mobilePrepareAt >= 0 && mobileMutationUploadAt > mobilePrepareAt
   && mobileMutationCommitAt > mobileMutationUploadAt,
 "Mobile must not expose a queued LINE mutation in local state before Drive accepts it");
 const fullImportCloudAt = full.indexOf("const importUseCloud = async () => {");
-const fullImportMetaAt = full.indexOf("await GDrive.getMeta", fullImportCloudAt);
-const fullImportDownloadAt = full.indexOf("await GDrive.download", fullImportMetaAt);
-const fullImportPrepareAt = full.indexOf("prepareLineMutations(latestPayload)", fullImportDownloadAt);
-const fullImportUploadAt = full.indexOf("await GDrive.updateFile", fullImportPrepareAt);
-const fullImportCheckpointAt = full.indexOf("completion:recovery", fullImportUploadAt);
-const fullImportCompleteAt = full.indexOf("await complete(recovery.mutationIds)", fullImportCheckpointAt);
-const fullImportAdoptAt = full.indexOf("await applyPayloadLive(merged)", fullImportCompleteAt);
-assert.ok(fullImportCloudAt >= 0 && fullImportMetaAt > fullImportCloudAt
-  && fullImportDownloadAt > fullImportMetaAt && fullImportPrepareAt > fullImportDownloadAt
-  && fullImportUploadAt > fullImportPrepareAt && fullImportCheckpointAt > fullImportUploadAt
-  && fullImportCompleteAt > fullImportCheckpointAt && fullImportAdoptAt > fullImportCompleteAt,
-"Full import cloud-wins must revalidate, upload with a checkpoint, complete, then adopt");
-assert.match(full.slice(fullImportCloudAt,fullImportCloudAt+5000), /Drive error 412|Precondition Failed/);
-assert.match(full, /headers\["If-Match"\] = expectedEtag/);
-assert.match(full.slice(fullImportCloudAt,fullImportCloudAt+5000), /noteLineSaveResult\(rejected, message, "error"\)/);
+const fullImportPrepareAt = full.indexOf("prepareLineMutations(latestPayload)", fullImportCloudAt);
+const fullImportPersistAt = full.indexOf("persistFullLineCompletion(checkpoint)", fullImportPrepareAt);
+const fullImportFinishAt = full.indexOf("finishFullLineCompletion(checkpoint)", fullImportPersistAt);
+assert.ok(fullImportCloudAt >= 0 && fullImportPrepareAt > fullImportCloudAt
+  && fullImportPersistAt > fullImportPrepareAt && fullImportFinishAt > fullImportPersistAt,
+"Full import cloud-wins must persist a prepared checkpoint before recovery executes");
+const fullCompletionAt = full.indexOf("const finishFullLineCompletion = async");
+const fullCompletionEnd = full.indexOf("const refreshLineStatus", fullCompletionAt);
+const fullCompletionBlock = full.slice(fullCompletionAt, fullCompletionEnd);
+assert.match(fullCompletionBlock, /provided\|\|gsync\.lineCompletion/);
+assert.match(fullCompletionBlock, /phase!=="uploaded"[\s\S]*GDrive\.getMeta[\s\S]*GDrive\.download/);
+assert.match(fullCompletionBlock, /GDrive\.updateFile[\s\S]*persistFullLineCompletion\(checkpoint\)/);
+assert.match(fullCompletionBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*applyPayloadLive\(checkpoint\.payload\)/);
+assert.doesNotMatch(fullCompletionBlock.slice(fullCompletionBlock.indexOf('await complete')), /prepareLineMutations/);
+assert.match(fullCompletionBlock, /Drive error 412\|Precondition Failed[\s\S]*reopenFullLineCompletionConflict/);
+assert.match(fullCompletionBlock, /noteLineSaveResult\(rejected,message,"error"\)/);
+assert.match(full, /const persistGsyncStrict = async[\s\S]*window\.storage\.set\(pk\(GSYNC_KEY\)/);
+assert.match(full, /FULL_LINE_COMPLETION_KIND = "import-cloud-conflict-v2"/);
+for (const marker of ["const gsyncPush = async", "const gsyncPull = async", "const gsyncNow = async", "const gsyncSaveNow = async"]) {
+  const at=full.indexOf(marker),end=full.indexOf("\n  };",at);
+  assert.ok(at>=0&&full.slice(at,end).includes("finishFullLineCompletion()"), `${marker} must resume durable completion first`);
+}
 const mobileConflictAt = mobile.indexOf("function showConflict(meta){");
 const mobileConflictBlock = mobile.slice(mobileConflictAt, mobile.indexOf("function bindSync(){", mobileConflictAt));
 const mobileRecoveryAt = mobile.indexOf("async function resumeLineCompletion(");
 const mobileSyncAt = mobile.indexOf("async function syncNow(", mobileRecoveryAt);
 const mobileRecoveryBlock = mobile.slice(mobileRecoveryAt,mobileSyncAt);
-assert.match(mobileConflictBlock, /phase:'prepared'[\s\S]*await driveUpdate[\s\S]*phase:'uploaded'[\s\S]*resumeLineCompletion/);
-assert.match(mobileConflictBlock, /prepareProfileForSave\(data,cloudLang\)/);
+assert.match(mobile, /async function driveMeta\(id\)[\s\S]*etag:r\.headers\?\.get\?\.\('etag'\)/);
+assert.match(mobile, /async function driveUpdate\(id,text,expectedEtag=''\)[\s\S]*headers\['If-Match'\]=expectedEtag/);
+assert.match(mobileConflictBlock, /const currentMeta=await driveMeta[\s\S]*revisionAdvanced[\s\S]*showConflict\(currentMeta\)/);
+assert.match(mobileConflictBlock, /baseEtag:currentMeta\.etag[\s\S]*persistLineCompletion\(checkpoint\)[\s\S]*resumeLineCompletion/);
+assert.doesNotMatch(mobileConflictBlock, /persistLineCompletion\(checkpoint\)[\s\S]{0,300}driveUpdate/);
+assert.match(mobileRecoveryBlock, /currentMeta\.etag!==checkpoint\.baseEtag/);
+assert.match(mobileRecoveryBlock, /driveUpdate\(checkpoint\.fileId[\s\S]*currentMeta\.etag\|\|checkpoint\.baseEtag/);
+assert.match(mobileRecoveryBlock, /reopenLineCompletionConflict/);
 assert.match(mobileRecoveryBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*state\.data=normalizeProfile/);
 assert.doesNotMatch(mobileRecoveryBlock, /prepareMutations/);
 assert.match(mobileRecoveryBlock, /saveLocal\(false,true\)[\s\S]*persistLineCompletion\(null\)/);
-assert.match(mobileRecoveryBlock, /lineSaveToastText\(rejected,state\.driveError\)/);
-assert.match(mobile, /resumeLineCompletion\(\{silent\}\)/);
 
 assert.doesNotMatch(browserBridge, /LINE_CHANNEL_(?:SECRET|ACCESS_TOKEN)/);
 assert.doesNotMatch(browserBridge, /service_role|sb_secret_/);
