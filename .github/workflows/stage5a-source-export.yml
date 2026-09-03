@@ -32,14 +32,14 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = 11e23332038b0271c211edca55cfbe73e0e5497b
-          tar --exclude=.git -czf stage5a-workspace.tar.gz .
-          sha256sum stage5a-workspace.tar.gz > stage5a-workspace.tar.gz.sha256
+          tar --exclude=.git -czf "$RUNNER_TEMP/stage5a-workspace.tar.gz" .
+          sha256sum "$RUNNER_TEMP/stage5a-workspace.tar.gz" > "$RUNNER_TEMP/stage5a-workspace.tar.gz.sha256"
       - name: Upload local workspace
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: stage5a-workspace-11e2333
           path: |
-            stage5a-workspace.tar.gz
-            stage5a-workspace.tar.gz.sha256
+            ${{ runner.temp }}/stage5a-workspace.tar.gz
+            ${{ runner.temp }}/stage5a-workspace.tar.gz.sha256
           retention-days: 1
           if-no-files-found: error
