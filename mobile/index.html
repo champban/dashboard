@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-VrgPzNV+6S0YCdCurQTp7blRAA+A5NxDLFHpfBpp56A=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-NIZo+wg6Vb4QH2FZZvGGE1x/mfQXQjqSzpcWBOFUG5Q=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -114,6 +114,8 @@ const isOverdue=t=>t&&t.due&&!isDone(t)&&daysFromToday(t.due)<0;
 const typeStatus=type=>type==='work'?'todo':'pending';
 const readJSON=(key,fallback)=>{try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback}catch{return fallback}};
 const writeJSON=(key,v)=>{try{localStorage.setItem(key,JSON.stringify(v));return true}catch{return false}};
+function canonicalJSON(v){if(v===undefined)return'null';if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return'['+v.map(canonicalJSON).join(',')+']';return'{'+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+canonicalJSON(v[k])).join(',')+'}'}
+function classifyLineRecoveryPayload(currentPayload,checkpoint){const currentCanonical=canonicalJSON(currentPayload),targetCanonical=checkpoint.targetCanonical||canonicalJSON(checkpoint.payload),baseCanonical=checkpoint.baseCanonical||'';if(currentCanonical===targetCanonical)return{state:'target',currentCanonical,targetCanonical,baseCanonical};if(checkpoint.phase==='prepared'&&baseCanonical&&currentCanonical===baseCanonical)return{state:'base',currentCanonical,targetCanonical,baseCanonical};return{state:'blocked',currentCanonical,targetCanonical,baseCanonical}}
 
 const I18N={
 EN:{navToday:'Today',navTasks:'Tasks',navAdd:'Add',navFocus:'Focus',navSync:'Sync',undo:'Undo',redo:'Redo',goodMorning:'Good morning',goodAfternoon:'Good afternoon',goodEvening:'Good evening',control:'Your day, under control.',overdue:'Overdue',dueToday:'Due today',next7:'Next 7 days',topFocus:'Top focus',balance:'Work-life balance',viewAll:'View all',nothing:'Nothing urgent',nothingText:'Your priority queue is clear.',upcoming:'Upcoming events',tasks:'Tasks',search:'Search tasks…',all:'All',week:'7 days',done:'Done',personal:'Personal',work:'Work',newTask:'New task',taskTitle:'What needs to be done?',dueDate:'Due date',priority:'Priority',group:'Project / category',details:'Details',saveTask:'Save task',editEvent:'Edit event',eventTitle:'Event title',startDate:'Start date',endDate:'End date',location:'Location',saveEvent:'Save event',focusMode:'Focus mode',selectTask:'Select one task and protect the next 25 minutes.',start:'Start',pause:'Pause',reset:'Reset',finish:'Finish task',drive:'Google Drive sync',driveText:'Use the same profile JSON file as the Full app.',connect:'Connect Google Drive',syncNow:'Save to Cloud',selectFile:'Select cloud file',createCloud:'Create new cloud file',localBackup:'Local file storage',export:'Backup to Local Drive',import:'Restore from Local File',settings:'Settings',language:'Language',clientId:'OAuth Client ID',saveSettings:'Save settings',autoSync:'Automatic sync',httpsNote:'Google sign-in requires an HTTPS deployment (or localhost) whose origin is authorised in Google Cloud.',profile:'Profile',edit:'Edit task',delete:'Delete',cancel:'Cancel',save:'Save',cloudFiles:'Cloud files',noFiles:'No JSON files are visible to this OAuth app.',useFile:'Use',conflict:'Sync conflict',pullCloud:'Cloud → Local',pushLocal:'Local → Cloud',exportFirst:'Export local backup',connected:'Connected',local:'Local',pending:'Pending',synced:'Synced',offline:'Offline',error:'Error'},
@@ -401,74 +403,93 @@ const MOBILE_LINE_COMPLETION_KIND='cloud-conflict-v1';
 function persistLineCompletion(checkpoint){
   const previous=state.sync.lineCompletion;
   if(checkpoint)state.sync.lineCompletion=checkpoint;else delete state.sync.lineCompletion;
-  if(writeJSON(LS_SYNC,state.sync))return;
+  const expected=canonicalJSON(state.sync);
+  const saved=writeJSON(LS_SYNC,state.sync),roundTrip=readJSON(LS_SYNC,null);
+  if(saved&&roundTrip&&canonicalJSON(roundTrip)===expected)return;
   if(previous)state.sync.lineCompletion=previous;else delete state.sync.lineCompletion;
   throw Error('Could not save LINE completion recovery state.');
 }
-async function reopenLineCompletionConflict(checkpoint,rejected,message){
-  const latest=await driveMeta(checkpoint.fileId);
-  persistLineCompletion(null);
-  pendingConflictMeta=latest;
-  state.driveError='';
-  showConflict(latest);
-  toast(lineSaveToastText(rejected,message));
-  return true;
+function lineRecoveryCopyName(){const base=cleanCloudName(state.sync.fileName||'My-Todo-Planner.json').replace(/\.json$/i,''),d=new Date(),p=n=>String(n).padStart(2,'0');return`${base} (conflicted copy before LINE recovery ${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}).json`}
+async function reopenLineCompletionConflict(checkpoint,rejected,message,knownMeta=null,knownPayload=null){
+  const latest=knownMeta||await driveMeta(checkpoint.fileId);
+  if(latest.trashed)throw Error('Cloud file was deleted.');
+  const current=knownPayload||normalizeProfile(JSON.parse(await driveDownload(checkpoint.fileId)));
+  const blocked={...checkpoint,phase:'blocked',blockedCloudCanonical:canonicalJSON(current),
+    blockedCloudModifiedTime:latest.modifiedTime||'',blockedCloudEtag:latest.etag||''};
+  persistLineCompletion(blocked);
+  pendingConflictMeta=latest;state.driveError='';showConflict(latest);
+  toast(lineSaveToastText(rejected,message));return true;
+}
+async function resolveBlockedLineCompletion(){
+  const checkpoint=state.sync.lineCompletion;
+  if(!checkpoint||checkpoint.phase!=='blocked')return false;
+  const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];
+  try{
+    setDriveBusy(true);
+    const meta=await driveMeta(checkpoint.fileId);
+    if(meta.trashed)throw Error('Cloud file was deleted.');
+    const currentText=await driveDownload(checkpoint.fileId),current=normalizeProfile(JSON.parse(currentText));
+    const currentCanonical=canonicalJSON(current);
+    if(checkpoint.blockedCloudCanonical&&currentCanonical!==checkpoint.blockedCloudCanonical){
+      return reopenLineCompletionConflict(checkpoint,rejected,
+        'Google Drive changed again — review the refreshed copy before continuing.',meta,current);
+    }
+    await driveCreate(lineRecoveryCopyName(),currentText,meta.parents?.[0]||'');
+    const resumed={...checkpoint,phase:'prepared',baseCanonical:currentCanonical,
+      targetCanonical:checkpoint.targetCanonical||canonicalJSON(checkpoint.payload),
+      baseModifiedTime:meta.modifiedTime||'',baseEtag:meta.etag||'',modifiedTime:meta.modifiedTime||''};
+    delete resumed.blockedCloudCanonical;delete resumed.blockedCloudModifiedTime;delete resumed.blockedCloudEtag;
+    persistLineCompletion(resumed);
+    await resumeLineCompletion({closeConflict:true});return true;
+  }catch(e){state.driveError=e.message||'Could not reconcile the pending LINE recovery.';
+    toast(lineSaveToastText(rejected,state.driveError));render();return true}
+  finally{setDriveBusy(false)}
 }
 async function resumeLineCompletion({silent=false,closeConflict=false}={}){
   let checkpoint=state.sync.lineCompletion;
   if(!checkpoint||checkpoint.kind!==MOBILE_LINE_COMPLETION_KIND||!sameId(checkpoint.fileId,state.sync.fileId))return false;
   const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];
   try{
-    if(checkpoint.phase!=='uploaded'){
-      const currentMeta=await driveMeta(checkpoint.fileId);
-      if(currentMeta.trashed)throw Error('Cloud file was deleted.');
-      const currentText=await driveDownload(checkpoint.fileId);
-      const current=normalizeProfile(JSON.parse(currentText));
-      const alreadyUploaded=JSON.stringify(current)===JSON.stringify(checkpoint.payload);
-      const etagChanged=!!checkpoint.baseEtag&&!!currentMeta.etag&&currentMeta.etag!==checkpoint.baseEtag;
-      const timeChanged=(currentMeta.modifiedTime||'')!==(checkpoint.baseModifiedTime||'');
-      if(!alreadyUploaded&&(etagChanged||timeChanged)){
-        return reopenLineCompletionConflict(checkpoint,rejected,
-          'Google Drive changed — review the current conflict before choosing again.');
-      }
-      if(!alreadyUploaded){
-        try{
-          const uploaded=await driveUpdate(checkpoint.fileId,JSON.stringify(checkpoint.payload,null,2),
-            currentMeta.etag||checkpoint.baseEtag||'');
-          checkpoint={...checkpoint,phase:'uploaded',modifiedTime:uploaded.modifiedTime||currentMeta.modifiedTime||''};
-        }catch(error){
-          const message=error?.message||'Could not update Google Drive.';
-          if(/Drive 412|Precondition Failed/i.test(message)){
-            return reopenLineCompletionConflict(checkpoint,rejected,
-              'Google Drive changed — review the current conflict before choosing again.');
-          }
-          throw error;
-        }
-      }else checkpoint={...checkpoint,phase:'uploaded',modifiedTime:currentMeta.modifiedTime||checkpoint.modifiedTime||''};
-      persistLineCompletion(checkpoint);
+    const currentMeta=await driveMeta(checkpoint.fileId);
+    if(currentMeta.trashed)throw Error('Cloud file was deleted.');
+    const currentText=await driveDownload(checkpoint.fileId),current=normalizeProfile(JSON.parse(currentText));
+    const recoveryState=classifyLineRecoveryPayload(current,checkpoint),{currentCanonical,targetCanonical}=recoveryState;
+    if(checkpoint.phase==='blocked'&&recoveryState.state!=='target'){
+      return reopenLineCompletionConflict(checkpoint,rejected,
+        'LINE recovery is paused — keep both copies, then finish the pending recovery.',currentMeta,current);
     }
+    if(recoveryState.state!=='target'){
+      if(recoveryState.state!=='base'){
+        return reopenLineCompletionConflict(checkpoint,rejected,
+          'Google Drive changed after the LINE update started — keep both copies before continuing.',currentMeta,current);
+      }
+      try{
+        const uploaded=await driveUpdate(checkpoint.fileId,JSON.stringify(checkpoint.payload,null,2),currentMeta.etag||checkpoint.baseEtag||'');
+        checkpoint={...checkpoint,phase:'uploaded',targetCanonical,modifiedTime:uploaded.modifiedTime||currentMeta.modifiedTime||''};
+      }catch(error){
+        const message=error?.message||'Could not update Google Drive.';
+        if(/Drive 412|Precondition Failed/i.test(message)){
+          const latest=await driveMeta(checkpoint.fileId),latestPayload=normalizeProfile(JSON.parse(await driveDownload(checkpoint.fileId)));
+          return reopenLineCompletionConflict(checkpoint,rejected,
+            'Google Drive changed after the LINE update started — keep both copies before continuing.',latest,latestPayload);
+        }
+        throw error;
+      }
+    }else checkpoint={...checkpoint,phase:'uploaded',targetCanonical,modifiedTime:currentMeta.modifiedTime||checkpoint.modifiedTime||''};
+    persistLineCompletion(checkpoint);
     const complete=window.__MTP_LINE__?.completeMutations;
     if(typeof complete!=='function')throw Error('LINE sync module is not ready. Reload and try again.');
     await complete(checkpoint.mutationIds);
     pushHistory('Resolve conflict from cloud');
-    state.data=normalizeProfile(cloneProfileData(checkpoint.payload));
-    state.lang=state.data.config?.lang||state.lang;
+    state.data=normalizeProfile(cloneProfileData(checkpoint.payload));state.lang=state.data.config?.lang||state.lang;
     state.sync.lastCloudModified=checkpoint.modifiedTime||checkpoint.baseModifiedTime||'';
-    state.sync.lastSyncAt=Date.now();state.sync.dirty=false;
-    state.sync.lineCompletion=checkpoint;
+    state.sync.lastSyncAt=Date.now();state.sync.dirty=false;state.sync.lineCompletion=checkpoint;
     if(!saveLocal(false,true))throw Error('Could not save the recovered cloud copy in this browser.');
-    persistLineCompletion(null);
-    void publishLineSnapshot(state.data);pendingConflictMeta=null;
-    if(closeConflict)closeModal();
-    if(rejected.length)toast(lineSaveToastText(rejected,'↓ '+tr('synced')));
-    else if(!silent)toast('↓ '+tr('synced'));
+    persistLineCompletion(null);void publishLineSnapshot(state.data);pendingConflictMeta=null;
+    if(closeConflict)closeModal();if(rejected.length)toast(lineSaveToastText(rejected,'↓ '+tr('synced')));else if(!silent)toast('↓ '+tr('synced'));
     render();return true;
-  }catch(e){
-    state.driveError=e.message||'LINE completion recovery failed.';
-    writeJSON(LS_SYNC,state.sync);
-    if(!silent||rejected.length)toast(lineSaveToastText(rejected,state.driveError));
-    render();return true;
-  }
+  }catch(e){state.driveError=e.message||'LINE completion recovery failed.';writeJSON(LS_SYNC,state.sync);
+    if(!silent||rejected.length)toast(lineSaveToastText(rejected,state.driveError));render();return true}
 }
 
 async function syncNow(silent=false){
@@ -510,6 +531,11 @@ async function syncNow(silent=false){
 }
 function showConflict(meta){
   pendingConflictMeta=meta;
+  const blocked=state.sync.lineCompletion;
+  if(blocked&&blocked.phase==='blocked'&&sameId(blocked.fileId,state.sync.fileId)){
+    showModal('LINE recovery needs one safe decision',`<p class="note">Google Drive changed while an earlier upload result was uncertain. The pending LINE change will not be prepared again.</p><p class="note">Continue saves the current Drive file as a separate conflicted copy first, then finishes the exact recovered version.</p><div class="sync-actions"><button class="primary" id="lineRecoveryFinish">Keep both and finish LINE recovery</button><button class="secondary" id="lineRecoveryCancel">Cancel — keep recovery paused</button></div>`);
+    $('#lineRecoveryFinish').onclick=resolveBlockedLineCompletion;$('#lineRecoveryCancel').onclick=closeModal;return;
+  }
   const cloudTime=syncTimestamp(meta.modifiedTime),localTime=syncTimestamp(state.data.savedAt),cloudNewer=cloudTime>localTime,localNewer=localTime>cloudTime,recommendation=cloudNewer?'Cloud → Local':localNewer?'Local → Cloud':'Either copy';
   showModal(tr('conflict'),`<p class="note" style="font-size:14px">Both copies changed. Compare their timestamps, then choose the direction. <strong>Recommended: ${recommendation}</strong></p><div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>Cloud ${cloudNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(meta.modifiedTime))}</span></div><span aria-hidden="true">→</span></div><div class="file-row"><div class="file-icon">📱</div><div class="file-info"><strong>Local ${localNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(state.data.savedAt))}</span></div><span aria-hidden="true">→</span></div><div class="sync-actions" style="margin-top:12px"><button class="${cloudNewer?'primary':'secondary'}" id="conflictPull">☁️ → 📱 ${tr('pullCloud')} ${cloudNewer?'· Recommended':''}</button><button class="${localNewer?'primary':'secondary'}" id="conflictPush">📱 → ☁️ ${tr('pushLocal')} ${localNewer?'· Recommended':''}</button><button class="secondary" id="conflictExport">${tr('exportFirst')}</button></div>`);
   const pull=async()=>{
@@ -537,7 +563,8 @@ function showConflict(meta){
         const payload=prepareProfileForSave(data,cloudLang);
         const checkpoint={kind:MOBILE_LINE_COMPLETION_KIND,phase:'prepared',
           fileId:state.sync.fileId,baseModifiedTime:currentMeta.modifiedTime||'',
-          baseEtag:currentMeta.etag||'',modifiedTime:currentMeta.modifiedTime||'',
+          baseEtag:currentMeta.etag||'',baseCanonical:canonicalJSON(downloaded),
+          targetCanonical:canonicalJSON(payload),modifiedTime:currentMeta.modifiedTime||'',
           payload,mutationIds:[...mutationIds],rejected:[...rejected]};
         persistLineCompletion(checkpoint);
         await resumeLineCompletion({closeConflict:true});

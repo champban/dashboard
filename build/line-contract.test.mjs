@@ -42,17 +42,26 @@ const fullImportFinishAt = full.indexOf("finishFullLineCompletion(checkpoint)", 
 assert.ok(fullImportCloudAt >= 0 && fullImportPrepareAt > fullImportCloudAt
   && fullImportPersistAt > fullImportPrepareAt && fullImportFinishAt > fullImportPersistAt,
 "Full import cloud-wins must persist a prepared checkpoint before recovery executes");
+assert.match(full.slice(fullImportCloudAt,fullImportFinishAt), /baseCanonical:canonicalJSON\(latestPayload\)/);
+assert.match(full.slice(fullImportCloudAt,fullImportFinishAt), /targetCanonical:canonicalJSON\(payload\)/);
 const fullCompletionAt = full.indexOf("const finishFullLineCompletion = async");
 const fullCompletionEnd = full.indexOf("const refreshLineStatus", fullCompletionAt);
 const fullCompletionBlock = full.slice(fullCompletionAt, fullCompletionEnd);
 assert.match(fullCompletionBlock, /provided\|\|gsync\.lineCompletion/);
-assert.match(fullCompletionBlock, /phase!=="uploaded"[\s\S]*GDrive\.getMeta[\s\S]*GDrive\.download/);
+assert.match(fullCompletionBlock, /GDrive\.getMeta[\s\S]*GDrive\.download/);
+assert.match(full, /function classifyLineRecoveryPayload\(currentPayload, checkpoint\)/);
+assert.match(fullCompletionBlock, /recoveryState=classifyLineRecoveryPayload\(currentPayload,checkpoint\)/);
+assert.match(fullCompletionBlock, /recoveryState\.state!=="target"[\s\S]*recoveryState\.state!=="base"/);
 assert.match(fullCompletionBlock, /GDrive\.updateFile[\s\S]*persistFullLineCompletion\(checkpoint\)/);
-assert.match(fullCompletionBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*applyPayloadLive\(checkpoint\.payload\)/);
+assert.match(fullCompletionBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*applyPayloadLive\(checkpoint\.payload,\{strict:true\}\)/);
 assert.doesNotMatch(fullCompletionBlock.slice(fullCompletionBlock.indexOf('await complete')), /prepareLineMutations/);
 assert.match(fullCompletionBlock, /Drive error 412\|Precondition Failed[\s\S]*reopenFullLineCompletionConflict/);
-assert.match(fullCompletionBlock, /noteLineSaveResult\(rejected,message,"error"\)/);
-assert.match(full, /const persistGsyncStrict = async[\s\S]*window\.storage\.set\(pk\(GSYNC_KEY\)/);
+assert.match(fullCompletionBlock, /delete next\.lineCompletion[\s\S]*persistGsyncStrict\(next\)/);
+assert.match(full, /const writeStorageExact = async[\s\S]*!result \|\| result\.key !== key[\s\S]*window\.storage\.get\(key\)[\s\S]*roundTrip\.value !== serialized/);
+assert.match(full, /const persistGsyncStrict = async[\s\S]*writeStorageExact\(pk\(GSYNC_KEY\)/);
+assert.match(full, /applyPayloadLive = async \(parsed, \{ strict=false \} = \{\}\)/);
+assert.match(full, /if \(strict\) await writeStorageExact\(pk\(DATA_UPDATED_KEY\)/);
+assert.match(full, /const resolveFullLineRecoveryConflict = async[\s\S]*saveConflictCopy\(currentText,"Google Drive before LINE recovery"\)[\s\S]*finishFullLineCompletion\(resumed\)/);
 assert.match(full, /FULL_LINE_COMPLETION_KIND = "import-cloud-conflict-v2"/);
 for (const marker of ["const gsyncPush = async", "const gsyncPull = async", "const gsyncNow = async", "const gsyncSaveNow = async"]) {
   const at=full.indexOf(marker),end=full.indexOf("\n  };",at);
@@ -63,17 +72,93 @@ const mobileConflictBlock = mobile.slice(mobileConflictAt, mobile.indexOf("funct
 const mobileRecoveryAt = mobile.indexOf("async function resumeLineCompletion(");
 const mobileSyncAt = mobile.indexOf("async function syncNow(", mobileRecoveryAt);
 const mobileRecoveryBlock = mobile.slice(mobileRecoveryAt,mobileSyncAt);
+assert.match(mobile, /function canonicalJSON\(v\)/);
 assert.match(mobile, /async function driveMeta\(id\)[\s\S]*etag:r\.headers\?\.get\?\.\('etag'\)/);
 assert.match(mobile, /async function driveUpdate\(id,text,expectedEtag=''\)[\s\S]*headers\['If-Match'\]=expectedEtag/);
 assert.match(mobileConflictBlock, /const currentMeta=await driveMeta[\s\S]*revisionAdvanced[\s\S]*showConflict\(currentMeta\)/);
-assert.match(mobileConflictBlock, /baseEtag:currentMeta\.etag[\s\S]*persistLineCompletion\(checkpoint\)[\s\S]*resumeLineCompletion/);
+assert.match(mobileConflictBlock, /baseCanonical:canonicalJSON\(downloaded\)[\s\S]*targetCanonical:canonicalJSON\(payload\)/);
+assert.match(mobileConflictBlock, /persistLineCompletion\(checkpoint\)[\s\S]*resumeLineCompletion/);
 assert.doesNotMatch(mobileConflictBlock, /persistLineCompletion\(checkpoint\)[\s\S]{0,300}driveUpdate/);
-assert.match(mobileRecoveryBlock, /currentMeta\.etag!==checkpoint\.baseEtag/);
+assert.match(mobile, /function classifyLineRecoveryPayload\(currentPayload,checkpoint\)/);
+assert.match(mobileRecoveryBlock, /recoveryState=classifyLineRecoveryPayload\(current,checkpoint\)/);
+assert.match(mobileRecoveryBlock, /recoveryState\.state!=='target'[\s\S]*recoveryState\.state!=='base'/);
 assert.match(mobileRecoveryBlock, /driveUpdate\(checkpoint\.fileId[\s\S]*currentMeta\.etag\|\|checkpoint\.baseEtag/);
 assert.match(mobileRecoveryBlock, /reopenLineCompletionConflict/);
 assert.match(mobileRecoveryBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*state\.data=normalizeProfile/);
 assert.doesNotMatch(mobileRecoveryBlock, /prepareMutations/);
 assert.match(mobileRecoveryBlock, /saveLocal\(false,true\)[\s\S]*persistLineCompletion\(null\)/);
+assert.match(mobile, /async function resolveBlockedLineCompletion\(\)[\s\S]*driveCreate\(lineRecoveryCopyName\(\),currentText[\s\S]*resumeLineCompletion/);
+assert.match(mobileConflictBlock, /Keep both and finish LINE recovery/);
+
+// ── Stage 5A focused unit regressions ───────────────────────────────────────
+// Exercise the exact helper implementations without booting another JSDOM app.
+// This keeps the suite fast while proving the four clean-mirror findings stay closed.
+const fullCanonicalSource = full.slice(
+  full.indexOf("function canonicalJSON(v){"),
+  full.indexOf("// What counts as \"the data\""),
+);
+const recoveryContext = {};
+vm.runInNewContext(`${fullCanonicalSource}\nthis.canonicalJSON=canonicalJSON;this.classifyLineRecoveryPayload=classifyLineRecoveryPayload;`, recoveryContext);
+const canonical = recoveryContext.canonicalJSON;
+const classifyRecovery = recoveryContext.classifyLineRecoveryPayload;
+const basePayload = {personal:[{id:"a",title:"One"}],config:{lang:"EN"},tabReads:{today:1},activity:[{id:"x"}]};
+const targetPayload = {...basePayload,personal:[...basePayload.personal,{id:"b",title:"LINE add"}]};
+const checkpoint = {phase:"prepared",payload:targetPayload,baseCanonical:canonical(basePayload),targetCanonical:canonical(targetPayload)};
+assert.equal(classifyRecovery(basePayload,checkpoint).state,"base", "unchanged base may perform the first upload");
+assert.equal(classifyRecovery(targetPayload,checkpoint).state,"target", "exact uploaded target must use completion-only recovery");
+assert.equal(classifyRecovery({...targetPayload,tabReads:{today:2}},checkpoint).state,"blocked", "tab-read-only drift must not be hidden by a partial fingerprint");
+assert.equal(classifyRecovery({...targetPayload,config:{lang:"TH"}},checkpoint).state,"blocked", "settings-only drift must not be overwritten by stale recovery bytes");
+assert.equal(classifyRecovery({...basePayload,activity:[{id:"newer"}]},checkpoint).state,"blocked", "activity-only drift must force explicit reconciliation");
+
+const strictStart = full.indexOf("const writeStorageExact = async");
+const strictEnd = full.indexOf("\n\n  const applyPayloadLive",strictStart);
+const strictExpression = full.slice(full.indexOf("=",strictStart)+1,strictEnd).trim().replace(/;$/,"");
+const applyStart = full.indexOf("const applyPayloadLive = async");
+const applyEnd = full.indexOf("\n\n  // ── Google Drive sync",applyStart);
+const applyExpression = full.slice(full.indexOf("=",applyStart)+1,applyEnd).trim().replace(/;$/,"");
+const persisted = new Map();
+let failKey = "";
+const appliedSetters = [];
+const runtimeContext = vm.createContext({
+  window:{storage:{
+    set:async(key,value)=>{if(key===failKey)return null;persisted.set(key,value);return{key,value};},
+    get:async(key)=>persisted.has(key)?{key,value:persisted.get(key)}:null,
+  }},
+  P_KEY:"P",W_KEY:"W",EVENTS_KEY:"E",NOTES_KEY:"N",CUSTOM_TABS_KEY:"CT",
+  CONFIG_KEY:"CFG",WIDGET_KEY:"WID",EVENT_TYPES_KEY:"ET",CAL_VIEWS_KEY:"CV",
+  GANTT_VIEWS_KEY:"GV",TL_VIEWS_KEY:"TV",GROUP_COLORS_KEY:"GC",TABORDER_KEY:"TO",
+  TABREADS_KEY:"TR",ACTIVITY_KEY:"A",DATA_UPDATED_KEY:"D",DEFAULT_CONFIG:{defaultTab:"milestones"},
+  pk:key=>key,Date,
+  setPersonal:value=>appliedSetters.push(["personal",value]),setWork:value=>appliedSetters.push(["work",value]),
+  setEvents:()=>{},setNotes:()=>{},setCustomTabs:()=>{},setConfig:()=>{},setFontSize:()=>{},setLang:()=>{},
+  setWidgetOrder:()=>{},setEventTypes:()=>{},setCalViews:()=>{},setGanttViewsBk:()=>{},setTlViewsBk:()=>{},
+  setGroupColors:()=>{},setGroupColorCache:()=>{},setTabOrder:()=>{},setTabReads:()=>{},
+  setActivity:()=>{},setUndoStack:()=>{},setRedoStack:()=>{},setDataLastUpdated:()=>{},
+});
+runtimeContext.writeStorageExact = vm.runInContext(`(${strictExpression})`,runtimeContext);
+const applyPayloadStrict = vm.runInContext(`(${applyExpression})`,runtimeContext);
+failKey="W";
+await assert.rejects(
+  applyPayloadStrict({version:7,personal:[{id:"a"}],work:[{id:"b"}],events:[],notes:[],dataLastUpdated:"2026-09-03T00:00:00.000Z"},{strict:true}),
+  /Could not save work tasks/,
+  "strict local adoption must reject a null storage result",
+);
+assert.deepEqual(appliedSetters,[],"React state must not adopt payload fields after a durable-write failure");
+failKey="";persisted.clear();
+runtimeContext.window.storage.get=async key=>persisted.has(key)?{key,value:"mismatched"}:null;
+await assert.rejects(
+  runtimeContext.writeStorageExact("checkpoint","exact","LINE recovery checkpoint"),
+  /Could not verify LINE recovery checkpoint/,
+  "strict checkpoint writes must reject a mismatched read-back",
+);
+runtimeContext.window.storage.get=async key=>persisted.has(key)?{key,value:persisted.get(key)}:null;
+persisted.clear();
+await assert.doesNotReject(
+  applyPayloadStrict({version:7,personal:[{id:"a"}],work:[{id:"b"}],events:[],notes:[],tabReads:{today:1},activity:[],dataLastUpdated:"2026-09-03T00:00:00.000Z"},{strict:true}),
+  "strict local adoption must pass after exact set/read-back for every required field",
+);
+assert.equal(persisted.get("TR"),JSON.stringify({today:1}));
+assert.equal(persisted.get("D"),"2026-09-03T00:00:00.000Z");
 
 assert.doesNotMatch(browserBridge, /LINE_CHANNEL_(?:SECRET|ACCESS_TOKEN)/);
 assert.doesNotMatch(browserBridge, /service_role|sb_secret_/);

@@ -6,17 +6,22 @@
   selected Drive revision/content, uses an ETag write precondition, and reopens
   the conflict rather than overwriting a newer cloud save.
 - Full persists profile-scoped prepared/uploaded completion checkpoints before
-  Drive upload/queue completion. Reload recovery revalidates prepared writes,
-  retries uploaded checkpoints using only the exact IDs, and adopts the exact
-  uploaded payload before clearing the durable checkpoint.
-- Mobile extracts Drive ETags, uses `If-Match` for conflict uploads, and clears
-  stale prepared checkpoints before reopening the current conflict. Uploaded
+  Drive upload/queue completion. Every checkpoint and recovered profile write
+  now requires a successful exact storage read-back; local adoption and sync
+  metadata must both be durable before the single-use checkpoint is cleared.
+- Full and Mobile compare the complete canonical payload, not the normal partial
+  sync fingerprint. If a PATCH result is ambiguous and Drive later differs from
+  both the exact base and target, recovery remains durably blocked; the explicit
+  **Keep both** action saves the current Drive copy before finishing the exact
+  queued mutation, so retries cannot duplicate an `add` or overwrite newer data.
+- Mobile extracts Drive ETags and uses `If-Match` for conflict uploads. Uploaded
   checkpoints remain completion-only across reloads and cannot reapply an `add`.
 - Mobile preserves the downloaded cloud profile language, and Full/Mobile report
   earlier rejected mutations even when upload, completion, stale-revision refresh,
   or local adoption later fails.
-- Added stale-Drive, completion-response-loss, completion-only retry, language,
-  rejection, success and failure coverage plus Full/Mobile static contracts.
+- Added focused regressions for null/mismatched browser-storage writes, strict
+  local-adoption failure, full-field drift, ambiguous PATCH recovery, keep-both
+  reconciliation, completion-only retry, language and rejection reporting.
 - Closed the `importUseCloud` backlog gap and strengthened the
   `LINE-CLOUD-ADOPT-1` recurrence-prevention rule.
 - Source-only candidate: no Database, migration, Storage, Auth, RLS, provider,

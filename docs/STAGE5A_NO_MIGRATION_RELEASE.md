@@ -127,20 +127,21 @@ Rollback is branch deletion or commit revert; Production remains unchanged.
 
 ## Implementation record
 
-Status: **REMEDIATED ON DRAFT SOURCE BRANCH / EXACT-HEAD VERIFICATION REQUIRED**
+Status: **REMEDIATED ROUND 3 ON DRAFT SOURCE BRANCH / EXACT-HEAD CI + REVIEW REQUIRED**
 
 Changed source and test boundary:
 
-- `src/App.jsx` — final cloud-wins import decision revalidates Drive,
-  applies an ETag precondition, checkpoints exact post-upload state, retries only
-  queue completion after ambiguous responses, and reports earlier rejections.
-- `mobile/index.html` — final downloaded cloud payload preserves cloud language,
-  persists an exact completion-only checkpoint and never re-prepares a mutation
-  after Drive accepts it.
-- `build/sync-content-check.test.mjs` — executable stale-revision,
-  response-loss, completion-only retry, language/rejection and failure regressions.
-- `build/line-contract.test.mjs` — static ETag/revalidation, checkpoint,
-  exact-adoption, language, rejection-message and fail-closed contract pins.
+- `src/App.jsx` — final cloud-wins import decision uses exact canonical
+  base/target/current comparison, ETag preconditions, strict set/read-back for
+  checkpoints and local adoption, completion-only retry, and explicit keep-both
+  reconciliation for ambiguous PATCH results.
+- `mobile/index.html` — preserves cloud language, persists exact completion-only
+  or blocked recovery state, and saves the current Drive copy before resolving an
+  ambiguous recovery without re-preparing a mutation.
+- `build/sync-content-check.test.mjs` — lightweight source contracts for strict
+  storage, full-field comparison, blocked recovery and keep-both ordering.
+- `build/line-contract.test.mjs` — executable helper regressions plus Full/Mobile
+  ETag, strict-adoption, canonical comparison, no-duplicate and CSP contracts.
 - `PROJECT_CONTEXT.md` — backlog closure and `LINE-CLOUD-ADOPT-1` prevention
   control.
 - `CHANGELOG.md` — source-only candidate record.
@@ -168,3 +169,21 @@ The second exact-head review required four additional source-only controls:
 Focused contracts cover durable phase ordering, completion-only retry, exact
 payload adoption, Mobile stale-checkpoint reopening, ETag preconditions, and
 rejection reporting. The source boundary remains no-migration/no-Production.
+
+## Clean mirror review and remediation round 3
+
+- Temporary Draft PR #106 was created from the exact base as one commit with the
+  byte-identical tree from PR #105. Its CI run `33771928437` passed all six jobs.
+  The mirror was closed without merge or deployment immediately after review.
+- The clean review found four source-only failure modes: a `null` storage result
+  could be mistaken for a durable checkpoint; local adoption could clear the
+  checkpoint after a swallowed write failure; a potentially committed PATCH
+  followed by another Drive change could lose the only reconciliation marker;
+  and the normal partial sync fingerprint omitted fields required for recovery.
+- Round 3 fails closed on null or mismatched storage read-back, persists exact
+  complete payload canonical forms, retains an ambiguous recovery as `blocked`,
+  and exposes one explicit safe action that first saves the current Drive bytes as
+  a conflict copy and then finishes the exact stored mutation IDs.
+- No Database, migration, Storage, Auth, RLS, provider, Environment, secret,
+  Production data, custom backup/recovery lane, merge, deployment or HTML-status
+  work is part of this remediation.
