@@ -438,5 +438,51 @@ let savedBytes = null;
   check('"Yes" uploads', uploads.length >= 1, `${uploads.length} upload(s)`);
 }
 
+// ── Stage 5A: durable retries, stale revisions and rejection reporting ──────
+{
+  console.log('\n--- Stage 5A Full durable checkpoint contracts ---');
+  const full=fs.readFileSync('src/App.jsx','utf8');
+  const persistAt=full.indexOf('const persistGsyncStrict = async');
+  const prepareAt=full.indexOf('const prepareLineMutations = async');
+  const finishAt=full.indexOf('const finishFullLineCompletion = async',prepareAt);
+  const finishEnd=full.indexOf('const refreshLineStatus',finishAt);
+  const finish=full.slice(finishAt,finishEnd);
+  const importAt=full.indexOf('const importUseCloud = async');
+  const importEnd=full.indexOf('// ── N104:',importAt);
+  const cloud=full.slice(importAt,importEnd);
+  check('Full durable sync write is strict',persistAt>=0&&/window\.storage\.set\(pk\(GSYNC_KEY\)/.test(full.slice(persistAt,prepareAt)));
+  check('Full stores prepared checkpoint before finishing',cloud.indexOf('persistFullLineCompletion(checkpoint)')<cloud.indexOf('finishFullLineCompletion(checkpoint)'));
+  check('Full prepared recovery revalidates content',/phase!=="uploaded"[\s\S]*GDrive\.getMeta[\s\S]*GDrive\.download/.test(finish));
+  check('Full prepared recovery uses ETag precondition',/GDrive\.updateFile[\s\S]*meta\.etag\|\|checkpoint\.baseEtag/.test(finish));
+  check('Full uploaded retry completes without preparation',/await complete\(checkpoint\.mutationIds\)/.test(finish)&&! /prepareLineMutations/.test(finish.slice(finish.indexOf('await complete'))));
+  check('Full adopts exact checkpoint payload',/applyPayloadLive\(checkpoint\.payload\)/.test(finish));
+  check('Full stale/412 recovery reopens conflict',/Drive error 412\|Precondition Failed/.test(finish)&&/reopenFullLineCompletionConflict/.test(finish));
+  check('Full stale/412 recovery retains rejection notice',/noteLineSaveResult\(rejected,message,rejected\.length\?"partial":"later"\)/.test(full));
+  check('Full clears durable checkpoint only after adoption',finish.indexOf('applyPayloadLive(checkpoint.payload)')<finish.indexOf('delete next.lineCompletion'));
+}
+
+{
+  console.log('\n--- Stage 5A Mobile ETag and stale-checkpoint contracts ---');
+  const mobile=fs.readFileSync('mobile/index.html','utf8');
+  const showAt=mobile.indexOf('function showConflict(meta){');
+  const pullAt=mobile.indexOf('  const pull=async()=>{',showAt);
+  const pullEnd=mobile.indexOf('\n  const push=async()=>{',pullAt);
+  const pull=mobile.slice(pullAt,pullEnd);
+  const resumeAt=mobile.indexOf('async function resumeLineCompletion(');
+  const resumeEnd=mobile.indexOf('async function syncNow(',resumeAt);
+  const resume=mobile.slice(resumeAt,resumeEnd);
+  check('Mobile metadata retains ETag',/async function driveMeta\(id\)[\s\S]*etag:r\.headers/.test(mobile));
+  check('Mobile update supports If-Match',/driveUpdate\(id,text,expectedEtag=''\)[\s\S]*If-Match/.test(mobile));
+  check('Mobile final decision revalidates revision',/currentMeta=await driveMeta[\s\S]*revisionAdvanced/.test(pull));
+  check('Mobile final decision does not upload directly',! /persistLineCompletion\(checkpoint\)[\s\S]{0,300}driveUpdate/.test(pull));
+  check('Mobile prepared checkpoint carries base ETag',/baseEtag:currentMeta\.etag/.test(pull));
+  check('Mobile recovery uploads with precondition',/driveUpdate\(checkpoint\.fileId[\s\S]*currentMeta\.etag\|\|checkpoint\.baseEtag/.test(resume));
+  check('Mobile stale prepared checkpoint reopens conflict',/reopenLineCompletionConflict/.test(resume)&&/showConflict\(latest\)/.test(mobile));
+  check('Mobile stale checkpoint is cleared before conflict opens',mobile.indexOf('persistLineCompletion(null)',mobile.indexOf('async function reopenLineCompletionConflict'))<mobile.indexOf('showConflict(latest)',mobile.indexOf('async function reopenLineCompletionConflict')));
+  check('Mobile uploaded retry never prepares again',! /prepareMutations/.test(resume));
+  check('Mobile completion precedes exact adoption',resume.indexOf('await complete(checkpoint.mutationIds)')<resume.indexOf('state.data=normalizeProfile'));
+  check('Mobile rejection survives stale/failure recovery',/lineSaveToastText\(rejected,message\)/.test(mobile)&&/lineSaveToastText\(rejected,state\.driveError\)/.test(resume));
+}
+
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');
 process.exit(fails.length ? 1 : 0);
