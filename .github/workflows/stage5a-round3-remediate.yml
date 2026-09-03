@@ -30,11 +30,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): rerun clean-review round 3' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): rerun round 3 with semantic contracts' ]]
           git merge-base --is-ancestor 11e23332038b0271c211edca55cfbe73e0e5497b HEAD
           test -f ops/stage5a-round3-final.patch.xz.b64
+          test -f ops/stage5a-round3-static-fix.patch.xz.b64
 
-      - name: Apply exact source-only patch
+      - name: Apply exact source-only patches
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +44,11 @@ jobs:
           test "$actual" = a71bdc5bbe7da7316315f793bc4443610ec5204609adee978c525a8c77fc7c9e
           git apply --check "$RUNNER_TEMP/stage5a-round3.patch"
           git apply "$RUNNER_TEMP/stage5a-round3.patch"
+          base64 -d ops/stage5a-round3-static-fix.patch.xz.b64 | xz -d > "$RUNNER_TEMP/stage5a-round3-static.patch"
+          actual_static=$(sha256sum "$RUNNER_TEMP/stage5a-round3-static.patch" | awk '{print $1}')
+          test "$actual_static" = 4001abe69bc46411c6a44b4ded45032fd50f34576bc46124dd069f6f7f374c9e
+          git apply --check "$RUNNER_TEMP/stage5a-round3-static.patch"
+          git apply "$RUNNER_TEMP/stage5a-round3-static.patch"
 
       - name: Validate source-only boundary before tests
         shell: bash
