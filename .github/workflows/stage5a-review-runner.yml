@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): run review remediation' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): diagnose review remediation' ]]
           git merge-base --is-ancestor c58e76ad0833a1209ed69be142f3844769f9fed2 HEAD
 
       - name: Extract and run deterministic five-finding remediation
@@ -50,6 +50,13 @@ jobs:
           compile(payload, str(target), 'exec')
           PYCODE
           python3 /tmp/stage5a-review-remediate.py
+
+      - name: Print failing checkpoint contract context
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -n -C 6 "Mobile persists uploaded checkpoint before resume" build/sync-content-check.test.mjs
+          grep -n -C 12 "persistLineCompletion" mobile/index.html | tail -n 100
 
       - name: Validate source-only boundary before build
         shell: bash
