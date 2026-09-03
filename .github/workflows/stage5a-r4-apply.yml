@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/feature/stage5a-line-import-conflict" ]]
-          [[ "$(git log -1 --format=%s)" == "ops(stage5a): apply normalized round-4 patch" ]]
+          [[ "$(git log -1 --format=%s)" == "ops(stage5a): run verified single-payload patch" ]]
           git merge-base --is-ancestor 921a7d780713dead2ab1c8b554dddaad0c59b4d2 HEAD
           git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- \
             BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
@@ -38,67 +38,22 @@ jobs:
             docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx \
             package.json package-lock.json .github/workflows/verify.yml
 
-      - name: Reassemble and normalize deterministic patch
+      - name: Decode and validate deterministic patch
         shell: bash
         run: |
           set -euo pipefail
-          cat .stage5a-r4/chunk0.b64 .stage5a-r4/chunk1.b64 \
-              .stage5a-r4/chunk2.b64 .stage5a-r4/chunk3.b64 \
-            | tr -d '[:space:]' > "$RUNNER_TEMP/patch.b64"
+          tr -d '[:space:]' < .stage5a-r4/patch.py.gz.b64 > "$RUNNER_TEMP/patch.b64"
           payload_sha="$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)"
           echo "payload_sha=$payload_sha"
-          [[ "$payload_sha" == "5da645edc94f1369b3dc32a3b624fbc606360e595cde7082b6ddd383d8bd40d3" ]] || { echo "payload checksum mismatch"; exit 21; }
-          base64 -d "$RUNNER_TEMP/patch.b64" | gzip -d > "$RUNNER_TEMP/stage5a-r4.py"
+          [[ "$payload_sha" == "4aa90f9ae9758b0959aab589922bcd11c72454faf52660bb181e66f0affe55fb" ]] || { echo "payload checksum mismatch"; exit 21; }
+          base64 -d "$RUNNER_TEMP/patch.b64" > "$RUNNER_TEMP/stage5a-r4.py.gz"
+          gzip_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py.gz" | cut -d' ' -f1)"
+          echo "gzip_sha=$gzip_sha"
+          [[ "$gzip_sha" == "999f926a00dc11d23bd8147f89f18d5b8c24750abd6d47c147c897f1d80a567e" ]] || { echo "gzip checksum mismatch"; exit 22; }
+          gzip -d -c "$RUNNER_TEMP/stage5a-r4.py.gz" > "$RUNNER_TEMP/stage5a-r4.py"
           script_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py" | cut -d' ' -f1)"
-          echo "original_script_sha=$script_sha"
-          [[ "$script_sha" == "c1e5c9043b2c8dadb33b44a4d53a776dc0c6cb2cc79a5934be2443c8d8edb087" ]] || { echo "script checksum mismatch"; exit 22; }
-
-      - name: Adapt deterministic script to current canonical helper formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          import os, re
-
-          path=Path(os.environ['RUNNER_TEMP'])/'stage5a-r4.py'
-          text=path.read_text(encoding='utf-8')
-          full_pattern=re.compile(
-            r"canonical_old = '''function canonicalJSON\(v\)\{.*?"
-            r"app = replace_once\(app, canonical_old, canonical_new, [^\n]+\)\n",
-            re.S,
-          )
-          full_replacement='''full_recovery_helper = \'\'\'function recoveryLocalCanonical(payload){
-            const copy=payload&&typeof payload==="object"
-              ?(typeof structuredClone==="function"?structuredClone(payload):JSON.parse(JSON.stringify(payload)))
-              :payload;
-            if(copy&&typeof copy==="object"){
-              delete copy.savedAt;
-              delete copy.dataLastUpdated;
-              delete copy.summary;
-            }
-            return canonicalJSON(copy);
-          }
-          \'\'\'
-          app = insert_before_once(app, "function classifyLineRecoveryPayload(", full_recovery_helper, "Full recovery canonical helper")
-          '''
-          text,full_count=full_pattern.subn(full_replacement,text,count=1)
-
-          mobile_pattern=re.compile(
-            r"mobile_canonical_old = '''function canonicalJSON\(v\)\{.*?"
-            r"mobile = replace_once\(mobile, mobile_canonical_old, mobile_canonical_new, [^\n]+\)\n",
-            re.S,
-          )
-          mobile_replacement='''mobile_recovery_helper = \'\'\'function recoveryLocalCanonical(payload){const copy=payload&&typeof payload===\'object\'?cloneProfileData(payload):payload;if(copy&&typeof copy===\'object\'){delete copy.savedAt;delete copy.dataLastUpdated;delete copy.summary}return canonicalJSON(copy)}
-          \'\'\'
-          mobile = insert_before_once(mobile, "function classifyLineRecoveryPayload(", mobile_recovery_helper, "Mobile recovery canonical helper")
-          '''
-          text,mobile_count=mobile_pattern.subn(mobile_replacement,text,count=1)
-          print(f'adapted_sections full={full_count} mobile={mobile_count}',flush=True)
-          if (full_count,mobile_count)!=(1,1):
-            raise SystemExit('deterministic script canonical adaptation failed')
-          path.write_text(text,encoding='utf-8')
-          PYCODE
+          echo "script_sha=$script_sha"
+          [[ "$script_sha" == "fac74c75081bd1155f60f720e6ff7d98ada9208e1c2a1f82f99ee163812860a5" ]] || { echo "script checksum mismatch"; exit 23; }
           python3 -m py_compile "$RUNNER_TEMP/stage5a-r4.py"
           PYTHONUNBUFFERED=1 python3 "$RUNNER_TEMP/stage5a-r4.py"
 
