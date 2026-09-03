@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == 'refs/heads/feature/stage5a-line-import-conflict' ]]
-          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): diagnose review remediation' ]]
+          [[ "$(git log -1 --format=%s)" == 'ops(stage5a): correct checkpoint contract' ]]
           git merge-base --is-ancestor c58e76ad0833a1209ed69be142f3844769f9fed2 HEAD
 
       - name: Extract and run deterministic five-finding remediation
@@ -51,12 +51,20 @@ jobs:
           PYCODE
           python3 /tmp/stage5a-review-remediate.py
 
-      - name: Print failing checkpoint contract context
+      - name: Correct completion-checkpoint regression assertion
         shell: bash
         run: |
           set -euo pipefail
-          grep -n -C 6 "Mobile persists uploaded checkpoint before resume" build/sync-content-check.test.mjs
-          grep -n -C 12 "persistLineCompletion" mobile/index.html | tail -n 100
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path('build/sync-content-check.test.mjs')
+          text = path.read_text(encoding='utf-8')
+          old = "check('Mobile persists uploaded checkpoint before resume',pullBlock.indexOf(\"phase:'uploaded'\")>pullBlock.indexOf('await driveUpdate')&&pullBlock.indexOf('resumeLineCompletion')>pullBlock.indexOf(\"phase:'uploaded'\"));"
+          new = "check('Mobile persists uploaded checkpoint before resume',pullBlock.indexOf(\"phase:'uploaded'\")>pullBlock.indexOf('await driveUpdate')&&pullBlock.indexOf('resumeLineCompletion',pullBlock.indexOf(\"phase:'uploaded'\"))>pullBlock.indexOf(\"phase:'uploaded'\"));"
+          if text.count(old) != 1:
+              raise SystemExit(f'checkpoint assertion anchor drifted: {text.count(old)} matches')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PYCODE
 
       - name: Validate source-only boundary before build
         shell: bash
