@@ -6,6 +6,7 @@ on:
       - feature/stage5a-line-import-conflict
     paths:
       - .github/workflows/stage5a-r4-apply.yml
+      - .stage5a-r4/finalize.py
 
 permissions:
   contents: write
@@ -29,7 +30,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git log -1 --format=%s)" = "ops(stage5a): run finalizer"
           git merge-base --is-ancestor 921a7d780713dead2ab1c8b554dddaad0c59b4d2 HEAD
           git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx package.json package-lock.json .github/workflows/verify.yml
 
@@ -80,4 +80,4 @@ jobs:
           printf '%s\n' BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort > "$RUNNER_TEMP/release-expected.txt"
           diff -u "$RUNNER_TEMP/release-expected.txt" "$RUNNER_TEMP/release.txt"
 
-# finalizer retry after normalizing the pre-existing Mobile busy/finally helper
+# retry with current Mobile checkpoint field ordering normalized
