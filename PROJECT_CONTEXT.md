@@ -1223,7 +1223,8 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 
 - **Stage 5A pending-recovery identity and concurrency guards:** Full relink/unlink,
   profile switch and active-profile deletion, plus Mobile link/create/delete-active-file,
-  refuse to change the recovery context while `lineCompletion` exists. Full
+  refuse to change the recovery context while the Full busy lock or durable
+  `lineCompletion` checkpoint exists. Full
   cloud-choice/Check Now share synchronous exclusions, and every Mobile Drive UI
   owner rejects entry before acquiring the shared `driveBusy` lock.
   The exact mutation IDs remain bound to their original file until completion or

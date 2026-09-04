@@ -473,7 +473,7 @@ let savedBytes = null;
   const linkGuard=full.slice(linkGuardAt,relinkAt);
   const relink=full.slice(relinkAt,full.indexOf('const gsyncOpenFolder',relinkAt));
   const unlink=full.slice(unlinkAt,full.indexOf('const gsyncNow = async',unlinkAt));
-  check('Full relink and unlink retain the original recovery file',/gsync\.lineCompletion/.test(linkGuard)&&relink.indexOf('blockFullLinkChangeDuringRecovery()')<relink.indexOf('persistGsync')&&unlink.indexOf('blockFullLinkChangeDuringRecovery()')<unlink.indexOf('persistGsync'));
+  check('Full relink and unlink retain the original recovery file',/gsyncBusy\.current/.test(linkGuard)&&/gsync\.lineCompletion/.test(linkGuard)&&relink.indexOf('blockFullLinkChangeDuringRecovery()')<relink.indexOf('persistGsync')&&unlink.indexOf('blockFullLinkChangeDuringRecovery()')<unlink.indexOf('persistGsync'));
   const switchAt=full.indexOf('const switchProfile = (newId) => {');
   const profileSwitch=full.slice(switchAt,full.indexOf('const toggleLang',switchAt));
   const deleteProfileAt=full.indexOf('const handleDelete = (id) => {');

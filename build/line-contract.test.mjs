@@ -114,6 +114,7 @@ const fullUnlinkAt = full.indexOf("const gsyncUnlink = async", fullRelinkAt);
 const fullLinkGuardBlock = full.slice(fullLinkGuardAt, fullRelinkAt);
 const fullRelinkBlock = full.slice(fullRelinkAt, full.indexOf("const gsyncOpenFolder", fullRelinkAt));
 const fullUnlinkBlock = full.slice(fullUnlinkAt, full.indexOf("const gsyncNow = async", fullUnlinkAt));
+assert.match(fullLinkGuardBlock, /gsyncBusy\.current/);
 assert.match(fullLinkGuardBlock, /gsync\.lineCompletion/);
 assert.ok(fullRelinkBlock.indexOf("blockFullLinkChangeDuringRecovery()") < fullRelinkBlock.indexOf("persistGsync"),
   "Full relink must retain the checkpoint and its original file before changing the link");
@@ -243,7 +244,10 @@ async function exerciseMobileRace(first) {
 }
 assert.deepEqual(await exerciseMobileRace("recovery"),{prepareAddCalls:1,firstStillOwnsLock:true},"Mobile sync must defer without clearing recovery's Drive lock");
 assert.deepEqual(await exerciseMobileRace("sync"),{prepareAddCalls:1,firstStillOwnsLock:true},"Mobile recovery must defer without clearing sync's Drive lock");
-assert.equal((checkpoint=>!checkpoint)(checkpoint),false,"Full profile/file context changes must reject while a recovery checkpoint exists");
+const fullContextChangeAllowed=(busy,storedCheckpoint)=>!(busy||storedCheckpoint);
+assert.equal(fullContextChangeAllowed(false,checkpoint),false,"Full profile/file context changes must reject while a recovery checkpoint exists");
+assert.equal(fullContextChangeAllowed(true,null),false,"Full context changes must reject while cloud-choice owns the lock before its checkpoint exists");
+assert.equal(fullContextChangeAllowed(false,null),true,"Full context changes remain available when no recovery is active");
 
 const strictStart = full.indexOf("const writeStorageExact = async");
 const strictEnd = full.indexOf("\n\n  const applyPayloadLive",strictStart);

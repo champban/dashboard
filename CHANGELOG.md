@@ -6,7 +6,8 @@
   Check Now already defers while cloud-choice owns the shared busy lock. Full
   relink/unlink cannot detach an active LINE completion checkpoint from its
   original Drive file; profile switching and active-profile deletion are also
-  blocked until the profile-scoped recovery completes.
+  blocked both while recovery owns the synchronous lock and after its durable
+  profile-scoped checkpoint exists.
 - Mobile link/create and deletion of the active Drive file are blocked while a
   single-use LINE completion checkpoint is pending. Mobile sync triggers also
   reject entry while conflict/recovery owns the Drive lock, preventing the old

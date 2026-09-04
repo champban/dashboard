@@ -226,7 +226,9 @@ Production data, backup/recovery, merge, deployment or HTML-status operation.
   `add` is prepared once under the guarded races.
 - Follow-up exact-head review also binds Full recovery to the active profile:
   switching profiles or deleting the active profile is blocked before any
-  profile-scoped storage is changed. Mobile connect, file-list, rename and
+  profile-scoped storage is changed, including the in-flight interval after
+  cloud-choice acquires `gsyncBusy` but before its checkpoint exists. Mobile
+  connect, file-list, rename and
   conflict-save actions now reject entry before acquiring `driveBusy`, so no
   contender can release another sync/recovery action's lock.
 

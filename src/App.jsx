@@ -13083,8 +13083,8 @@ export default function App() {
   };
 
   const blockFullLinkChangeDuringRecovery = () => {
-    if(!gsync.lineCompletion)return false;
-    const message="Finish the pending LINE recovery before changing the linked file or active profile.";
+    if(!gsyncBusy.current&&!gsync.lineCompletion)return false;
+    const message="Wait for the current Drive or LINE recovery before changing the linked file or active profile.";
     setGsyncStatus("idle"); setGsyncError(message); note("later",message);
     return true;
   };
