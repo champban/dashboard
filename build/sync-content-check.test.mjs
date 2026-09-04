@@ -465,8 +465,15 @@ let savedBytes = null;
   check('Full stale/412 recovery retains rejection notice',/noteLineSaveResult\(rejected,message,rejected\.length\?"partial":"later"\)/.test(full));
   check('Full checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/.test(cloud));
   check('Full preserves later local edits before and after completion',finish.indexOf('preserveFullLocalEdits(checkpoint)')>=0&&finish.indexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')>finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})'));
-  check('Full conflict preparation is single-flight',/const importUseCloud = async \(\) => \{[\s\S]*if\(gsyncBusy\.current\)return;[\s\S]*gsyncBusy\.current=true;[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/.test(cloud));
+  check('Full cloud-choice shares the checker exclusion',/const importUseCloud = async \(\) => \{[\s\S]*if\(gsyncBusy\.current\|\|gsyncChecking\.current\)[\s\S]*gsyncBusy\.current=true;[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/.test(cloud)&&cloud.indexOf('gsyncBusy.current=true')<cloud.indexOf('prepareLineMutations(latestPayload)'));
   check('Full poll pauses while recovery exists',/gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/.test(full)&&/gsyncBusy\.current \|\| gsyncChecking\.current \|\| gsync\.lineCompletion/.test(full));
+  const linkGuardAt=full.indexOf('const blockFullLinkChangeDuringRecovery = () => {');
+  const relinkAt=full.indexOf('const gsyncRelink = async',linkGuardAt);
+  const unlinkAt=full.indexOf('const gsyncUnlink = async',relinkAt);
+  const linkGuard=full.slice(linkGuardAt,relinkAt);
+  const relink=full.slice(relinkAt,full.indexOf('const gsyncOpenFolder',relinkAt));
+  const unlink=full.slice(unlinkAt,full.indexOf('const gsyncNow = async',unlinkAt));
+  check('Full relink and unlink retain the original recovery file',/gsync\.lineCompletion/.test(linkGuard)&&relink.indexOf('blockFullLinkChangeDuringRecovery()')<relink.indexOf('persistGsync')&&unlink.indexOf('blockFullLinkChangeDuringRecovery()')<unlink.indexOf('persistGsync'));
 }
 
 {
@@ -491,6 +498,16 @@ let savedBytes = null;
   check('Mobile checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(state\.data\)/.test(pull));
   check('Mobile preserves later local edits before and after completion',resume.indexOf('preserveMobileLocalEdits(checkpoint)')>=0&&resume.indexOf('preserveMobileLocalEdits(checkpoint)')<resume.indexOf('await complete(checkpoint.mutationIds)')&&resume.lastIndexOf('preserveMobileLocalEdits(checkpoint)')>resume.indexOf('await complete(checkpoint.mutationIds)')&&resume.lastIndexOf('preserveMobileLocalEdits(checkpoint)')<resume.indexOf('state.data=normalizeProfile'));
   check('Mobile conflict pull is single-flight',/const pull=async\(\)=>\{[\s\S]*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/.test(pull));
+  const fileGuardAt=mobile.indexOf('function blockCloudFileChangeDuringRecovery(id=null){');
+  const deleteAt=mobile.indexOf('async function deleteCloudFile(id,name){',fileGuardAt);
+  const linkAt=mobile.indexOf('async function linkCloudFile(id,name){',deleteAt);
+  const createAt=mobile.indexOf('async function createCloudFile(folderTab=null){',linkAt);
+  const syncAt=mobile.indexOf('async function syncNow(silent=false){',createAt);
+  const fileGuard=mobile.slice(fileGuardAt,mobile.indexOf('async function connectDrive',fileGuardAt));
+  const deleteFile=mobile.slice(deleteAt,linkAt),linkFile=mobile.slice(linkAt,createAt);
+  const createFile=mobile.slice(createAt,mobile.indexOf('function syncTimestamp',createAt));
+  check('Mobile file identity stays bound to pending recovery',/state\.sync\.lineCompletion/.test(fileGuard)&&linkFile.indexOf('blockCloudFileChangeDuringRecovery()')<linkFile.indexOf('driveDownload')&&createFile.indexOf('blockCloudFileChangeDuringRecovery()')<createFile.indexOf('driveCreate')&&deleteFile.indexOf('blockCloudFileChangeDuringRecovery(id)')<deleteFile.indexOf('driveDelete'));
+  check('Mobile sync entry respects the Drive recovery lock',/async function syncNow\(silent=false\)\{\s*if\(state\.driveBusy\)return;/.test(mobile.slice(syncAt,mobile.indexOf('function showConflict(meta){',syncAt))));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

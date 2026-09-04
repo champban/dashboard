@@ -1221,7 +1221,13 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | PACKET-A-B2-2 | Post-Packet-A restore reached catalog verification but failed closed before publishing raw diagnostics | Restoring into a fresh target did not reproduce the source database's reviewed `postgres` default-ACL precondition; deleted private logs prevented overstating a unique first failing assertion | Reconstruct only the frozen Packet A default-ACL precondition inside the disposable transaction, restore schema as `postgres`, reset before data, and publish only nonce-bound allowlisted assertion group + SQLSTATE; raw logs remain private and cleanup-scoped | PR #83 exact remote head `48aaa796`; verify/source run `32616039132`/`32616039104` PASS; restore run `32618003121`, jobs `97141728425`/`97141748031` PASS; zero output artifacts and no Production write |
 | PACKET-A-ACL-1 | Broad existing LINE grants and `postgres` future defaults exposed privileges beyond the reviewed contract | Historical Supabase defaults plus explicit existing object grants were broader than RLS alone controls | Exact hash-pinned targeted ACL migration; never use `db push`; freeze before/after ledger, count, ACL/RLS and unrelated canaries | Migration `20260822162710`; catalog/default/RLS/count/canary PASS; functional smoke Owner-waived / NOT EXECUTED |
 
-- **Stage 5A pending-recovery relink guard:** Mobile refuses to switch Drive files while `lineCompletion` exists. The exact mutation IDs remain bound to their original file until completion/reconciliation, preventing cross-file loss or duplicate preparation.
+- **Stage 5A pending-recovery identity and concurrency guards:** Full relink/unlink
+  and Mobile link/create/delete-active-file refuse to change the linked Drive
+  file while `lineCompletion` exists. Full cloud-choice/Check Now share
+  synchronous exclusions, and Mobile sync/conflict recovery share `driveBusy`.
+  The exact mutation IDs remain bound to their original file until completion or
+  reconciliation, preventing cross-file loss, duplicate preparation/upload, or
+  duplicate queue completion.
 
 ## Open backlog
 

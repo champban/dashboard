@@ -13081,8 +13081,16 @@ export default function App() {
     } catch(e){ setGsyncStatus("error"); setGsyncError(e.message||"Rename failed"); }
   };
 
+  const blockFullLinkChangeDuringRecovery = () => {
+    if(!gsync.lineCompletion)return false;
+    const message="Finish the pending LINE recovery before changing the linked file.";
+    setGsyncStatus("idle"); setGsyncError(message); note("later",message);
+    return true;
+  };
+
   // switch the linked file to a different one the user picks (keeps auth)
   const gsyncRelink = async (fileId, fileName) => {
+    if(blockFullLinkChangeDuringRecovery())return;
     // Clearing both marks is deliberate: you have just pointed at a file whose
     // contents this device has never compared, so the next check must see BOTH sides
     // as changed and ask which way to go rather than quietly overwriting a file you
@@ -13110,6 +13118,7 @@ export default function App() {
   };
 
   const gsyncUnlink = async () => {
+    if(blockFullLinkChangeDuringRecovery())return;
     if (gsyncTimer.current) clearTimeout(gsyncTimer.current);
     await persistGsync({ fileId:null, fileName:"", localName:"", lastSyncAt:0, lastCloudModified:"", lastPushedStamp:null, lastPushedFp:null });
     setGsyncStatus("idle");
@@ -14351,7 +14360,10 @@ export default function App() {
   // completion checkpoint so an ambiguous Supabase response can only retry the
   // idempotent queue update — never reapply an add/edit/delete mutation.
   const importUseCloud = async () => {
-    if(gsyncBusy.current)return;
+    if(gsyncBusy.current||gsyncChecking.current){
+      note("later","Google Drive is still busy — choose the cloud copy again when it finishes");
+      return;
+    }
     const ic=importConflict;
     const durable=gsync.lineCompletion;
     if(!durable&&!ic)return;

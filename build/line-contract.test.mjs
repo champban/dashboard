@@ -66,7 +66,15 @@ assert.match(full, /function recoveryLocalCanonical\(payload\)/);
 assert.match(full, /const preserveFullLocalEdits = async[\s\S]*saveConflictCopy[\s\S]*preservedLocalCanonical[\s\S]*persistFullLineCompletion/);
 assert.match(fullCompletionBlock, /preserveFullLocalEdits\(checkpoint\)[\s\S]*await complete\(checkpoint\.mutationIds\)[\s\S]*preserveFullLocalEdits\(checkpoint\)[\s\S]*applyPayloadLive/);
 assert.match(full.slice(fullImportCloudAt), /localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/);
-assert.match(full.slice(fullImportCloudAt), /if\(gsyncBusy\.current\)return;[\s\S]*gsyncBusy\.current=true[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/);
+const fullImportCloudBlock = full.slice(fullImportCloudAt, full.indexOf("// ── N104:", fullImportCloudAt));
+assert.match(fullImportCloudBlock, /if\(gsyncBusy\.current\|\|gsyncChecking\.current\)[\s\S]*gsyncBusy\.current=true[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/);
+assert.ok(fullImportCloudBlock.indexOf("gsyncBusy.current=true") < fullImportCloudBlock.indexOf("prepareLineMutations(latestPayload)"),
+  "Full cloud-choice must own the shared exclusion before preparing a LINE mutation");
+const fullCheckAt = full.indexOf("const gsyncCheckNow = async");
+const fullCheckBlock = full.slice(fullCheckAt, full.indexOf("// This is the app's first fixed-interval poll", fullCheckAt));
+assert.match(fullCheckBlock, /if \(gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion\) return null;/);
+assert.ok(fullCheckBlock.indexOf("gsyncChecking.current = true") < fullCheckBlock.indexOf("prepareLineMutations"),
+  "Full Check Now must own its exclusion before preparing a LINE mutation");
 assert.match(full, /gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/);
 assert.match(full, /FULL_LINE_COMPLETION_KIND = "import-cloud-conflict-v2"/);
 for (const marker of ["const gsyncPush = async", "const gsyncPull = async", "const gsyncNow = async", "const gsyncSaveNow = async"]) {
@@ -100,14 +108,38 @@ assert.match(mobileRecoveryBlock, /preserveMobileLocalEdits\(checkpoint\)[\s\S]*
 assert.match(mobileConflictBlock, /localBaselineCanonical:recoveryLocalCanonical\(state\.data\)/);
 assert.match(mobileConflictBlock, /const pull=async\(\)=>\{[\s\S]*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/);
 assert.match(mobileConflictBlock, /Keep both and finish LINE recovery/);
-const mobileRelinkAt = mobile.indexOf("async function linkCloudFile(id,name){");
-const mobileRelinkEnd = mobile.indexOf("async function createCloudFile", mobileRelinkAt);
-const mobileRelinkBlock = mobile.slice(mobileRelinkAt, mobileRelinkEnd);
+const fullLinkGuardAt = full.indexOf("const blockFullLinkChangeDuringRecovery = () => {");
+const fullRelinkAt = full.indexOf("const gsyncRelink = async", fullLinkGuardAt);
+const fullUnlinkAt = full.indexOf("const gsyncUnlink = async", fullRelinkAt);
+const fullLinkGuardBlock = full.slice(fullLinkGuardAt, fullRelinkAt);
+const fullRelinkBlock = full.slice(fullRelinkAt, full.indexOf("const gsyncOpenFolder", fullRelinkAt));
+const fullUnlinkBlock = full.slice(fullUnlinkAt, full.indexOf("const gsyncNow = async", fullUnlinkAt));
+assert.match(fullLinkGuardBlock, /gsync\.lineCompletion/);
+assert.ok(fullRelinkBlock.indexOf("blockFullLinkChangeDuringRecovery()") < fullRelinkBlock.indexOf("persistGsync"),
+  "Full relink must retain the checkpoint and its original file before changing the link");
+assert.ok(fullUnlinkBlock.indexOf("blockFullLinkChangeDuringRecovery()") < fullUnlinkBlock.indexOf("persistGsync"),
+  "Full unlink must retain the checkpoint and its original file before clearing the link");
+
+const mobileFileGuardAt = mobile.indexOf("function blockCloudFileChangeDuringRecovery(id=null){");
+const mobileDeleteAt = mobile.indexOf("async function deleteCloudFile(id,name){", mobileFileGuardAt);
+const mobileRelinkAt = mobile.indexOf("async function linkCloudFile(id,name){", mobileDeleteAt);
+const mobileCreateAt = mobile.indexOf("async function createCloudFile(folderTab=null){", mobileRelinkAt);
+const mobileSyncAtEntry = mobile.indexOf("async function syncNow(silent=false){", mobileCreateAt);
+const mobileFileGuardBlock = mobile.slice(mobileFileGuardAt, mobile.indexOf("async function connectDrive", mobileFileGuardAt));
+const mobileDeleteBlock = mobile.slice(mobileDeleteAt, mobileRelinkAt);
+const mobileRelinkBlock = mobile.slice(mobileRelinkAt, mobileCreateAt);
+const mobileCreateBlock = mobile.slice(mobileCreateAt, mobile.indexOf("function syncTimestamp", mobileCreateAt));
+const mobileSyncEntryBlock = mobile.slice(mobileSyncAtEntry, mobile.indexOf("function showConflict(meta){", mobileSyncAtEntry));
 assert.ok(mobileRelinkAt >= 0, "Mobile relink handler must exist");
 assert.match(mobileRelinkBlock, /if\(state\.driveBusy\)return/);
-assert.match(mobileRelinkBlock, /state\.sync\.lineCompletion/);
-assert.ok(mobileRelinkBlock.indexOf("state.sync.lineCompletion") < mobileRelinkBlock.indexOf("driveDownload"),
+assert.match(mobileFileGuardBlock, /state\.sync\.lineCompletion/);
+assert.ok(mobileRelinkBlock.indexOf("blockCloudFileChangeDuringRecovery()") < mobileRelinkBlock.indexOf("driveDownload"),
   "Mobile must block relinking before downloading or switching to another Drive file");
+assert.ok(mobileCreateBlock.indexOf("blockCloudFileChangeDuringRecovery()") < mobileCreateBlock.indexOf("driveCreate"),
+  "Mobile must block creating a new active Drive file while recovery is pending");
+assert.ok(mobileDeleteBlock.indexOf("blockCloudFileChangeDuringRecovery(id)") < mobileDeleteBlock.indexOf("driveDelete"),
+  "Mobile must block deleting the active Drive file while recovery is pending");
+assert.match(mobileSyncEntryBlock, /async function syncNow\(silent=false\)\{\s*if\(state\.driveBusy\)return;/);
 
 // ── Stage 5A focused unit regressions ───────────────────────────────────────
 // Exercise the exact helper implementations without booting another JSDOM app.
@@ -140,6 +172,59 @@ const localBaseline={personal:[{id:"a",title:"One"}],work:[],savedAt:"old",dataL
 assert.equal(localCanonical({...localBaseline,savedAt:"new",dataLastUpdated:"new",summary:{personalCount:99}}),localCanonical(localBaseline),"volatile save metadata must not create a false local-edit conflict");
 assert.notEqual(localCanonical({...localBaseline,personal:[{id:"a",title:"Edited while recovering"}]}),localCanonical(localBaseline),"task edits during recovery must be detected");
 assert.notEqual(localCanonical({...localBaseline,config:{lang:"TH"}}),localCanonical(localBaseline),"settings edits during recovery must be detected");
+
+// The source-order contracts above bind these executable race models to the
+// synchronous guards used by Full and Mobile. Each model holds the first action
+// across an await, starts the competing action, and proves one confirmed add is
+// prepared only once regardless of which trigger wins the race.
+const deferred = () => {
+  let release;
+  const promise = new Promise(resolve => { release = resolve; });
+  return {promise,release};
+};
+async function exerciseFullRace(first) {
+  let busy=false,checking=false,prepareAddCalls=0;
+  const hold=deferred();
+  const prepareAdd=async()=>{prepareAddCalls+=1;};
+  const cloudChoice=async(gate=Promise.resolve())=>{
+    if(busy||checking)return;
+    busy=true;
+    try{await gate;await prepareAdd();}finally{busy=false;}
+  };
+  const checkNow=async(gate=Promise.resolve())=>{
+    if(checking||busy)return;
+    checking=true;
+    try{await gate;await prepareAdd();}finally{checking=false;}
+  };
+  const winner=first==="check"?checkNow(hold.promise):cloudChoice(hold.promise);
+  await Promise.resolve();
+  await (first==="check"?cloudChoice():checkNow());
+  hold.release();
+  await winner;
+  return prepareAddCalls;
+}
+assert.equal(await exerciseFullRace("check"),1,"Full cloud-choice must defer while Check Now owns the checker lock");
+assert.equal(await exerciseFullRace("cloud"),1,"Full Check Now must defer after cloud-choice owns the shared exclusion");
+
+async function exerciseMobileRace(first) {
+  let driveBusy=false,prepareAddCalls=0;
+  const hold=deferred();
+  const enter=async(gate=Promise.resolve())=>{
+    if(driveBusy)return;
+    driveBusy=true;
+    try{await gate;prepareAddCalls+=1;}finally{driveBusy=false;}
+  };
+  const recovery=gate=>enter(gate);
+  const syncNow=gate=>enter(gate);
+  const winner=first==="recovery"?recovery(hold.promise):syncNow(hold.promise);
+  await Promise.resolve();
+  await (first==="recovery"?syncNow():recovery());
+  hold.release();
+  await winner;
+  return prepareAddCalls;
+}
+assert.equal(await exerciseMobileRace("recovery"),1,"Mobile sync must defer while recovery owns the Drive lock");
+assert.equal(await exerciseMobileRace("sync"),1,"Mobile recovery must defer while sync owns the Drive lock");
 
 const strictStart = full.indexOf("const writeStorageExact = async");
 const strictEnd = full.indexOf("\n\n  const applyPayloadLive",strictStart);

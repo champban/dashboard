@@ -208,7 +208,27 @@ This round remains inside the exact nine-file no-migration boundary. It performs
 no Database, migration, Storage, Auth, RLS, provider, Environment, secret,
 Production data, backup/recovery, merge, deployment or HTML-status operation.
 
-## Final relink safety closure
+## Final file-identity and concurrency closure
 
-- Mobile blocks selection of another Drive file while a durable LINE completion checkpoint exists. The pending mutation must be reconciled on its original file before relinking, so the same confirmed mutation cannot be lost or re-prepared against a different file.
-- `build/line-contract.test.mjs` pins the guard before any new-file download or file-id replacement.
+- Full cloud-choice rejects entry while Check Now owns the checker lock; Check
+  Now already rejects entry after cloud-choice synchronously owns the busy lock.
+  The exclusion is acquired before mutation preparation and always released.
+- Full relink and unlink refuse to replace or clear the linked Drive file while
+  a durable completion checkpoint exists. The pending IDs stay bound to their
+  original file until recovery completes.
+- Mobile applies the same checkpoint guard to linking, creating a new active
+  cloud file and deleting the currently active file. Deleting an unrelated file
+  remains allowed because it cannot detach the checkpoint.
+- Mobile `syncNow` rejects entry before any Drive or LINE work whenever conflict
+  or recovery already owns the synchronous `driveBusy` lock.
+- `build/line-contract.test.mjs` and `build/sync-content-check.test.mjs` pin the
+  source ordering and exercise both trigger orders, proving a confirmed LINE
+  `add` is prepared once under the guarded races.
+
+The targeted 6D assessment for this bounded source change is unchanged in
+dimensions 1–3 (no Identity/Auth/RLS, secret/data contract or untrusted-input
+surface change), preserves generated Mobile CSP integrity in dimension 4, and
+requires exact-head CI/generated-package parity plus independent review for
+dimension 5. Dimension 6 improves by retaining the original recovery file
+identity and serializing recovery entry points. Production promotion remains
+blocked until every exact-head release gate in this document passes.
