@@ -1,4 +1,4 @@
-name: Stage 5A final source remediation
+name: Stage 5A round 4 apply
 
 on:
   push:
@@ -6,79 +6,138 @@ on:
       - feature/stage5a-line-import-conflict
     paths:
       - .github/workflows/stage5a-r4-apply.yml
-      - .stage5a-r4/finalize.py
-      - .stage5a-r4/run.py
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 concurrency:
-  group: stage5a-final-remediation-${{ github.ref }}
-  cancel-in-progress: true
+  group: stage5a-r4-apply-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  remediate:
+  apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
-      - name: Checkout Draft PR branch
+      - name: Checkout exact Draft PR branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: feature/stage5a-line-import-conflict
           fetch-depth: 0
 
-      - name: Validate unchanged product source
+      - name: Validate approved source and trigger
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/feature/stage5a-line-import-conflict" ]]
+          [[ "$(git log -1 --format=%s)" == "ops(stage5a): finalize source patch" ]]
           git merge-base --is-ancestor 921a7d780713dead2ab1c8b554dddaad0c59b4d2 HEAD
-          git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx package.json package-lock.json .github/workflows/verify.yml
+          git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- \
+            BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx \
+            package.json package-lock.json .github/workflows/verify.yml
 
-      - name: Apply checksum-pinned final source remediation
-        run: python3 .stage5a-r4/run.py
+      - name: Apply exact source-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .stage5a-r4/run.py
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path('docs/STAGE5A_NO_MIGRATION_RELEASE.md')
+          path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PYCODE
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/prebuild.txt"
+          cat > "$RUNNER_TEMP/prebuild.expected" <<'EOF'
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/prebuild.expected" "$RUNNER_TEMP/prebuild.txt"
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: '20'
+          node-version: "20"
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify candidate
+      - name: Verify complete candidate
         shell: bash
         run: |
           set -euo pipefail
+          npm ci
           npm test
           npm run verify
           npm run scan-secrets
           git diff --check
-          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/actual.txt"
-          printf '%s\n' BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort > "$RUNNER_TEMP/expected.txt"
-          diff -u "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/actual.txt"
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/final.txt"
+          cat > "$RUNNER_TEMP/final.expected" <<'EOF'
+          BUILD-MANIFEST.json
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          index.html
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/final.expected" "$RUNNER_TEMP/final.txt"
+          ! grep -E '^(supabase/|auth\.js$|line-sync\.js$)' "$RUNNER_TEMP/final.txt"
 
-      - name: Commit verified source
+      - name: Commit verified source candidate
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'P Boy Stage5A Automation'
-          git config user.email 'champbanyat@gmail.com'
-          git add BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx
-          git diff --cached --quiet && exit 1
-          git commit -m 'fix(stage5a): close final recovery concurrency gaps'
+          git config user.name "P Boy Stage5A Automation"
+          git config user.email "champbanyat@gmail.com"
+          git add BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx
+          git diff --cached --quiet && { echo "No remediation changes staged"; exit 1; }
+          git commit -m "fix(stage5a): close final cloud recovery races"
           git push origin HEAD:feature/stage5a-line-import-conflict
 
-      - name: Remove temporary tooling and assert final boundary
+      - name: Remove all temporary Stage 5A tooling
         shell: bash
         run: |
           set -euo pipefail
           git rm -rf --ignore-unmatch .stage5a-r4
-          git rm -f --ignore-unmatch .github/workflows/stage5a-r4-apply.yml .github/workflows/stage5a-r4-diagnose.yml .github/workflows/stage5a-r4-transfer-apply.yml .github/workflows/stage5a-r4-remediate.yml
-          git diff --cached --quiet || git commit -m 'chore(stage5a): remove temporary remediation tooling'
+          git rm -f --ignore-unmatch \
+            .github/workflows/stage5a-r4-apply.yml \
+            .github/workflows/stage5a-r4-diagnose.yml \
+            .github/workflows/stage5a-r4-transfer-apply.yml
+          git diff --cached --quiet || git commit -m "chore(stage5a): remove temporary remediation tooling"
           git push origin HEAD:feature/stage5a-line-import-conflict
           git diff --name-only 297854c09205097a6a58cbce4c64961c802cd7a3..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/release.txt"
-          printf '%s\n' BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort > "$RUNNER_TEMP/release-expected.txt"
-          diff -u "$RUNNER_TEMP/release-expected.txt" "$RUNNER_TEMP/release.txt"
+          cat > "$RUNNER_TEMP/release.expected" <<'EOF'
+          BUILD-MANIFEST.json
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          index.html
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/release.expected" "$RUNNER_TEMP/release.txt"
+          ! git ls-tree -r --name-only HEAD | grep -E '^(\.stage5a-r4/|\.github/workflows/stage5a-r4-)'
 
-# newest exact run supersedes older in-flight retries
+      - name: Post final independent review request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          body="@codex review exact clean HEAD ${head} only. Verify the complete final nine-file Stage 5A no-migration diff, especially: local edits preserved before and after completion in Full/Mobile; Full/Mobile conflict actions serialized; background checks blocked while completion exists; Mobile cannot relink while completion is pending; no duplicate LINE mutation preparation; generated/CSP integrity. CI is running on this clean head. Do not modify, merge or deploy."
+          gh api "repos/$GITHUB_REPOSITORY/issues/105/comments" -f body="$body" >/dev/null
+          echo "review_head=$head"
