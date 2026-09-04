@@ -1,0 +1,182 @@
+name: L1B PR96 exact concurrency remediation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/l1b-pr96-concurrency-orchestrator.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+
+jobs:
+  apply:
+    name: Verify transfer packet and replace exact PR96 head
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr96-concurrency-orchestrator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact temporary orchestrator head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch, validate and apply exact transfer packet
+        shell: bash
+        run: |
+          set -euo pipefail
+          OLD_HEAD='2785e026891b37f2b192a58384b7c64eb412d376'
+          OLD_TREE='c8738810cd838d9041812957a4749db2edf5a084'
+          BASE='297854c09205097a6a58cbce4c64961c802cd7a3'
+          EXPECTED_NEW_TREE='3b193b10f55bddc8ceca75c233f2cf07c2df6ed5'
+          TARGET_BRANCH='ops/l1b-promotion-artifact-candidate'
+          COMMENT_ID='5432983389'
+
+          [[ "$GITHUB_REPOSITORY" == 'champban/dashboard' ]]
+          [[ "$GITHUB_BASE_REF" == 'main' ]]
+          [[ "$GITHUB_HEAD_REF" == 'ops/l1b-pr96-concurrency-orchestrator' ]]
+          [[ "${{ github.run_attempt }}" == '1' ]]
+          [[ "$(git rev-parse "$OLD_HEAD^{tree}")" == "$OLD_TREE" ]]
+          [[ "$(git merge-base "$BASE" "$OLD_HEAD")" == "$BASE" ]]
+          [[ "$(git rev-list --count "$BASE".."$OLD_HEAD")" == '3' ]]
+
+          git fetch origin "refs/heads/$TARGET_BRANCH"
+          [[ "$(git rev-parse FETCH_HEAD)" == "$OLD_HEAD" ]]
+
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq .body > "$RUNNER_TEMP/transfer.md"
+          python3 - "$RUNNER_TEMP/transfer.md" "$RUNNER_TEMP/pr96.patch" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          source = Path(sys.argv[1]).read_text(encoding='utf-8')
+          marker = '## Complete unified diff'
+          if source.count(marker) != 1:
+              raise SystemExit('transfer packet must contain one complete-diff marker')
+          tail = source.split(marker, 1)[1]
+          blocks = re.findall(r'```diff\n(.*?)\n```', tail, flags=re.DOTALL)
+          if len(blocks) != 1:
+              raise SystemExit('transfer packet must contain one complete diff block')
+          patch = blocks[0]
+          required = (
+              '.github/workflows/l1b-promotion-artifact-proof.yml',
+              'PROJECT_CONTEXT.md',
+              'docs/L1B_PROMOTION_ARTIFACT_CANDIDATE.md',
+              'docs/L1B_PROMOTION_SECURITY_6D_REVIEW.md',
+              'docs/evidence/L1B_PROMOTION_ARTIFACT_MANIFEST.json',
+              'ops/l1b-promotion-artifact-proof.sh',
+              'supabase/contracts/l1a_direct_todo.sql',
+              'supabase/migrations/20260825011714_l1a_direct_todo.sql',
+          )
+          headers = tuple(re.findall(r'^diff --git a/(.*?) b/.*$', patch, flags=re.MULTILINE))
+          if headers != required:
+              raise SystemExit(f'transfer packet file order/scope differs: {headers!r}')
+          forbidden = (
+              'SUPABASE_DB_URL=',
+              'DATABASE_URL=',
+              'BEGIN OPENSSH PRIVATE KEY',
+              'BEGIN RSA PRIVATE KEY',
+          )
+          if any(token in patch for token in forbidden):
+              raise SystemExit('transfer packet contains forbidden secret-like material')
+          Path(sys.argv[2]).write_text(patch + '\n', encoding='utf-8', newline='\n')
+          PY
+
+          git checkout --detach "$OLD_HEAD"
+          git apply --check "$RUNNER_TEMP/pr96.patch"
+          git apply "$RUNNER_TEMP/pr96.patch"
+
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-promotion-artifact-proof.yml
+          PROJECT_CONTEXT.md
+          docs/L1B_PROMOTION_ARTIFACT_CANDIDATE.md
+          docs/L1B_PROMOTION_SECURITY_6D_REVIEW.md
+          docs/evidence/L1B_PROMOTION_ARTIFACT_MANIFEST.json
+          ops/l1b-promotion-artifact-proof.sh
+          supabase/contracts/l1a_direct_todo.sql
+          supabase/migrations/20260825011714_l1a_direct_todo.sql
+          EOF
+
+          cat > "$RUNNER_TEMP/expected-final-files.txt" <<'EOF'
+          .github/workflows/l1b-promotion-artifact-proof.yml
+          PROJECT_CONTEXT.md
+          docs/L1B_PROMOTION_ARTIFACT_CANDIDATE.md
+          docs/L1B_PROMOTION_SECURITY_6D_REVIEW.md
+          docs/evidence/L1B_APPLY_ORDER.md
+          docs/evidence/L1B_PROMOTION_ARTIFACT_MANIFEST.json
+          ops/l1b-promotion-artifact-proof.sh
+          supabase/contracts/l1a_direct_todo.sql
+          supabase/migrations/20260825011714_l1a_direct_todo.sql
+          supabase/migrations/20260825011716_l1b_planner_parity.sql
+          supabase/operations/l1b_private_storage.sql
+          EOF
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+          git diff --check
+
+          npm ci
+          npm test
+          npm run verify
+          npm run scan-secrets
+          bash -n ops/l1b-promotion-artifact-proof.sh
+          python3 -m json.tool docs/evidence/L1B_PROMOTION_ARTIFACT_MANIFEST.json >/dev/null
+          cmp -s supabase/contracts/l1a_direct_todo.sql supabase/migrations/20260825011714_l1a_direct_todo.sql
+
+          cat > "$RUNNER_TEMP/hashes.txt" <<'EOF'
+          833ccb2fd11567bba743ee5b5f3a1f58ac03930d  .github/workflows/l1b-promotion-artifact-proof.yml
+          d3659bbdcb7f29f25825d86540d207af1cc78c48  PROJECT_CONTEXT.md
+          d50a82189e7ad6530fe5f567e7f142a643cdd874  docs/L1B_PROMOTION_ARTIFACT_CANDIDATE.md
+          286c4be12232567f547d38e06b3d9ff323805c00  docs/L1B_PROMOTION_SECURITY_6D_REVIEW.md
+          43557f9e9adbeb5099b84531226f3fea435eb47a  docs/evidence/L1B_PROMOTION_ARTIFACT_MANIFEST.json
+          ba7cbbaab6a6d785e8b22fa6a7b163ad08b0df91  ops/l1b-promotion-artifact-proof.sh
+          03aa1f6dc34d6734dbef87b5a93d03896aacfec0  supabase/contracts/l1a_direct_todo.sql
+          03aa1f6dc34d6734dbef87b5a93d03896aacfec0  supabase/migrations/20260825011714_l1a_direct_todo.sql
+          EOF
+          while read -r expected file; do
+            [[ "$(git hash-object "$file")" == "$expected" ]]
+          done < "$RUNNER_TEMP/hashes.txt"
+
+          [[ "$(sha256sum supabase/migrations/20260825011714_l1a_direct_todo.sql | awk '{print $1}')" == 'd9a8764f801935b37eea3d8077fcfa83ce5b8646475e465c8cd4677e6d289cbf' ]]
+          [[ "$(stat -c '%s' supabase/migrations/20260825011714_l1a_direct_todo.sql)" == '35421' ]]
+
+          git add -- $(cat "$RUNNER_TEMP/expected-files.txt")
+          TREE="$(git write-tree)"
+          [[ "$TREE" == "$EXPECTED_NEW_TREE" ]]
+          git config user.name 'champban'
+          git config user.email 'champbanyat@gmail.com'
+          NEW_COMMIT="$(printf '%s\n\n%s\n' \
+            'fix(l1b): serialize dependency cycle validation' \
+            'Add owner-scoped transaction advisory locking, deterministic PostgreSQL 17 concurrency evidence, refreshed artifact hashes and targeted 6D documentation without Production effect.' | \
+            git commit-tree "$TREE" -p "$BASE")"
+
+          [[ "$(git merge-base "$BASE" "$NEW_COMMIT")" == "$BASE" ]]
+          [[ "$(git rev-list --count "$BASE".."$NEW_COMMIT")" == '1' ]]
+          git diff --name-only "$BASE"..."$NEW_COMMIT" | LC_ALL=C sort > "$RUNNER_TEMP/final-files.txt"
+          diff -u "$RUNNER_TEMP/expected-final-files.txt" "$RUNNER_TEMP/final-files.txt"
+
+          git push \
+            --force-with-lease="refs/heads/$TARGET_BRANCH:$OLD_HEAD" \
+            origin "$NEW_COMMIT:refs/heads/$TARGET_BRANCH"
+
+          {
+            echo '## Exact PR #96 concurrency remediation pushed'
+            echo
+            echo "- base: \`$BASE\`"
+            echo "- previous head: \`$OLD_HEAD\`"
+            echo "- new head: \`$NEW_COMMIT\`"
+            echo "- new tree: \`$TREE\`"
+            echo '- exact changed files: **11**'
+            echo '- npm/source/parity/secret qualification: **PASS**'
+            echo '- PostgreSQL 17 proof: **pending exact-head dedicated CI**'
+            echo '- Production connection or mutation: **NONE**'
+          } >> "$GITHUB_STEP_SUMMARY"

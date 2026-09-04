@@ -1,0 +1,89 @@
+name: L1B PR97 protected B-2 waiting relay
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/l1b-pr97-b2-wait-relay.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  relay:
+    name: Relay exact protected B-2 waiting state
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr96-concurrency-orchestrator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: champban/dashboard
+      PR: '97'
+      EXPECTED_HEAD: e7ae16e3fbd80ea703df5cd4eb17459a386cb262
+      LABEL: owner-approved-b2-restore
+    steps:
+      - name: Wait for the exact one-shot label and protected run
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          job_id=''
+          source_job_id=''
+          for attempt in $(seq 1 80); do
+            pr="$(gh api "repos/$REPO/pulls/$PR")"
+            [[ "$(jq -r .head.sha <<<"$pr")" == "$EXPECTED_HEAD" ]]
+            [[ "$(jq -r .draft <<<"$pr")" == 'true' ]]
+            [[ "$(jq -r .merged <<<"$pr")" == 'false' ]]
+
+            labels="$(gh api "repos/$REPO/issues/$PR/labels")"
+            if jq -e --arg label "$LABEL" '.[] | select(.name==$label)' <<<"$labels" >/dev/null; then
+              runs="$(gh api "repos/$REPO/actions/workflows/341739330/runs?event=pull_request&branch=ops/l1b-post-import-isolated-restore&per_page=30")"
+              run_id="$(jq -r --arg h "$EXPECTED_HEAD" '[.workflow_runs[] | select(.head_sha==$h) | select(.run_number>75)] | sort_by(.created_at) | last | .id // empty' <<<"$runs")"
+              if [[ -n "$run_id" ]]; then
+                jobs="$(gh api "repos/$REPO/actions/runs/$run_id/jobs")"
+                job_id="$(jq -r '[.jobs[] | select(.name=="B-2 isolated restore (Owner-gated)")] | last | .id // empty' <<<"$jobs")"
+                source_job_id="$(jq -r '[.jobs[] | select(.name=="B-2 source / secret-safety contract")] | last | .id // empty' <<<"$jobs")"
+                restore_status="$(jq -r '[.jobs[] | select(.name=="B-2 isolated restore (Owner-gated)")] | last | .status // empty' <<<"$jobs")"
+                source_conclusion="$(jq -r '[.jobs[] | select(.name=="B-2 source / secret-safety contract")] | last | .conclusion // empty' <<<"$jobs")"
+                if [[ "$source_conclusion" == 'success' && ( "$restore_status" == 'waiting' || "$restore_status" == 'queued' || "$restore_status" == 'in_progress' || "$restore_status" == 'completed' ) ]]; then
+                  break
+                fi
+              fi
+            fi
+            sleep 15
+          done
+          [[ -n "$run_id" && -n "$job_id" && -n "$source_job_id" ]]
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          echo "source_job_id=$source_job_id" >> "$GITHUB_OUTPUT"
+
+      - name: Publish exact Owner action without approving it
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id='${{ steps.run.outputs.run_id }}'
+          job_id='${{ steps.run.outputs.job_id }}'
+          source_job_id='${{ steps.run.outputs.source_job_id }}'
+          marker="B-2 protected Environment action — run \`$run_id\`"
+          comments="$(gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" | jq -s add)"
+          if jq -e --arg marker "$marker" '.[] | select((.body // "") | contains($marker))' <<<"$comments" >/dev/null; then
+            exit 0
+          fi
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="## $marker
+
+- exact PR head: \`$EXPECTED_HEAD\`
+- source-safety job: \`$source_job_id\` — PASS before Environment execution
+- Owner-gated restore job: \`$job_id\`
+- Actions run: https://github.com/$REPO/actions/runs/$run_id
+
+The restore job is protected by the existing \`production-backup\` Environment. The Owner must review that exact run and select only \`production-backup → Approve and deploy\` if the job is waiting. Do not rerun jobs, change Environment rules/secrets/reviewers, or merge PR #97.
+
+Before Environment approval, no restore runner step, artifact decryption or Environment-secret materialization is authorized. This action does not authorize Production SQL/migration/Storage/activation/reconciliation/cleanup/L1C."

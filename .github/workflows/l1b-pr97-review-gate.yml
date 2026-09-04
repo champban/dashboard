@@ -1,0 +1,166 @@
+name: L1B PR97 exact review-to-label gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/l1b-pr97-review-gate.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  qualify-and-label:
+    name: Wait for exact review and create one B-2 label event
+    if: >-
+      github.run_attempt == 1 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr96-concurrency-orchestrator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: champban/dashboard
+      PR: '97'
+      EXPECTED_HEAD: e7ae16e3fbd80ea703df5cd4eb17459a386cb262
+      EXPECTED_TREE: 07ebff64a6029f662a7a1da2c7022b93e2dda080
+      EXPECTED_BASE: 297854c09205097a6a58cbce4c64961c802cd7a3
+      EXPECTED_VERIFY_RUN: '33174631901'
+      EXPECTED_B2_SOURCE_RUN: '33174631903'
+      EXPECTED_SOURCE_JOB: '98812066880'
+      EXPECTED_SKIPPED_RESTORE_JOB: '98812164648'
+      EXPECTED_B1_RUN: '33080201954'
+      EXPECTED_B1_SOURCE: f620c67909a7cbfd88acabe88ba75c404f44efe9
+      EXPECTED_ARTIFACT_ID: '9649991620'
+      EXPECTED_ARTIFACT_NAME: dashboard-l1b-post-import-backup-20260827T141138Z
+      EXPECTED_ARTIFACT_SIZE: '56354'
+      EXPECTED_ARTIFACT_DIGEST: sha256:45cb33f845f6f979f7d759b88b17ad79acac215f924b47e84ad9fd55d4453a8a
+      APPROVAL_LABEL: owner-approved-b2-restore
+    steps:
+      - name: Validate exact PR, CI, artifact, custody and Production-invariance evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ github.run_attempt }}" == '1' ]]
+
+          pr="$(gh api "repos/$REPO/pulls/$PR")"
+          [[ "$(jq -r .head.sha <<<"$pr")" == "$EXPECTED_HEAD" ]]
+          [[ "$(jq -r .base.sha <<<"$pr")" == "$EXPECTED_BASE" ]]
+          [[ "$(jq -r .draft <<<"$pr")" == 'true' ]]
+          [[ "$(jq -r .merged <<<"$pr")" == 'false' ]]
+          [[ "$(jq -r .state <<<"$pr")" == 'open' ]]
+
+          commit="$(gh api "repos/$REPO/git/commits/$EXPECTED_HEAD")"
+          [[ "$(jq -r .tree.sha <<<"$commit")" == "$EXPECTED_TREE" ]]
+          [[ "$(jq -r '.parents | length' <<<"$commit")" == '1' ]]
+          [[ "$(jq -r '.parents[0].sha' <<<"$commit")" == "$EXPECTED_BASE" ]]
+
+          verify="$(gh api "repos/$REPO/actions/runs/$EXPECTED_VERIFY_RUN")"
+          [[ "$(jq -r .head_sha <<<"$verify")" == "$EXPECTED_HEAD" ]]
+          [[ "$(jq -r .status <<<"$verify")" == 'completed' ]]
+          [[ "$(jq -r .conclusion <<<"$verify")" == 'success' ]]
+
+          source_run="$(gh api "repos/$REPO/actions/runs/$EXPECTED_B2_SOURCE_RUN")"
+          [[ "$(jq -r .head_sha <<<"$source_run")" == "$EXPECTED_HEAD" ]]
+          [[ "$(jq -r .status <<<"$source_run")" == 'completed' ]]
+          [[ "$(jq -r .conclusion <<<"$source_run")" == 'success' ]]
+          jobs="$(gh api "repos/$REPO/actions/runs/$EXPECTED_B2_SOURCE_RUN/jobs")"
+          jq -e --argjson id "$EXPECTED_SOURCE_JOB" '.jobs[] | select(.id==$id and .conclusion=="success")' <<<"$jobs" >/dev/null
+          jq -e --argjson id "$EXPECTED_SKIPPED_RESTORE_JOB" '.jobs[] | select(.id==$id and .conclusion=="skipped")' <<<"$jobs" >/dev/null
+
+          artifact="$(gh api "repos/$REPO/actions/artifacts/$EXPECTED_ARTIFACT_ID")"
+          [[ "$(jq -r .name <<<"$artifact")" == "$EXPECTED_ARTIFACT_NAME" ]]
+          [[ "$(jq -r .size_in_bytes <<<"$artifact")" == "$EXPECTED_ARTIFACT_SIZE" ]]
+          [[ "$(jq -r .digest <<<"$artifact")" == "$EXPECTED_ARTIFACT_DIGEST" ]]
+          [[ "$(jq -r .expired <<<"$artifact")" == 'false' ]]
+          [[ "$(jq -r .workflow_run.id <<<"$artifact")" == "$EXPECTED_B1_RUN" ]]
+          [[ "$(jq -r .workflow_run.head_sha <<<"$artifact")" == "$EXPECTED_B1_SOURCE" ]]
+          python3 - "$(jq -r .expires_at <<<"$artifact")" <<'PY'
+          from datetime import datetime, timezone
+          import sys
+          expires = datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00'))
+          if datetime.now(timezone.utc) >= expires:
+              raise SystemExit('exact B-1 artifact expired before label gate')
+          PY
+
+          b1="$(gh api "repos/$REPO/pulls/100")"
+          jq -er '.body | contains("Owner custody of a separately downloaded replacement artifact: **CONFIRMED")' <<<"$b1" >/dev/null
+
+          comments="$(gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" | jq -s add)"
+          jq -e --arg h "$EXPECTED_HEAD" '[.[] | select((.body // "") | contains("Exact-head qualification checkpoint — CI/source-safety/preflight PASS")) | select((.body // "") | contains($h))] | length >= 1' <<<"$comments" >/dev/null
+          jq -e --arg h "$EXPECTED_HEAD" '[.[] | select((.body // "") | contains("@codex review")) | select((.body // "") | contains($h))] | length >= 1' <<<"$comments" >/dev/null
+
+      - name: Poll exact Codex signal and require zero unresolved review threads
+        id: review
+        shell: bash
+        run: |
+          set -euo pipefail
+          review_request_id=''
+          green=0
+          for attempt in $(seq 1 40); do
+            comments="$(gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" | jq -s add)"
+            review_request_id="$(jq -r --arg h "$EXPECTED_HEAD" '[.[] | select((.body // "") | contains("@codex review")) | select((.body // "") | contains($h))] | last | .id // empty' <<<"$comments")"
+            [[ -n "$review_request_id" ]]
+
+            reviews="$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" | jq -s add)"
+            exact_review="$(jq -r --arg h "$EXPECTED_HEAD" '[.[] | select(.commit_id==$h) | select((.user.login // "") | test("chatgpt-codex-connector"))] | length' <<<"$reviews")"
+            reactions="$(gh api "repos/$REPO/issues/comments/$review_request_id/reactions")"
+            exact_thumb="$(jq -r '[.[] | select(.content=="+1") | select((.user.login // "") | test("chatgpt-codex-connector"))] | length' <<<"$reactions")"
+
+            graph="$(gh api graphql -F owner=champban -F name=dashboard -F number="$PR" -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved comments(first:20){nodes{commit{oid} body author{login}}}}}}}}')"
+            unresolved="$(jq -r '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length' <<<"$graph")"
+
+            if [[ "$unresolved" == '0' && ( "$exact_review" -ge 1 || "$exact_thumb" -ge 1 ) ]]; then
+              green=1
+              break
+            fi
+            sleep 30
+          done
+
+          [[ "$green" == '1' ]]
+          echo "review_request_id=$review_request_id" >> "$GITHUB_OUTPUT"
+
+      - name: Revalidate exact boundary and create one label event
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$REPO/pulls/$PR")"
+          [[ "$(jq -r .head.sha <<<"$pr")" == "$EXPECTED_HEAD" ]]
+          [[ "$(jq -r .base.sha <<<"$pr")" == "$EXPECTED_BASE" ]]
+          [[ "$(jq -r .draft <<<"$pr")" == 'true' ]]
+          [[ "$(jq -r .merged <<<"$pr")" == 'false' ]]
+
+          labels="$(gh api "repos/$REPO/issues/$PR/labels")"
+          if jq -e --arg label "$APPROVAL_LABEL" '.[] | select(.name==$label)' <<<"$labels" >/dev/null; then
+            echo '::error::Approval label already exists; refusing duplicate one-shot event'
+            exit 1
+          fi
+
+          gh api -X POST "repos/$REPO/issues/$PR/labels" --input - <<JSON >/dev/null
+          {"labels":["$APPROVAL_LABEL"]}
+          JSON
+
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="## One-shot B-2 label event created
+
+Exact head \`$EXPECTED_HEAD\`, tree \`$EXPECTED_TREE\`, base \`$EXPECTED_BASE\` remained unchanged. Exact normal CI and source-safety passed, independent Codex review signalled completion, unresolved review threads were zero, artifact \`$EXPECTED_ARTIFACT_ID\` remained exact/unexpired, Owner custody was confirmed, and the bounded Production-invariance checkpoint remained current.
+
+Label \`$APPROVAL_LABEL\` was added once to trigger the protected network-isolated B-2 workflow. This does not approve the \`production-backup\` Environment, merge any PR, or authorize Production SQL/migration/Storage/activation/reconciliation/cleanup/L1C."
+
+      - name: Discover the new protected B-2 workflow run
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 20); do
+            runs="$(gh api "repos/$REPO/actions/workflows/341739330/runs?event=pull_request&branch=ops/l1b-post-import-isolated-restore&per_page=20")"
+            run_id="$(jq -r --arg h "$EXPECTED_HEAD" '[.workflow_runs[] | select(.head_sha==$h) | select(.run_number>75)] | sort_by(.created_at) | last | .id // empty' <<<"$runs")"
+            [[ -n "$run_id" ]] && break
+            sleep 5
+          done
+          [[ -n "$run_id" ]]
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="Protected B-2 run created: \`$run_id\`. The isolated restore remains subject to the existing \`production-backup\` Environment reviewer gate; no runner secret or restore step is authorized until that separate approval is granted."
+          echo "run_id=$run_id" >> "$GITHUB_STEP_SUMMARY"

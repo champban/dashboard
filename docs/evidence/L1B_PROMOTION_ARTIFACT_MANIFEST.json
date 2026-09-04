@@ -1,0 +1,63 @@
+{
+  "artifacts": [
+    {
+      "byte_identical_to_reviewed_source": true,
+      "bytes": 34959,
+      "kind": "database_migration",
+      "order": 1,
+      "path": "supabase/migrations/20260825011714_l1a_direct_todo.sql",
+      "provider_name": "l1a_direct_todo",
+      "reviewed_source_blob": "c70b116b91615d9ea746c357dc337aa78b4936fe",
+      "reviewed_source_path": "supabase/contracts/l1a_direct_todo.sql",
+      "sha256": "693a73b15aca115c9425267567e5b5fad2a1d43c9fa4ded0caf1420743d0cadb",
+      "unit": "L1A"
+    },
+    {
+      "byte_identical_to_reviewed_source": true,
+      "bytes": 48359,
+      "kind": "database_migration",
+      "order": 2,
+      "path": "supabase/migrations/20260825011716_l1b_planner_parity.sql",
+      "provider_name": "l1b_planner_parity",
+      "reviewed_source_blob": "245d91edc2e88341641381f2747edec44f94a4cd",
+      "reviewed_source_path": "supabase/contracts/l1b_planner_parity.sql",
+      "sha256": "c803c45a9d40e5c19182c0e9815a5e310bd3154b6045dbf11473a8ebd2e0ac91",
+      "unit": "L1B"
+    },
+    {
+      "byte_identical_to_reviewed_source": true,
+      "bytes": 4326,
+      "kind": "separate_storage_operation",
+      "order": 3,
+      "path": "supabase/operations/l1b_private_storage.sql",
+      "provider_name": "l1b_private_storage",
+      "reviewed_source_blob": "cc650ee24acdf68981964c909f1041f2603fcb4b",
+      "reviewed_source_path": "supabase/contracts/l1b_private_storage.sql",
+      "sha256": "9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e",
+      "unit": "Storage"
+    }
+  ],
+  "base_sha": "297854c09205097a6a58cbce4c64961c802cd7a3",
+  "client_activation_allowed": false,
+  "generated_utc": "2026-08-25T01:17:17Z",
+  "generic_db_push_allowed": false,
+  "hard_stops": [
+    "No Production operation without the later exact Owner Critical-Gate approval",
+    "No generic supabase db push",
+    "No client activation, reconciliation, Drive demotion, cleanup, or L1C cutover"
+  ],
+  "production_effect": "none",
+  "repository": "champban/dashboard",
+  "required_order": [
+    "L1A targeted apply",
+    "L1A catalog verification",
+    "L1B targeted apply",
+    "L1B catalog verification",
+    "Storage targeted operation",
+    "Storage catalog and policy verification"
+  ],
+  "schema_version": 1,
+  "source_sha": "4a4b159d0009ca88105d5dd12818781d09e190de",
+  "supabase_cli_version": "2.111.0",
+  "target_project_ref": "qjaywadzvwvcspdsjxth"
+}
