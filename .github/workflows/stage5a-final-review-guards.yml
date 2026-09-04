@@ -1,0 +1,107 @@
+name: Stage 5A reviewed P1 closure guards
+
+on:
+  push:
+    branches:
+      - feature/stage5a-line-import-conflict
+    paths:
+      - .github/workflows/stage5a-final-review-guards.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage5a-reviewed-p1-closure-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Draft PR branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/stage5a-line-import-conflict
+          fetch-depth: 0
+
+      - name: Validate exact follow-up-reviewed candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feature/stage5a-line-import-conflict"
+          test "$(git rev-parse HEAD^)" = "e0ebc2dfa20bb48236e16c82533f73e8b10b8d58"
+          test "$(git show -s --format=%T HEAD^)" = "3957cec2a7650c007053349339881a404b937fd9"
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "297854c09205097a6a58cbce4c64961c802cd7a3"
+          test "$(git diff --name-only "e0ebc2dfa20bb48236e16c82533f73e8b10b8d58"..HEAD | LC_ALL=C sort)" = ".github/workflows/stage5a-final-review-guards.yml"
+          before="$(git diff --name-only "297854c09205097a6a58cbce4c64961c802cd7a3".."e0ebc2dfa20bb48236e16c82533f73e8b10b8d58" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort)"
+          test "$before" = "$expected"
+
+      - name: Apply exact final P1 closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d > "$RUNNER_TEMP/stage5a-p1.patch" <<'STAGE5A_P1'
+          ZGlmZiAtLWdpdCBhL0NIQU5HRUxPRy5tZCBiL0NIQU5HRUxPRy5tZAppbmRleCBkYWJiYTIxLi5mNWFhMmI4IDEwMDY0NAotLS0gYS9DSEFOR0VMT0cubWQKKysrIGIvQ0hBTkdFTE9HLm1kCkBAIC02LDcgKzYsOCBAQAogICBDaGVjayBOb3cgYWxyZWFkeSBkZWZlcnMgd2hpbGUgY2xvdWQtY2hvaWNlIG93bnMgdGhlIHNoYXJlZCBidXN5IGxvY2suIEZ1bGwKICAgcmVsaW5rL3VubGluayBjYW5ub3QgZGV0YWNoIGFuIGFjdGl2ZSBMSU5FIGNvbXBsZXRpb24gY2hlY2twb2ludCBmcm9tIGl0cwogICBvcmlnaW5hbCBEcml2ZSBmaWxlOyBwcm9maWxlIHN3aXRjaGluZyBhbmQgYWN0aXZlLXByb2ZpbGUgZGVsZXRpb24gYXJlIGFsc28KLSAgYmxvY2tlZCB1bnRpbCB0aGUgcHJvZmlsZS1zY29wZWQgcmVjb3ZlcnkgY29tcGxldGVzLgorICBibG9ja2VkIGJvdGggd2hpbGUgcmVjb3Zlcnkgb3ducyB0aGUgc3luY2hyb25vdXMgbG9jayBhbmQgYWZ0ZXIgaXRzIGR1cmFibGUKKyAgcHJvZmlsZS1zY29wZWQgY2hlY2twb2ludCBleGlzdHMuCiAtIE1vYmlsZSBsaW5rL2NyZWF0ZSBhbmQgZGVsZXRpb24gb2YgdGhlIGFjdGl2ZSBEcml2ZSBmaWxlIGFyZSBibG9ja2VkIHdoaWxlIGEKICAgc2luZ2xlLXVzZSBMSU5FIGNvbXBsZXRpb24gY2hlY2twb2ludCBpcyBwZW5kaW5nLiBNb2JpbGUgc3luYyB0cmlnZ2VycyBhbHNvCiAgIHJlamVjdCBlbnRyeSB3aGlsZSBjb25mbGljdC9yZWNvdmVyeSBvd25zIHRoZSBEcml2ZSBsb2NrLCBwcmV2ZW50aW5nIHRoZSBvbGQKZGlmZiAtLWdpdCBhL1BST0pFQ1RfQ09OVEVYVC5tZCBiL1BST0pFQ1RfQ09OVEVYVC5tZAppbmRleCBiNDlmN2YzLi45M2RjMWJkIDEwMDY0NAotLS0gYS9QUk9KRUNUX0NPTlRFWFQubWQKKysrIGIvUFJPSkVDVF9DT05URVhULm1kCkBAIC0xMjIzLDcgKzEyMjMsOCBAQCBwaWxsIGFjcm9zcyB0aGlzIGNvcm5lciBhdCBgei1pbmRleDoyMTQ3NDgyMDAwYC4gVGhlIGZhbGxiYWNrIGlzIHN0eWxlZCB0byBiZSBoYQogCiAtICoqU3RhZ2UgNUEgcGVuZGluZy1yZWNvdmVyeSBpZGVudGl0eSBhbmQgY29uY3VycmVuY3kgZ3VhcmRzOioqIEZ1bGwgcmVsaW5rL3VubGluaywKICAgcHJvZmlsZSBzd2l0Y2ggYW5kIGFjdGl2ZS1wcm9maWxlIGRlbGV0aW9uLCBwbHVzIE1vYmlsZSBsaW5rL2NyZWF0ZS9kZWxldGUtYWN0aXZlLWZpbGUsCi0gIHJlZnVzZSB0byBjaGFuZ2UgdGhlIHJlY292ZXJ5IGNvbnRleHQgd2hpbGUgYGxpbmVDb21wbGV0aW9uYCBleGlzdHMuIEZ1bGwKKyAgcmVmdXNlIHRvIGNoYW5nZSB0aGUgcmVjb3ZlcnkgY29udGV4dCB3aGlsZSB0aGUgRnVsbCBidXN5IGxvY2sgb3IgZHVyYWJsZQorICBgbGluZUNvbXBsZXRpb25gIGNoZWNrcG9pbnQgZXhpc3RzLiBGdWxsCiAgIGNsb3VkLWNob2ljZS9DaGVjayBOb3cgc2hhcmUgc3luY2hyb25vdXMgZXhjbHVzaW9ucywgYW5kIGV2ZXJ5IE1vYmlsZSBEcml2ZSBVSQogICBvd25lciByZWplY3RzIGVudHJ5IGJlZm9yZSBhY3F1aXJpbmcgdGhlIHNoYXJlZCBgZHJpdmVCdXN5YCBsb2NrLgogICBUaGUgZXhhY3QgbXV0YXRpb24gSURzIHJlbWFpbiBib3VuZCB0byB0aGVpciBvcmlnaW5hbCBmaWxlIHVudGlsIGNvbXBsZXRpb24gb3IKZGlmZiAtLWdpdCBhL2J1aWxkL2xpbmUtY29udHJhY3QudGVzdC5tanMgYi9idWlsZC9saW5lLWNvbnRyYWN0LnRlc3QubWpzCmluZGV4IDU2ZTA5ZGIuLmQxZjNlNWUgMTAwNjQ0Ci0tLSBhL2J1aWxkL2xpbmUtY29udHJhY3QudGVzdC5tanMKKysrIGIvYnVpbGQvbGluZS1jb250cmFjdC50ZXN0Lm1qcwpAQCAtMTE0LDYgKzExNCw3IEBAIGNvbnN0IGZ1bGxVbmxpbmtBdCA9IGZ1bGwuaW5kZXhPZigiY29uc3QgZ3N5bmNVbmxpbmsgPSBhc3luYyIsIGZ1bGxSZWxpbmtBdCk7CiBjb25zdCBmdWxsTGlua0d1YXJkQmxvY2sgPSBmdWxsLnNsaWNlKGZ1bGxMaW5rR3VhcmRBdCwgZnVsbFJlbGlua0F0KTsKIGNvbnN0IGZ1bGxSZWxpbmtCbG9jayA9IGZ1bGwuc2xpY2UoZnVsbFJlbGlua0F0LCBmdWxsLmluZGV4T2YoImNvbnN0IGdzeW5jT3BlbkZvbGRlciIsIGZ1bGxSZWxpbmtBdCkpOwogY29uc3QgZnVsbFVubGlua0Jsb2NrID0gZnVsbC5zbGljZShmdWxsVW5saW5rQXQsIGZ1bGwuaW5kZXhPZigiY29uc3QgZ3N5bmNOb3cgPSBhc3luYyIsIGZ1bGxVbmxpbmtBdCkpOworYXNzZXJ0Lm1hdGNoKGZ1bGxMaW5rR3VhcmRCbG9jaywgL2dzeW5jQnVzeVwuY3VycmVudC8pOwogYXNzZXJ0Lm1hdGNoKGZ1bGxMaW5rR3VhcmRCbG9jaywgL2dzeW5jXC5saW5lQ29tcGxldGlvbi8pOwogYXNzZXJ0Lm9rKGZ1bGxSZWxpbmtCbG9jay5pbmRleE9mKCJibG9ja0Z1bGxMaW5rQ2hhbmdlRHVyaW5nUmVjb3ZlcnkoKSIpIDwgZnVsbFJlbGlua0Jsb2NrLmluZGV4T2YoInBlcnNpc3RHc3luYyIpLAogICAiRnVsbCByZWxpbmsgbXVzdCByZXRhaW4gdGhlIGNoZWNrcG9pbnQgYW5kIGl0cyBvcmlnaW5hbCBmaWxlIGJlZm9yZSBjaGFuZ2luZyB0aGUgbGluayIpOwpAQCAtMjQzLDcgKzI0NCwxMCBAQCBhc3luYyBmdW5jdGlvbiBleGVyY2lzZU1vYmlsZVJhY2UoZmlyc3QpIHsKIH0KIGFzc2VydC5kZWVwRXF1YWwoYXdhaXQgZXhlcmNpc2VNb2JpbGVSYWNlKCJyZWNvdmVyeSIpLHtwcmVwYXJlQWRkQ2FsbHM6MSxmaXJzdFN0aWxsT3duc0xvY2s6dHJ1ZX0sIk1vYmlsZSBzeW5jIG11c3QgZGVmZXIgd2l0aG91dCBjbGVhcmluZyByZWNvdmVyeSdzIERyaXZlIGxvY2siKTsKIGFzc2VydC5kZWVwRXF1YWwoYXdhaXQgZXhlcmNpc2VNb2JpbGVSYWNlKCJzeW5jIikse3ByZXBhcmVBZGRDYWxsczoxLGZpcnN0U3RpbGxPd25zTG9jazp0cnVlfSwiTW9iaWxlIHJlY292ZXJ5IG11c3QgZGVmZXIgd2l0aG91dCBjbGVhcmluZyBzeW5jJ3MgRHJpdmUgbG9jayIpOwotYXNzZXJ0LmVxdWFsKChjaGVja3BvaW50PT4hY2hlY2twb2ludCkoY2hlY2twb2ludCksZmFsc2UsIkZ1bGwgcHJvZmlsZS9maWxlIGNvbnRleHQgY2hhbmdlcyBtdXN0IHJlamVjdCB3aGlsZSBhIHJlY292ZXJ5IGNoZWNrcG9pbnQgZXhpc3RzIik7Citjb25zdCBmdWxsQ29udGV4dENoYW5nZUFsbG93ZWQ9KGJ1c3ksc3RvcmVkQ2hlY2twb2ludCk9PiEoYnVzeXx8c3RvcmVkQ2hlY2twb2ludCk7Cithc3NlcnQuZXF1YWwoZnVsbENvbnRleHRDaGFuZ2VBbGxvd2VkKGZhbHNlLGNoZWNrcG9pbnQpLGZhbHNlLCJGdWxsIHByb2ZpbGUvZmlsZSBjb250ZXh0IGNoYW5nZXMgbXVzdCByZWplY3Qgd2hpbGUgYSByZWNvdmVyeSBjaGVja3BvaW50IGV4aXN0cyIpOworYXNzZXJ0LmVxdWFsKGZ1bGxDb250ZXh0Q2hhbmdlQWxsb3dlZCh0cnVlLG51bGwpLGZhbHNlLCJGdWxsIGNvbnRleHQgY2hhbmdlcyBtdXN0IHJlamVjdCB3aGlsZSBjbG91ZC1jaG9pY2Ugb3ducyB0aGUgbG9jayBiZWZvcmUgaXRzIGNoZWNrcG9pbnQgZXhpc3RzIik7Cithc3NlcnQuZXF1YWwoZnVsbENvbnRleHRDaGFuZ2VBbGxvd2VkKGZhbHNlLG51bGwpLHRydWUsIkZ1bGwgY29udGV4dCBjaGFuZ2VzIHJlbWFpbiBhdmFpbGFibGUgd2hlbiBubyByZWNvdmVyeSBpcyBhY3RpdmUiKTsKIAogY29uc3Qgc3RyaWN0U3RhcnQgPSBmdWxsLmluZGV4T2YoImNvbnN0IHdyaXRlU3RvcmFnZUV4YWN0ID0gYXN5bmMiKTsKIGNvbnN0IHN0cmljdEVuZCA9IGZ1bGwuaW5kZXhPZigiXG5cbiAgY29uc3QgYXBwbHlQYXlsb2FkTGl2ZSIsc3RyaWN0U3RhcnQpOwpkaWZmIC0tZ2l0IGEvYnVpbGQvc3luYy1jb250ZW50LWNoZWNrLnRlc3QubWpzIGIvYnVpbGQvc3luYy1jb250ZW50LWNoZWNrLnRlc3QubWpzCmluZGV4IGVlZWNkNGYuLjE0OTFmOTAgMTAwNjQ0Ci0tLSBhL2J1aWxkL3N5bmMtY29udGVudC1jaGVjay50ZXN0Lm1qcworKysgYi9idWlsZC9zeW5jLWNvbnRlbnQtY2hlY2sudGVzdC5tanMKQEAgLTQ3Myw3ICs0NzMsNyBAQCBsZXQgc2F2ZWRCeXRlcyA9IG51bGw7CiAgIGNvbnN0IGxpbmtHdWFyZD1mdWxsLnNsaWNlKGxpbmtHdWFyZEF0LHJlbGlua0F0KTsKICAgY29uc3QgcmVsaW5rPWZ1bGwuc2xpY2UocmVsaW5rQXQsZnVsbC5pbmRleE9mKCdjb25zdCBnc3luY09wZW5Gb2xkZXInLHJlbGlua0F0KSk7CiAgIGNvbnN0IHVubGluaz1mdWxsLnNsaWNlKHVubGlua0F0LGZ1bGwuaW5kZXhPZignY29uc3QgZ3N5bmNOb3cgPSBhc3luYycsdW5saW5rQXQpKTsKLSAgY2hlY2soJ0Z1bGwgcmVsaW5rIGFuZCB1bmxpbmsgcmV0YWluIHRoZSBvcmlnaW5hbCByZWNvdmVyeSBmaWxlJywvZ3N5bmNcLmxpbmVDb21wbGV0aW9uLy50ZXN0KGxpbmtHdWFyZCkmJnJlbGluay5pbmRleE9mKCdibG9ja0Z1bGxMaW5rQ2hhbmdlRHVyaW5nUmVjb3ZlcnkoKScpPHJlbGluay5pbmRleE9mKCdwZXJzaXN0R3N5bmMnKSYmdW5saW5rLmluZGV4T2YoJ2Jsb2NrRnVsbExpbmtDaGFuZ2VEdXJpbmdSZWNvdmVyeSgpJyk8dW5saW5rLmluZGV4T2YoJ3BlcnNpc3RHc3luYycpKTsKKyAgY2hlY2soJ0Z1bGwgcmVsaW5rIGFuZCB1bmxpbmsgcmV0YWluIHRoZSBvcmlnaW5hbCByZWNvdmVyeSBmaWxlJywvZ3N5bmNCdXN5XC5jdXJyZW50Ly50ZXN0KGxpbmtHdWFyZCkmJi9nc3luY1wubGluZUNvbXBsZXRpb24vLnRlc3QobGlua0d1YXJkKSYmcmVsaW5rLmluZGV4T2YoJ2Jsb2NrRnVsbExpbmtDaGFuZ2VEdXJpbmdSZWNvdmVyeSgpJyk8cmVsaW5rLmluZGV4T2YoJ3BlcnNpc3RHc3luYycpJiZ1bmxpbmsuaW5kZXhPZignYmxvY2tGdWxsTGlua0NoYW5nZUR1cmluZ1JlY292ZXJ5KCknKTx1bmxpbmsuaW5kZXhPZigncGVyc2lzdEdzeW5jJykpOwogICBjb25zdCBzd2l0Y2hBdD1mdWxsLmluZGV4T2YoJ2NvbnN0IHN3aXRjaFByb2ZpbGUgPSAobmV3SWQpID0+IHsnKTsKICAgY29uc3QgcHJvZmlsZVN3aXRjaD1mdWxsLnNsaWNlKHN3aXRjaEF0LGZ1bGwuaW5kZXhPZignY29uc3QgdG9nZ2xlTGFuZycsc3dpdGNoQXQpKTsKICAgY29uc3QgZGVsZXRlUHJvZmlsZUF0PWZ1bGwuaW5kZXhPZignY29uc3QgaGFuZGxlRGVsZXRlID0gKGlkKSA9PiB7Jyk7CmRpZmYgLS1naXQgYS9kb2NzL1NUQUdFNUFfTk9fTUlHUkFUSU9OX1JFTEVBU0UubWQgYi9kb2NzL1NUQUdFNUFfTk9fTUlHUkFUSU9OX1JFTEVBU0UubWQKaW5kZXggYTk0ZTg2Yi4uZmU2MjUyNSAxMDA2NDQKLS0tIGEvZG9jcy9TVEFHRTVBX05PX01JR1JBVElPTl9SRUxFQVNFLm1kCisrKyBiL2RvY3MvU1RBR0U1QV9OT19NSUdSQVRJT05fUkVMRUFTRS5tZApAQCAtMjI2LDcgKzIyNiw5IEBAIFByb2R1Y3Rpb24gZGF0YSwgYmFja3VwL3JlY292ZXJ5LCBtZXJnZSwgZGVwbG95bWVudCBvciBIVE1MLXN0YXR1cyBvcGVyYXRpb24uCiAgIGBhZGRgIGlzIHByZXBhcmVkIG9uY2UgdW5kZXIgdGhlIGd1YXJkZWQgcmFjZXMuCiAtIEZvbGxvdy11cCBleGFjdC1oZWFkIHJldmlldyBhbHNvIGJpbmRzIEZ1bGwgcmVjb3ZlcnkgdG8gdGhlIGFjdGl2ZSBwcm9maWxlOgogICBzd2l0Y2hpbmcgcHJvZmlsZXMgb3IgZGVsZXRpbmcgdGhlIGFjdGl2ZSBwcm9maWxlIGlzIGJsb2NrZWQgYmVmb3JlIGFueQotICBwcm9maWxlLXNjb3BlZCBzdG9yYWdlIGlzIGNoYW5nZWQuIE1vYmlsZSBjb25uZWN0LCBmaWxlLWxpc3QsIHJlbmFtZSBhbmQKKyAgcHJvZmlsZS1zY29wZWQgc3RvcmFnZSBpcyBjaGFuZ2VkLCBpbmNsdWRpbmcgdGhlIGluLWZsaWdodCBpbnRlcnZhbCBhZnRlcgorICBjbG91ZC1jaG9pY2UgYWNxdWlyZXMgYGdzeW5jQnVzeWAgYnV0IGJlZm9yZSBpdHMgY2hlY2twb2ludCBleGlzdHMuIE1vYmlsZQorICBjb25uZWN0LCBmaWxlLWxpc3QsIHJlbmFtZSBhbmQKICAgY29uZmxpY3Qtc2F2ZSBhY3Rpb25zIG5vdyByZWplY3QgZW50cnkgYmVmb3JlIGFjcXVpcmluZyBgZHJpdmVCdXN5YCwgc28gbm8KICAgY29udGVuZGVyIGNhbiByZWxlYXNlIGFub3RoZXIgc3luYy9yZWNvdmVyeSBhY3Rpb24ncyBsb2NrLgogCmRpZmYgLS1naXQgYS9zcmMvQXBwLmpzeCBiL3NyYy9BcHAuanN4CmluZGV4IGQwMTVlZDEuLmU2ODA2YjggMTAwNjQ0Ci0tLSBhL3NyYy9BcHAuanN4CisrKyBiL3NyYy9BcHAuanN4CkBAIC0xMzA4Myw4ICsxMzA4Myw4IEBAIGV4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIEFwcCgpIHsKICAgfTsKIAogICBjb25zdCBibG9ja0Z1bGxMaW5rQ2hhbmdlRHVyaW5nUmVjb3ZlcnkgPSAoKSA9PiB7Ci0gICAgaWYoIWdzeW5jLmxpbmVDb21wbGV0aW9uKXJldHVybiBmYWxzZTsKLSAgICBjb25zdCBtZXNzYWdlPSJGaW5pc2ggdGhlIHBlbmRpbmcgTElORSByZWNvdmVyeSBiZWZvcmUgY2hhbmdpbmcgdGhlIGxpbmtlZCBmaWxlIG9yIGFjdGl2ZSBwcm9maWxlLiI7CisgICAgaWYoIWdzeW5jQnVzeS5jdXJyZW50JiYhZ3N5bmMubGluZUNvbXBsZXRpb24pcmV0dXJuIGZhbHNlOworICAgIGNvbnN0IG1lc3NhZ2U9IldhaXQgZm9yIHRoZSBjdXJyZW50IERyaXZlIG9yIExJTkUgcmVjb3ZlcnkgYmVmb3JlIGNoYW5naW5nIHRoZSBsaW5rZWQgZmlsZSBvciBhY3RpdmUgcHJvZmlsZS4iOwogICAgIHNldEdzeW5jU3RhdHVzKCJpZGxlIik7IHNldEdzeW5jRXJyb3IobWVzc2FnZSk7IG5vdGUoImxhdGVyIixtZXNzYWdlKTsKICAgICByZXR1cm4gdHJ1ZTsKICAgfTsK
+          STAGE5A_P1
+          git apply --check "$RUNNER_TEMP/stage5a-p1.patch"
+          git apply "$RUNNER_TEMP/stage5a-p1.patch"
+          actual="$(git diff --name-only | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md src/App.jsx | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Run complete verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+          npm run verify
+          npm run scan-secrets
+          git diff --check
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          const manifest=JSON.parse(fs.readFileSync('BUILD-MANIFEST.json','utf8'));
+          const hash=path=>crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+          if(manifest.full.sha256!==hash('index.html'))throw Error('Full manifest hash mismatch');
+          if(manifest.mobile.sha256!==hash('mobile/index.html'))throw Error('Mobile manifest hash mismatch');
+          console.log('Generated package/manifest parity: PASS');
+          NODE
+
+      - name: Commit clean exact nine-file closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/stage5a-final-review-guards.yml
+          git add BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx
+          actual="$(git diff --cached --name-only "297854c09205097a6a58cbce4c64961c802cd7a3" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          ! printf '%s\n' "$actual" | grep -E '^(supabase/|auth\.js$|line-sync\.js$|package(-lock)?\.json$|\.github/)'
+          git diff --cached --check
+          git config user.name "P Boy Stage5A Automation"
+          git config user.email "champbanyat@gmail.com"
+          git commit -m "fix(stage5a): block in-flight context changes"
+          test "$(git show -s --format=%T HEAD)" = "15e624e4cd4e664d2c70712f56dc880c935b97ac"
+          test "$(git diff --name-only "297854c09205097a6a58cbce4c64961c802cd7a3"..HEAD | LC_ALL=C sort)" = "$expected"
+          git push origin HEAD:feature/stage5a-line-import-conflict
