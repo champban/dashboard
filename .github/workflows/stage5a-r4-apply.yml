@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: stage5a-final-remediation-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   remediate:
@@ -81,4 +81,4 @@ jobs:
           printf '%s\n' BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort > "$RUNNER_TEMP/release-expected.txt"
           diff -u "$RUNNER_TEMP/release-expected.txt" "$RUNNER_TEMP/release.txt"
 
-# rerun after focused-test scope variable normalization
+# newest exact run supersedes older in-flight retries
