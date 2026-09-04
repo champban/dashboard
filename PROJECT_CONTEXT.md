@@ -1250,6 +1250,16 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
   recovery state. The focused browser regression forces an ambiguous completion,
   dispatches `focus`, and permits one preparation/upload plus an ID-only retry;
   any second preparation or upload fails the suite.
+- **Stage 5A Full live-state recovery guard:** asynchronous recovery preservation
+  reads a payload function refreshed by `useLayoutEffect` after every committed
+  render, rather than the closure that began the operation. A runtime regression
+  holds queue completion, completes a real Personal task, and requires the later
+  edit in a same-folder conflict copy before strict target adoption.
+- **Stage 5A Full import-decision lock:** Cloud adoption exposes the synchronous
+  recovery lock to the import chooser. The modal remains blocking and disables
+  every decision/dismissal path; Local and Cancel also enforce the lock in their
+  App handlers. A runtime regression holds preparation and proves Local, Cancel,
+  Escape and crafted stale events cannot adopt data or dismiss the decision.
 
 ## Open backlog
 
@@ -1275,7 +1285,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | ~~LINE \`edit\`: shorter syntax~~ | **Closed 2026-08-11.** `edit <title>, DD-MM-YYYY` now works when only the date changes, alongside the existing `edit <old title>, <new title>, DD-MM-YYYY` form. Merged in PR #56, deployed. |
 | — | ~~\`BUILD-MANIFEST.json\` mobile hash is stale~~ | **Closed 2026-08-11.** `build/pipeline.mjs` now recalculates `mobile.sha256`/`mobile.bytes` on every package run, alongside the existing `full.*` fields, so the two can no longer drift apart. Merged in PR #56. |
 | — | Desktop Save to Cloud button — owner acceptance | Added in PR #59 (2026-08-11): a header-level Save to Cloud button for desktop (≥1024px), mirroring the existing mobile/tablet one — the action was previously three clicks deep in the Profile+Sync dropdown on desktop. `npm run verify` passed and it was checked in a headless browser, but the owner has not yet eyeballed it on a real signed-in session with Drive linked. |
-| — | ~~`importUseCloud` can still skip a pending LINE mutation~~ | **Closed in the Stage 5A no-migration candidate.** Full/Mobile use exact durable checkpoints and complete canonical comparison; null/mismatched storage writes fail closed, ambiguous PATCH results stay blocked until a keep-both conflict copy is created, and completion retries never re-prepare or duplicate an `add`. Cloud language/payload and rejection feedback are preserved. |
+| — | ~~`importUseCloud` can still skip a pending LINE mutation~~ | **Stage 5A release control.** Full/Mobile use exact durable checkpoints and complete canonical comparison; null/mismatched storage writes fail closed, ambiguous PATCH results stay blocked until a keep-both conflict copy is created, and completion retries never re-prepare or duplicate an `add`. The post-merge Full hotfix additionally reads committed live state during preservation and locks Local/Cancel/dismissal throughout Cloud adoption. The exact hotfix PR is the authority for final CI/review/Pages/smoke evidence. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,

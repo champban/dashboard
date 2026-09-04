@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import React from "react";
 
 // ─── App Version ──────────────────────────────────────────────────────────────
@@ -9169,6 +9169,7 @@ function DirectionDialog({
   localAction, localHint,
   cloudAction, cloudHint,
   onUseLocal, onUseCloud, onCancel,
+  busy = false,
   // The confirm step's safety line. A prop and not a constant because it is a
   // promise about what happens to the losing copy, and only some callers can keep
   // it: the Drive conflict paths upload a conflicted copy first, the disk-import
@@ -9179,10 +9180,10 @@ function DirectionDialog({
   const [pending, setPending] = useState(null);   // null | "local" | "cloud"
 
   useEffect(()=>{
-    const onKey=(e)=>{ if(e.key==="Escape"){ if(pending) setPending(null); else onCancel(); } };
+    const onKey=(e)=>{ if(e.key==="Escape"&&!busy){ if(pending) setPending(null); else onCancel(); } };
     window.addEventListener("keydown",onKey);
     return ()=>window.removeEventListener("keydown",onKey);
-  },[onCancel,pending]);
+  },[busy,onCancel,pending]);
 
   const lc = payloadCounts(localPayload), cc = payloadCounts(cloudPayload);
   const ms = (v)=>{ const t = v ? new Date(v).getTime() : 0; return Number.isFinite(t) ? t : 0; };
@@ -9216,9 +9217,9 @@ function DirectionDialog({
   );
 
   const shell = (children)=>(
-    <div style={{position:"fixed",inset:0,zIndex:9800,background:"rgba(0,0,0,.45)",display:"flex",
+    <div aria-busy={busy} style={{position:"fixed",inset:0,zIndex:9800,background:"rgba(0,0,0,.45)",display:"flex",
       alignItems:"center",justifyContent:"center",padding:16}}
-      onClick={()=>{ if(pending) setPending(null); else onCancel(); }}>
+      onClick={()=>{ if(busy)return; if(pending) setPending(null); else onCancel(); }}>
       <div onClick={e=>e.stopPropagation()}
         style={{width:520,maxWidth:"96vw",maxHeight:"90vh",overflowY:"auto",background:"var(--c-card,#fff)",
           border:"1px solid var(--c-border)",borderRadius:14,boxShadow:"0 20px 60px rgba(0,0,0,.35)",padding:"18px 18px 16px"}}>
@@ -9259,14 +9260,14 @@ function DirectionDialog({
             : "This cannot be undone from here. Cancel and use Backup to Local Drive first if you are unsure."}
         </div>
       </div>
-      <button onClick={()=>{ setPending(null); (toCloud?onUseLocal:onUseCloud)(); }}
+      <button disabled={busy} onClick={()=>{ if(busy)return; setPending(null); (toCloud?onUseLocal:onUseCloud)(); }}
         style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"none",background:"#9f2d2d",color:"#fff",
-          fontSize:12.5,fontWeight:800,cursor:"pointer",marginBottom:8}}>
+          fontSize:12.5,fontWeight:800,cursor:busy?"wait":"pointer",opacity:busy?.6:1,marginBottom:8}}>
         Yes, overwrite {loser}
       </button>
-      <button onClick={()=>setPending(null)}
+      <button disabled={busy} onClick={()=>{if(!busy)setPending(null);}}
         style={{width:"100%",padding:"9px 0",borderRadius:9,border:"none",background:"transparent",
-          color:"var(--c-text-muted)",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          color:"var(--c-text-muted)",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer",opacity:busy?.6:1}}>
         Back
       </button>
     </>);
@@ -9277,10 +9278,11 @@ function DirectionDialog({
     border: recommended ? "none" : "1px solid var(--c-border)",
     background: recommended ? "#166534" : "var(--c-surface)",
     color: recommended ? "#fff" : "var(--c-text)",
-    fontSize:12.5,fontWeight:800,cursor:"pointer",textAlign:"left",marginBottom:8});
+    fontSize:12.5,fontWeight:800,cursor:busy?"wait":"pointer",opacity:busy?.6:1,
+    textAlign:"left",marginBottom:8});
 
   const localBtn = (
-    <button key="local" onClick={()=>setPending("local")} style={actionBtn(newer==="local")}>
+    <button key="local" disabled={busy} onClick={()=>{if(!busy)setPending("local");}} style={actionBtn(newer==="local")}>
       📄 → ☁️&nbsp;&nbsp;{localAction}
       {newer==="local" && badge("RECOMMENDED","#ffffff2e","#fff")}
       <div style={{fontSize:10,fontWeight:600,opacity:.85,marginTop:2,
@@ -9288,7 +9290,7 @@ function DirectionDialog({
     </button>
   );
   const cloudBtn = (
-    <button key="cloud" onClick={()=>setPending("cloud")} style={actionBtn(newer==="cloud")}>
+    <button key="cloud" disabled={busy} onClick={()=>{if(!busy)setPending("cloud");}} style={actionBtn(newer==="cloud")}>
       ☁️ → 📄&nbsp;&nbsp;{cloudAction}
       {newer==="cloud" && badge("RECOMMENDED","#ffffff2e","#fff")}
       <div style={{fontSize:10,fontWeight:600,opacity:.85,marginTop:2,
@@ -9318,15 +9320,15 @@ function DirectionDialog({
     {/* recommended direction first, so the safe choice is the one under the thumb */}
     {newer==="cloud" ? [cloudBtn, localBtn] : [localBtn, cloudBtn]}
 
-    <button onClick={onCancel} style={{width:"100%",padding:"9px 0",borderRadius:9,border:"none",background:"transparent",
-      color:"var(--c-text-muted)",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+    <button disabled={busy} onClick={()=>{if(!busy)onCancel();}} style={{width:"100%",padding:"9px 0",borderRadius:9,border:"none",background:"transparent",
+      color:"var(--c-text-muted)",fontSize:12,fontWeight:700,cursor:busy?"wait":"pointer",opacity:busy?.6:1}}>
       Cancel — change nothing
     </button>
   </>);
 }
 
 // N107 wrapper: opening a local file that disagrees with the linked Drive file.
-function ImportDirectionDialog({ fileName, localPayload, cloudPayload, cloudModified, onUseLocal, onUseCloud, onCancel }) {
+function ImportDirectionDialog({ fileName, localPayload, cloudPayload, cloudModified, onUseLocal, onUseCloud, onCancel, busy }) {
   return (
     <DirectionDialog
       title="⚠️ These two copies differ"
@@ -9335,7 +9337,7 @@ function ImportDirectionDialog({ fileName, localPayload, cloudPayload, cloudModi
       cloudName={cloudPayload?.fileName||"cloud file"} cloudPayload={cloudPayload} cloudStamp={cloudModified}
       localAction="Use the local file"  localHint="Loads this file and overwrites the copy on Drive"
       cloudAction="Keep what is on Drive" cloudHint="Discards the opened file and loads the cloud copy"
-      onUseLocal={onUseLocal} onUseCloud={onUseCloud} onCancel={onCancel}
+      onUseLocal={onUseLocal} onUseCloud={onUseCloud} onCancel={onCancel} busy={busy}
     />
   );
 }
@@ -12241,6 +12243,7 @@ export default function App() {
   const [confirmCloudSave, setConfirmCloudSave] = useState(false);
   const gsyncChecking = useRef(false);
   const [importConflict, setImportConflict] = useState(null); // N107: cloud snapshot plus optional post-upload completion checkpoint
+  const [importDecisionBusy, setImportDecisionBusy] = useState(false);
   const [gsyncAuto, setGsyncAuto] = useState(true);      // auto-push on edits
   const [gsyncPanel, setGsyncPanel] = useState(false);   // floating panel open
   const [gsyncPanelMin, setGsyncPanelMin] = useState(false); // minimized
@@ -12250,6 +12253,7 @@ export default function App() {
   const [gateDrive, setGateDrive] = useState({ busy:false, error:"", files:null });
   const gsyncTimer = useRef(null);
   const gsyncBusy = useRef(false);
+  const fullLivePayloadRef = useRef(null);
   const [fontSize, setFontSize]     = useState(14);
   const [customTabs, setCustomTabs] = useState([]);
   const [projectReg, setProjectReg] = useState([]); // N60: remembered work project names
@@ -12842,10 +12846,18 @@ export default function App() {
     return bridge?.prepareMutations?bridge.prepareMutations(payload):{payload,mutationIds:[]};
   };
 
+  const readFullLivePayload = () => {
+    const source=fullLivePayloadRef.current;
+    if(typeof source!=="function"){
+      throw new Error("Live application state is not ready for LINE recovery.");
+    }
+    return source();
+  };
+
   const preserveFullLocalEdits = async (provided) => {
     let checkpoint=provided;
     for(let attempt=0;attempt<3;attempt+=1){
-      const currentLocal=buildSavePayload();
+      const currentLocal=readFullLivePayload();
       const currentCanonical=recoveryLocalCanonical(currentLocal);
       if(currentCanonical===checkpoint.localBaselineCanonical
           ||currentCanonical===checkpoint.preservedLocalCanonical) return checkpoint;
@@ -12854,7 +12866,7 @@ export default function App() {
       checkpoint={...checkpoint,preservedLocalCanonical:currentCanonical,
         preservedLocalCopyName:copyName};
       await persistFullLineCompletion(checkpoint);
-      if(recoveryLocalCanonical(buildSavePayload())===currentCanonical) return checkpoint;
+      if(recoveryLocalCanonical(readFullLivePayload())===currentCanonical) return checkpoint;
     }
     throw new Error("This browser kept changing during LINE recovery. Stop editing and try again.");
   };
@@ -13733,6 +13745,11 @@ export default function App() {
     },
   });
 
+  // Recovery spans Drive and LINE awaits, so its original render closure is not a
+  // safe source of truth. Refresh synchronously after every committed render; the
+  // recovery reader above fails closed until a committed application state exists.
+  useLayoutEffect(()=>{ fullLivePayloadRef.current=buildSavePayload; });
+
   // L1B provider-free adapter: expose the same complete version-7 payload the
   // existing Drive/export paths use. The separately loaded bridge is frozen at
   // enabled=false, so registration performs no read, queue or network write.
@@ -14354,6 +14371,10 @@ export default function App() {
 
   // direction 1: the local file wins — load it, then overwrite the cloud copy
   const importUseLocal = async () => {
+    if(gsyncBusy.current||gsyncChecking.current||importDecisionBusy){
+      note("later","Google Drive is still busy — wait for the cloud decision to finish");
+      return;
+    }
     const ic = importConflict; if (!ic) return;
     setImportConflict(null);
     await applyOpenedFile(ic.parsed, ic.fileName, ic.handle);
@@ -14374,6 +14395,7 @@ export default function App() {
     const durable=gsync.lineCompletion;
     if(!durable&&!ic)return;
     gsyncBusy.current=true;
+    setImportDecisionBusy(true);
     setGsyncStatus("syncing");
     let rejected=[];
     try{
@@ -14426,7 +14448,16 @@ export default function App() {
       noteLineSaveResult(rejected,message,"error");
     }finally{
       gsyncBusy.current=false;
+      setImportDecisionBusy(false);
     }
+  };
+
+  const cancelImportConflict = () => {
+    if(gsyncBusy.current||gsyncChecking.current||importDecisionBusy){
+      note("later","Google Drive is still busy — wait for the cloud decision to finish");
+      return;
+    }
+    setImportConflict(null);
   };
 
   // ── N104: open a JSON from Drive on the very first run ────────────────────
@@ -15023,14 +15054,15 @@ export default function App() {
         cloudPayload={importConflict.cloud.payload}
         cloudName={gsync.fileName||importConflict.cloud.payload?.fileName||"cloud file"}
         onResolve={resolveFullLineRecoveryConflict}
-        onCancel={()=>setImportConflict(null)} /> : importConflict && <ImportDirectionDialog
+        onCancel={cancelImportConflict} /> : importConflict && <ImportDirectionDialog
         fileName={importConflict.fileName}
         localPayload={importConflict.parsed}
         cloudPayload={importConflict.cloud.payload}
         cloudModified={importConflict.cloud.modifiedTime}
         onUseLocal={importUseLocal}
         onUseCloud={importUseCloud}
-        onCancel={()=>setImportConflict(null)} />}
+        onCancel={cancelImportConflict}
+        busy={importDecisionBusy} />}
       {/* Another device saved AND this device holds unsaved edits, on an explicit
           Save to Cloud press. Both copies hold something the other does not, so one
           has to lose and the user picks which.

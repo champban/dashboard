@@ -42,7 +42,7 @@ const stored = (store) => String(store.get(`${PROFILE}::lifeplanner-personal-v1`
 
 // A Drive file that actually behaves like one: an upload replaces its bytes and moves
 // its modifiedTime, so a save followed by a check reads back what was written.
-function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation, completeMutation, beforeUpload }) {
+function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation, completeMutation, beforeUpload, defaultTab, openedLocalContent }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -84,7 +84,9 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     ...(lastPushedStamp === undefined ? {} : { lastPushedStamp }),
     ...(lastPushedFp === undefined ? {} : { lastPushedFp }),
   }));
-  store.set(p('lifeplanner-config-v1'), JSON.stringify({ gsyncConnected: true, gsyncAuto: auto }));
+  store.set(p('lifeplanner-config-v1'), JSON.stringify({
+    gsyncConnected: true, gsyncAuto: auto, ...(defaultTab ? { defaultTab } : {}),
+  }));
 
   const shim = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -103,6 +105,7 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
 
   const cloud = { content: cloudContent, modifiedTime: cloudModified, etag: '"drive-rev-1"' };
   const uploads = [];
+  const conflictCopies = [];
   const uploadEtags = [];
   const metaCalls = { n: 0 };
   window.google = { accounts: { oauth2: {
@@ -116,6 +119,7 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
       json: async () => b, text: async () => JSON.stringify(b) });
     if (u.includes('oauth2/v3/userinfo')) return json({ email: 'champbanyat@gmail.com' });
     if (u.includes('uploadType=multipart')) {
+      conflictCopies.push(String(opts.body || ''));
       return json({ id: 'COPY-1', name: 'conflict copy.json', modifiedTime: new Date(NOW).toISOString() });
     }
     if (u.includes('upload/drive/v3/files')) {
@@ -144,6 +148,12 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     if (u.includes('drive/v3/files?q=')) return json({ files: [] });
     return Promise.resolve({ ok: false, status: 404, text: async () => 'not stubbed', json: async () => ({}) });
   };
+  if (openedLocalContent) {
+    window.showOpenFilePicker = async () => [{
+      name: 'opened-local.json',
+      getFile: async () => ({ text: async () => openedLocalContent }),
+    }];
+  }
 
   const RealDate = window.Date;
   class FrozenDate extends RealDate {
@@ -175,7 +185,7 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   const real = console.error;
   console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 200)); };
   window.eval(bundle);
-  return { window, store, cloud, uploads, uploadEtags, metaCalls, errors, lineCalls,
+  return { window, store, cloud, uploads, conflictCopies, uploadEtags, metaCalls, errors, lineCalls,
     restore: () => { console.error = real; } };
 }
 
@@ -354,6 +364,158 @@ let savedBytes = null;
   check('the checkpoint clears only after strict adoption succeeds',
     !JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion
       && /LINE add once/.test(stored(store)));
+}
+
+// A user can keep working while an already-uploaded LINE mutation waits for its
+// completion acknowledgement. Preservation must read the latest committed React
+// render, not the render that started Check now, or the edit is overwritten without
+// ever reaching the safety copy.
+{
+  console.log('\n--- completion wait: a live task edit is preserved before strict adoption ---');
+  let signalComplete;
+  const completeStarted = new Promise((resolve) => { signalComplete = () => resolve(true); });
+  let releaseComplete;
+  const completeGate = new Promise((resolve) => { releaseComplete = resolve; });
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: [...(payload.personal || []),
+      { id: 'line-during-live-edit', title: 'LINE result', status: 'todo' }] },
+    mutationIds: ['line-live-edit-1'], rejected: [],
+  });
+  const { window, store, uploads, conflictCopies, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation, defaultTab: 'personal',
+    completeMutation: async () => { signalComplete(); await completeGate; },
+  });
+  await settle(); restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i, 80);
+  const completionIsWaiting = await Promise.race([
+    completeStarted, settle(2500).then(() => false),
+  ]);
+  check('the completion acknowledgement is held in flight', completionIsWaiting === true);
+
+  await press(window, /👤Personal/i, 220);
+  const taskTitle = [...window.document.querySelectorAll('.lp-scale-data')]
+    .find((el) => (el.textContent || '').trim() === 'OnThisDevice');
+  const taskToggle = taskTitle?.parentElement?.parentElement?.parentElement?.querySelector('button');
+  check('the real Personal task control is available during the wait', !!taskToggle);
+  taskToggle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await settle(250);
+  const edited = JSON.parse(stored(store) || '[]').find((task) => task.id === 't1');
+  check('the user edit reached live state and browser storage', edited?.status === 'done',
+    JSON.stringify(edited));
+
+  releaseComplete();
+  await settle(1200);
+  check('exactly one safety copy preserves the later edit', conflictCopies.length === 1,
+    `${conflictCopies.length} conflict copy upload(s)`);
+  check('the safety copy contains the live completed task',
+    conflictCopies.some((copy) => /"id": "t1"[\s\S]*"status": "done"/.test(copy)),
+    conflictCopies[0]?.slice(0, 240) || 'no safety copy');
+  check('the recovery mutation is prepared, uploaded and completed only once',
+    lineCalls.prepareMutations.length === 1 && uploads.length === 1
+      && lineCalls.completeMutations.length === 1,
+    `${lineCalls.prepareMutations.length} preparations / ${uploads.length} uploads / ${lineCalls.completeMutations.length} completions`);
+  const finalSync = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`) || '{}');
+  check('strict target adoption clears the checkpoint after preservation',
+    !finalSync.lineCompletion && /LINE result/.test(stored(store)), JSON.stringify(finalSync));
+}
+
+// Choosing Drive is an async destructive adoption. The decision surface must remain
+// a blocking, disabled modal for the whole operation, and the Local/Cancel handlers
+// must independently reject entry even if a stale DOM event reaches them.
+{
+  console.log('\n--- import cloud adoption: Local and Cancel stay locked while prepare waits ---');
+  const OPENED_LOCAL = JSON.stringify({
+    version: 7, savedAt: '2026-07-26T13:00:00.000Z', dataLastUpdated: '2026-07-26T13:00:00.000Z',
+    personal: [{ id: 'opened-1', title: 'OpenedFromDisk', status: 'todo' }], work: [],
+  }, null, 2);
+
+  const runLockedAttempt = async (attempt) => {
+    let signalPrepare;
+    const prepareStarted = new Promise((resolve) => { signalPrepare = () => resolve(true); });
+    let rejectPrepare;
+    const env = boot({
+      cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+      lastPushedStamp: LOCAL_EDIT,
+      openedLocalContent: OPENED_LOCAL,
+      lineMutation: async () => {
+        signalPrepare();
+        return new Promise((_, reject) => { rejectPrepare = reject; });
+      },
+    });
+    await settle(); env.restore();
+    if (env.errors.length) check('no runtime errors', false, env.errors[0]);
+    await openPanel(env.window);
+    await press(env.window, /Open a file/i, 350);
+    check(`${attempt}: the differing-file chooser opened`,
+      /These two copies differ/.test(body(env.window)), body(env.window).slice(0, 220));
+    await press(env.window, /Keep what is on Drive/i, 100);
+    await press(env.window, /Yes, overwrite this device/i, 50);
+    const preparing = await Promise.race([prepareStarted, settle(2500).then(() => false)]);
+    check(`${attempt}: cloud adoption reached the held preparation`, preparing === true);
+    await settle(80);
+
+    let local = [...env.window.document.querySelectorAll('button')]
+      .find((button) => /Use the local file/i.test(button.textContent || ''));
+    let cancel = [...env.window.document.querySelectorAll('button')]
+      .find((button) => /Cancel — change nothing/i.test(button.textContent || ''));
+    check(`${attempt}: the chooser remains a blocking busy modal`,
+      !!local && !!cancel && !!local.closest('[aria-busy="true"]'));
+    check(`${attempt}: Local and Cancel are visibly disabled`,
+      local?.disabled === true && cancel?.disabled === true,
+      `local=${local?.disabled} cancel=${cancel?.disabled}`);
+    local?.closest('[aria-busy="true"]')?.dispatchEvent(
+      new env.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle(80);
+    check(`${attempt}: backdrop dismissal respects the busy lock`,
+      /These two copies differ/.test(body(env.window)));
+
+    // Removing the HTML disabled bit simulates a stale/crafted event. Correctness
+    // still belongs to the App-level single-flight guard, not only to presentation.
+    const target = attempt === 'Local' ? local : cancel;
+    if (target) {
+      target.disabled = false;
+      target.dispatchEvent(new env.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      await settle(80);
+      if (attempt === 'Local') {
+        const confirmLocal = [...env.window.document.querySelectorAll('button')]
+          .find((button) => /Yes, overwrite Google Drive/i.test(button.textContent || ''));
+        if (confirmLocal) {
+          confirmLocal.disabled = false;
+          confirmLocal.dispatchEvent(new env.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+          await settle(120);
+        }
+      }
+    }
+    check(`${attempt}: the guarded action cannot replace browser data`,
+      /OnThisDevice/.test(stored(env.store)) && !/OpenedFromDisk/.test(stored(env.store)),
+      stored(env.store));
+    check(`${attempt}: the chooser cannot be dismissed during adoption`,
+      /These two copies differ/.test(body(env.window)), body(env.window).slice(0, 220));
+    env.window.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(100);
+    check(`${attempt}: Escape also respects the busy lock`,
+      /These two copies differ/.test(body(env.window)));
+
+    rejectPrepare?.(new Error('focused preparation gate released'));
+    await settle(700);
+    local = [...env.window.document.querySelectorAll('button')]
+      .find((button) => /Use the local file/i.test(button.textContent || ''));
+    check(`${attempt}: a failed adoption restores an enabled chooser for retry`,
+      !!local && local.disabled === false);
+    const failedSync = JSON.parse(
+      env.store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`) || '{}');
+    check(`${attempt}: no PATCH, completion or adoption occurred`,
+      env.uploads.length === 0 && env.lineCalls.completeMutations.length === 0
+        && env.lineCalls.prepareMutations.length === 1 && !failedSync.lineCompletion
+        && /OnThisDevice/.test(stored(env.store)),
+      `${env.lineCalls.prepareMutations.length} preparations / ${env.uploads.length} uploads / ${env.lineCalls.completeMutations.length} completions`);
+  };
+
+  await runLockedAttempt('Local');
+  await runLockedAttempt('Cancel');
 }
 
 // Drive may advance after the recovery download but before PATCH. If-Match must
@@ -544,6 +706,13 @@ let savedBytes = null;
   const finishAt=full.indexOf('const finishFullLineCompletion = async',prepareAt);
   const finishEnd=full.indexOf('const refreshLineStatus',finishAt);
   const finish=full.slice(finishAt,finishEnd);
+  const preserveAt=full.indexOf('const preserveFullLocalEdits = async',prepareAt);
+  const preserveEnd=full.indexOf('const reopenFullLineCompletionConflict',preserveAt);
+  const preserve=full.slice(preserveAt,preserveEnd);
+  const dialogAt=full.indexOf('function DirectionDialog({');
+  const dialogEnd=full.indexOf('// N107 wrapper:',dialogAt);
+  const directionDialog=full.slice(dialogAt,dialogEnd);
+  const importLocalAt=full.indexOf('const importUseLocal = async');
   const importAt=full.indexOf('const importUseCloud = async');
   const importEnd=full.indexOf('// ── N104:',importAt);
   const cloud=full.slice(importAt,importEnd);
@@ -561,7 +730,23 @@ let savedBytes = null;
   check('Full stale/412 recovery retains rejection notice',/noteLineSaveResult\(rejected,message,rejected\.length\?"partial":"later"\)/.test(full));
   check('Full checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/.test(cloud));
   check('Full preserves later local edits before and after completion',finish.indexOf('preserveFullLocalEdits(checkpoint)')>=0&&finish.indexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')>finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})'));
+  check('Full preservation reads the latest committed application render',
+    /useLayoutEffect\(\(\)=>\{ fullLivePayloadRef\.current=buildSavePayload; \}\)/.test(full)
+      &&(preserve.match(/readFullLivePayload\(\)/g)||[]).length===2
+      &&!/buildSavePayload\(\)/.test(preserve));
   check('Full cloud-choice shares the checker exclusion',/const importUseCloud = async \(\) => \{[\s\S]*if\(gsyncBusy\.current\|\|gsyncChecking\.current\)[\s\S]*gsyncBusy\.current=true;[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/.test(cloud)&&cloud.indexOf('gsyncBusy.current=true')<cloud.indexOf('prepareLineMutations(latestPayload)'));
+  const localAndCloud=full.slice(importLocalAt,importEnd);
+  check('Full import choice owns a visible busy lock for the entire cloud adoption',
+    /setImportDecisionBusy\(true\)/.test(cloud)&&/finally\{[\s\S]*setImportDecisionBusy\(false\)/.test(cloud)
+      &&/busy=\{importDecisionBusy\}/.test(full));
+  check('Full Local and Cancel handlers independently reject the recovery lock',
+    /const importUseLocal = async \(\) => \{\s*if\(gsyncBusy\.current\|\|gsyncChecking\.current\|\|importDecisionBusy\)/.test(localAndCloud)
+      &&/const cancelImportConflict = \(\) => \{\s*if\(gsyncBusy\.current\|\|gsyncChecking\.current\|\|importDecisionBusy\)/.test(localAndCloud));
+  check('Full import chooser disables actions, Escape and backdrop while busy',
+    /aria-busy=\{busy\}/.test(directionDialog)
+      &&(directionDialog.match(/disabled=\{busy\}/g)||[]).length>=5
+      &&/e\.key==="Escape"&&!busy/.test(directionDialog)
+      &&/onClick=\{\(\)=>\{ if\(busy\)return;/.test(directionDialog));
   check('Full poll pauses while recovery exists',/gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/.test(full)&&/gsyncBusy\.current \|\| gsyncChecking\.current \|\| gsync\.lineCompletion/.test(full));
   const autoSyncAt=full.indexOf('// B: debounced auto-SYNC');
   const autoSync=full.slice(autoSyncAt,full.indexOf('const buildSavePayload',autoSyncAt));
