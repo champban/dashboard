@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/stage5a-r4-apply.yml
       - .stage5a-r4/finalize.py
+      - .stage5a-r4/run.py
 
 permissions:
   contents: write
@@ -26,7 +27,7 @@ jobs:
           ref: feature/stage5a-line-import-conflict
           fetch-depth: 0
 
-      - name: Validate trigger and unchanged product source
+      - name: Validate unchanged product source
         shell: bash
         run: |
           set -euo pipefail
@@ -34,7 +35,7 @@ jobs:
           git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx package.json package-lock.json .github/workflows/verify.yml
 
       - name: Apply checksum-pinned final source remediation
-        run: python3 .stage5a-r4/finalize.py
+        run: python3 .stage5a-r4/run.py
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -80,4 +81,4 @@ jobs:
           printf '%s\n' BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort > "$RUNNER_TEMP/release-expected.txt"
           diff -u "$RUNNER_TEMP/release-expected.txt" "$RUNNER_TEMP/release.txt"
 
-# retry with current Mobile checkpoint field ordering normalized
+# final pass: skip only superseded context-table anchor; durable note is still written
