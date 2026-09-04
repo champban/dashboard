@@ -42,7 +42,7 @@ const stored = (store) => String(store.get(`${PROFILE}::lifeplanner-personal-v1`
 
 // A Drive file that actually behaves like one: an upload replaces its bytes and moves
 // its modifiedTime, so a save followed by a check reads back what was written.
-function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation }) {
+function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation, completeMutation, beforeUpload }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -101,8 +101,9 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     list: async () => ({ keys: Array.from(store.keys()) }),
   };
 
-  const cloud = { content: cloudContent, modifiedTime: cloudModified };
+  const cloud = { content: cloudContent, modifiedTime: cloudModified, etag: '"drive-rev-1"' };
   const uploads = [];
+  const uploadEtags = [];
   const metaCalls = { n: 0 };
   window.google = { accounts: { oauth2: {
     initTokenClient: (cfg) => ({ requestAccessToken: () => cfg.callback({ access_token: 'tok', expires_in: 3600 }) }),
@@ -110,17 +111,26 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   } } };
   window.fetch = (url, opts = {}) => {
     const u = String(url);
-    const json = (b) => Promise.resolve({ ok: true, status: 200, json: async () => b, text: async () => JSON.stringify(b) });
+    const json = (b, etag = '') => Promise.resolve({ ok: true, status: 200,
+      headers: { get: (name) => String(name).toLowerCase() === 'etag' ? etag : null },
+      json: async () => b, text: async () => JSON.stringify(b) });
     if (u.includes('oauth2/v3/userinfo')) return json({ email: 'champbanyat@gmail.com' });
     if (u.includes('uploadType=multipart')) {
       return json({ id: 'COPY-1', name: 'conflict copy.json', modifiedTime: new Date(NOW).toISOString() });
     }
     if (u.includes('upload/drive/v3/files')) {
+      if(beforeUpload)beforeUpload(cloud,uploadEtags.length);
+      uploadEtags.push(opts.headers?.['If-Match'] || '');
+      if (opts.headers?.['If-Match'] && opts.headers['If-Match'] !== cloud.etag) {
+        return Promise.resolve({ ok: false, status: 412, text: async () => 'Precondition Failed',
+          json: async () => ({}) });
+      }
       // A real overwrite: the file becomes what was sent, and its clock moves.
       const body = String(opts.body || '');
       uploads.push(body);
       cloud.content = body;
       cloud.modifiedTime = new Date(NOW + uploads.length * 1000).toISOString();
+      cloud.etag = `"drive-rev-${uploads.length + 1}"`;
       return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', modifiedTime: cloud.modifiedTime });
     }
     if (u.includes(`drive/v3/files/${FILE_ID}?alt=media`)) {
@@ -129,7 +139,7 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     if (/drive\/v3\/files\/[^?]+\?fields=/.test(u)) {
       metaCalls.n += 1;
       return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', trashed: false, parents: ['FOLDER-1'],
-        modifiedTime: cloud.modifiedTime });
+        modifiedTime: cloud.modifiedTime }, cloud.etag);
     }
     if (u.includes('drive/v3/files?q=')) return json({ files: [] });
     return Promise.resolve({ ok: false, status: 404, text: async () => 'not stubbed', json: async () => ({}) });
@@ -146,11 +156,17 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   // Only set when a test passes lineMutation — every other test leaves
   // window.__MTP_LINE__ undefined, so prepareLineMutations() takes its own
   // no-op fallback ({payload, mutationIds:[]}) and behaves exactly as before.
-  const lineCalls = { completeMutations: [] };
+  const lineCalls = { prepareMutations: [], completeMutations: [] };
   if (lineMutation) {
     window.__MTP_LINE__ = {
-      prepareMutations: async (payload) => lineMutation(payload),
-      completeMutations: async (ids) => { lineCalls.completeMutations.push(ids); },
+      prepareMutations: async (payload) => {
+        lineCalls.prepareMutations.push(payload);
+        return lineMutation(payload);
+      },
+      completeMutations: async (ids) => {
+        lineCalls.completeMutations.push(ids);
+        if(completeMutation)await completeMutation(ids,lineCalls.completeMutations.length);
+      },
     };
   }
 
@@ -159,7 +175,8 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   const real = console.error;
   console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 200)); };
   window.eval(bundle);
-  return { window, store, cloud, uploads, metaCalls, errors, lineCalls, restore: () => { console.error = real; } };
+  return { window, store, cloud, uploads, uploadEtags, metaCalls, errors, lineCalls,
+    restore: () => { console.error = real; } };
 }
 
 // Opens the Sync Manager and signs in, pressing nothing else.
@@ -279,7 +296,7 @@ let savedBytes = null;
     payload: { ...payload, personal: payload.personal.filter((t) => t.title !== 'OnTheOtherDevice') },
     mutationIds: ['line-mutation-1'], rejected: [],
   });
-  const { window, store, uploads, errors, lineCalls, restore } = boot({
+  const { window, store, uploads, uploadEtags, errors, lineCalls, restore } = boot({
     cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
     lastPushedStamp: LOCAL_EDIT, lineMutation });
   await settle();
@@ -295,6 +312,84 @@ let savedBytes = null;
   check('completeMutations was called with the applied id',
     lineCalls.completeMutations.some((ids) => ids.includes('line-mutation-1')),
     JSON.stringify(lineCalls.completeMutations));
+  check('the mutation PATCH pins the downloaded Drive revision',
+    uploadEtags.length === 1 && uploadEtags[0] === '"drive-rev-1"',
+    JSON.stringify(uploadEtags));
+}
+
+// A successful Drive PATCH followed by an ambiguous queue-completion response
+// must resume the exact checkpoint. Re-preparing an `add` here would allocate a
+// second task id and duplicate it in the master file.
+{
+  console.log('\n--- ambiguous completion: checkpoint retries IDs without a second upload ---');
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: [...(payload.personal || []),
+      { id: 'line-added-once', title: 'LINE add once', status: 'todo' }] },
+    mutationIds: ['line-add-1'], rejected: [],
+  });
+  const { window, store, uploads, uploadEtags, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation,
+    completeMutation: async (_ids,attempt) => {
+      if(attempt === 1)throw new Error('ambiguous completion response');
+    },
+  });
+  await settle(); restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i);
+  const pending=JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion;
+  check('uploaded checkpoint survives the ambiguous completion',
+    pending?.phase === 'uploaded' && pending?.mutationIds?.[0] === 'line-add-1',
+    JSON.stringify(pending));
+  await saveToCloud(window);
+  check('retry never re-prepares the mutation',lineCalls.prepareMutations.length === 1,
+    `${lineCalls.prepareMutations.length} preparations`);
+  check('retry completes the stored id without uploading again',
+    uploads.length === 1 && lineCalls.completeMutations.length === 2,
+    `${uploads.length} uploads / ${lineCalls.completeMutations.length} completions`);
+  check('the only mutation upload remained revision-conditioned',
+    uploadEtags[0] === '"drive-rev-1"',JSON.stringify(uploadEtags));
+  check('the checkpoint clears only after strict adoption succeeds',
+    !JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion
+      && /LINE add once/.test(stored(store)));
+}
+
+// Drive may advance after the recovery download but before PATCH. If-Match must
+// reject the stale bytes and retain a blocked checkpoint; no mutation may be
+// completed or adopted until the user explicitly reconciles the newer copy.
+{
+  console.log('\n--- Drive advances before mutation PATCH: 412 blocks stale overwrite ---');
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: [...(payload.personal || []),
+      { id: 'stale-line-add', title: 'Must not overwrite newer Drive', status: 'todo' }] },
+    mutationIds: ['line-stale-1'], rejected: [],
+  });
+  const newer=JSON.stringify({version:7,dataLastUpdated:'2026-07-26T14:28:30.000Z',
+    personal:[{id:'newer',title:'Newer concurrent Drive task',status:'todo'}],work:[]},null,2);
+  const { window, store, cloud, uploads, uploadEtags, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation,
+    beforeUpload: (current,attempt) => {
+      if(attempt!==0)return;
+      current.content=newer;
+      current.modifiedTime='2026-07-26T14:28:30.000Z';
+      current.etag='"drive-rev-concurrent"';
+    },
+  });
+  await settle(); restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i);
+  const blocked=JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion;
+  check('the stale PATCH supplied its original ETag',uploadEtags[0] === '"drive-rev-1"',
+    JSON.stringify(uploadEtags));
+  check('the 412 wrote no stale mutation bytes',uploads.length === 0 && cloud.content === newer,
+    `${uploads.length} uploads`);
+  check('the exact recovery remains blocked',blocked?.phase === 'blocked'
+    && blocked?.mutationIds?.[0] === 'line-stale-1',JSON.stringify(blocked));
+  check('the stale mutation was neither completed nor adopted',
+    lineCalls.completeMutations.length === 0 && !/Must not overwrite/.test(stored(store)));
 }
 
 // ── both moved: the existing conflict dialog, unchanged ────────────────────────
@@ -457,7 +552,7 @@ let savedBytes = null;
   check('Full stores prepared checkpoint before finishing',cloud.indexOf('persistFullLineCompletion(checkpoint)')<cloud.indexOf('finishFullLineCompletion(checkpoint)'));
   check('Full checkpoint pins exact base and target payloads',/baseCanonical:canonicalJSON\(latestPayload\)/.test(cloud)&&/targetCanonical:canonicalJSON\(payload\)/.test(cloud));
   check('Full recovery compares complete canonical payloads',/classifyLineRecoveryPayload\(currentPayload,checkpoint\)/.test(finish)&&/currentCanonical,targetCanonical,baseCanonical/.test(finish));
-  check('Full prepared recovery uses ETag precondition',/GDrive\.updateFile[\s\S]*meta\.etag\|\|checkpoint\.baseEtag/.test(finish));
+  check('Full prepared recovery requires an ETag precondition',/const expectedEtag=meta\.etag\|\|checkpoint\.baseEtag\|\|""[\s\S]*if\(!expectedEtag\)throw new Error[\s\S]*GDrive\.updateFile[\s\S]*expectedEtag/.test(finish));
   check('Full ambiguous recovery retains a blocked checkpoint',/phase:"blocked"/.test(full)&&/persistFullLineCompletion\(blocked\)/.test(full)&&!/persistFullLineCompletion\(null\)/.test(full.slice(full.indexOf('const reopenFullLineCompletionConflict'),finishAt)));
   check('Full uploaded retry completes without preparation',/await complete\(checkpoint\.mutationIds\)/.test(finish)&&! /prepareLineMutations/.test(finish.slice(finish.indexOf('await complete'))));
   check('Full strict adoption precedes checkpoint clear',/applyPayloadLive\(checkpoint\.payload,\{strict:true\}\)/.test(finish)&&finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})')<finish.indexOf('delete next.lineCompletion'));
@@ -479,6 +574,9 @@ let savedBytes = null;
   const deleteProfileAt=full.indexOf('const handleDelete = (id) => {');
   const deleteProfile=full.slice(deleteProfileAt,full.indexOf('const inp =',deleteProfileAt));
   check('Full keeps recovery bound to the active profile',profileSwitch.indexOf('blockFullLinkChangeDuringRecovery()')<profileSwitch.indexOf('setActiveProfileId')&&deleteProfile.indexOf('onBeforeActiveProfileDelete?.()')<deleteProfile.indexOf('Object.keys(localStorage)')&&/onBeforeActiveProfileDelete=\{blockFullLinkChangeDuringRecovery\}/.test(full));
+  check('Every Full mutation upload uses the durable entry point',
+    (full.match(/startFullLineCompletion\(/g)||[]).length===12
+      &&!/completeMutations\?\.\(prepared\.mutationIds\)/.test(full));
 }
 
 {

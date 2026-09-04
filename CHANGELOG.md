@@ -2,6 +2,12 @@
 
 ## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02
 
+- Final-review remediation routes all twelve Full mutation-upload paths through
+  one durable prepared/uploaded checkpoint. Each PATCH now requires the ETag of
+  the re-downloaded Drive revision; a 412 retains a blocked recovery, while an
+  ambiguous completion retries only the exact stored IDs and cannot duplicate
+  an `add`. First-file saves create the unmutated base before checkpointing the
+  mutation upload.
 - Full cloud-choice now defers while **Check Now** owns the checker lock, and
   Check Now already defers while cloud-choice owns the shared busy lock. Full
   relink/unlink cannot detach an active LINE completion checkpoint from its

@@ -56,6 +56,7 @@ assert.match(fullCompletionBlock, /GDrive\.updateFile[\s\S]*persistFullLineCompl
 assert.match(fullCompletionBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*applyPayloadLive\(checkpoint\.payload,\{strict:true\}\)/);
 assert.doesNotMatch(fullCompletionBlock.slice(fullCompletionBlock.indexOf('await complete')), /prepareLineMutations/);
 assert.match(fullCompletionBlock, /Drive error 412\|Precondition Failed[\s\S]*reopenFullLineCompletionConflict/);
+assert.match(fullCompletionBlock, /const expectedEtag=meta\.etag\|\|checkpoint\.baseEtag\|\|""[\s\S]*if\(!expectedEtag\)throw new Error[\s\S]*GDrive\.updateFile[\s\S]*expectedEtag/);
 assert.match(fullCompletionBlock, /delete next\.lineCompletion[\s\S]*persistGsyncStrict\(next\)/);
 assert.match(full, /const writeStorageExact = async[\s\S]*!result \|\| result\.key !== key[\s\S]*window\.storage\.get\(key\)[\s\S]*roundTrip\.value !== serialized/);
 assert.match(full, /const persistGsyncStrict = async[\s\S]*writeStorageExact\(pk\(GSYNC_KEY\)/);
@@ -75,8 +76,31 @@ const fullCheckBlock = full.slice(fullCheckAt, full.indexOf("// This is the app'
 assert.match(fullCheckBlock, /if \(gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion\) return null;/);
 assert.ok(fullCheckBlock.indexOf("gsyncChecking.current = true") < fullCheckBlock.indexOf("prepareLineMutations"),
   "Full Check Now must own its exclusion before preparing a LINE mutation");
+assert.match(fullCheckBlock,/if \(same\)[\s\S]*prepareLineMutations\(cloudPayload\)/,
+  "Fingerprint-equal Check Now must preserve the exact downloaded payload fields");
+const fullNowAt=full.indexOf("const gsyncNow = async");
+const fullNowBlock=full.slice(fullNowAt,full.indexOf("const gsyncSaveNow = async",fullNowAt));
+assert.match(fullNowBlock,/const basePayload=JSON\.parse\(await GDrive\.download\(gsync\.fileId\)\);[\s\S]*prepareLineMutations\(basePayload\)/,
+  "No-clock-change mutation handling must merge into the downloaded Drive base");
 assert.match(full, /gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/);
 assert.match(full, /FULL_LINE_COMPLETION_KIND = "import-cloud-conflict-v2"/);
+const fullMutationStartAt=full.indexOf("const startFullLineCompletion = async");
+const fullMutationStartEnd=full.indexOf("const refreshLineStatus",fullMutationStartAt);
+const fullMutationStartBlock=full.slice(fullMutationStartAt,fullMutationStartEnd);
+assert.match(fullMutationStartBlock, /baseCanonical:canonicalJSON\(basePayload\)/);
+assert.match(fullMutationStartBlock, /persistFullLineCompletion\(checkpoint,durableSyncBase\)[\s\S]*finishFullLineCompletion\(checkpoint\)/);
+assert.equal((full.match(/startFullLineCompletion\(/g)||[]).length,12,
+  "Every one of the twelve Full mutation-upload paths must use durable recovery");
+assert.doesNotMatch(full,/completeMutations\?\.\(prepared\.mutationIds\)/,
+  "A prepared mutation may only be completed by the durable recovery path");
+for(const marker of ["const gsyncPull = async","const gsyncNow = async",
+  "const gsyncSaveNow = async","const gsyncCheckNow = async","const gsyncAcceptCloud = async"]){
+  const at=full.indexOf(marker);
+  const end=marker.includes("gsyncCheckNow")
+    ?full.indexOf("// Every 10s",at):full.indexOf("\n  };",at);
+  assert.match(full.slice(at,end),/startFullLineCompletion\(\{basePayload:/,
+    `${marker} must checkpoint the downloaded Drive base before a mutation upload`);
+}
 for (const marker of ["const gsyncPush = async", "const gsyncPull = async", "const gsyncNow = async", "const gsyncSaveNow = async"]) {
   const at=full.indexOf(marker),end=full.indexOf("\n  };",at);
   assert.ok(at>=0&&full.slice(at,end).includes("finishFullLineCompletion()"), `${marker} must resume durable completion first`);

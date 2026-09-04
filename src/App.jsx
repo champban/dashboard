@@ -12753,8 +12753,15 @@ export default function App() {
     setGsync(next);
     return next;
   };
-  const persistFullLineCompletion = async (checkpoint, base=gsync) => {
-    const next={...base};
+  const persistFullLineCompletion = async (checkpoint, base=null) => {
+    // `syncBase` matters only for the first save: the new Drive file id is
+    // returned before React has rendered that id back into `gsync`. Keeping the
+    // non-recursive sync record in the checkpoint lets the same exact recovery
+    // path finish immediately without ever uploading a mutation before its
+    // durable marker exists.
+    const durableBase=base||(checkpoint&&gsync.fileId===checkpoint.fileId
+      ?gsync:(checkpoint?.syncBase||gsync));
+    const next={...durableBase};
     if(checkpoint) next.lineCompletion=checkpoint; else delete next.lineCompletion;
     return persistGsyncStrict(next);
   };
@@ -12885,8 +12892,10 @@ export default function App() {
   // lost; complete only), or ambiguous newer content (retain a blocked checkpoint).
   const finishFullLineCompletion = async (provided=null) => {
     let checkpoint=provided||gsync.lineCompletion;
+    const recoveryBase=gsync.fileId===checkpoint?.fileId
+      ?gsync:(checkpoint?.syncBase||gsync);
     if(!checkpoint||checkpoint.kind!==FULL_LINE_COMPLETION_KIND
-        ||!checkpoint.fileId||checkpoint.fileId!==gsync.fileId) return false;
+        ||!checkpoint.fileId||checkpoint.fileId!==recoveryBase.fileId) return false;
     const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];
     try{
       const meta=await GDrive.getMeta(checkpoint.fileId);
@@ -12908,8 +12917,11 @@ export default function App() {
             meta,currentPayload);
         }
         try{
+          const expectedEtag=meta.etag||checkpoint.baseEtag||"";
+          if(!expectedEtag)throw new Error(
+            "Google Drive did not provide a revision tag — retry before applying the LINE change.");
           const updated=await GDrive.updateFile(checkpoint.fileId,
-            JSON.stringify(checkpoint.payload,null,2),meta.etag||checkpoint.baseEtag||"");
+            JSON.stringify(checkpoint.payload,null,2),expectedEtag);
           checkpoint={...checkpoint,phase:"uploaded",targetCanonical,
             modifiedTime:updated.modifiedTime||meta.modifiedTime||""};
         }catch(error){
@@ -12935,13 +12947,16 @@ export default function App() {
       await complete(checkpoint.mutationIds);
       checkpoint=await preserveFullLocalEdits(checkpoint);
       await applyPayloadLive(checkpoint.payload,{strict:true});
-      const next={...gsync,lastSyncAt:Date.now(),
+      const next={...recoveryBase,lastSyncAt:Date.now(),
         lastCloudModified:checkpoint.modifiedTime||checkpoint.baseModifiedTime||"",
         lastPushedStamp:checkpoint.stamp,lastPushedFp:checkpoint.fingerprint};
       delete next.lineCompletion;
       await persistGsyncStrict(next);
       void publishLineSnapshot(checkpoint.payload);
       setImportConflict(null);
+      if(checkpoint.matchResult){
+        setGsyncMatch({...checkpoint.matchResult,at:Date.now()});
+      }
       setGsyncStatus("synced"); setGsyncError("");
       noteLineSaveResult(rejected);
     }catch(error){
@@ -12949,6 +12964,32 @@ export default function App() {
       setGsyncStatus("error"); setGsyncError(message);
       noteLineSaveResult(rejected,message,"error");
     }
+    return true;
+  };
+
+  // Every Full mutation upload uses this one entry point. The exact downloaded
+  // Drive payload is persisted as the base before any PATCH, and recovery owns
+  // the ETag write, ambiguous-response classification, queue completion and
+  // strict local adoption. A retry therefore cannot prepare a second `add`.
+  const startFullLineCompletion = async ({
+    basePayload,prepared,meta,stamp=new Date().toISOString(),syncBase=gsync,
+    localFileName="this browser",matchResult=null,
+  }) => {
+    const mutationIds=Array.isArray(prepared?.mutationIds)?prepared.mutationIds:[];
+    if(!mutationIds.length)return false;
+    const rejected=Array.isArray(prepared?.rejected)?prepared.rejected:[];
+    const payload={...prepared.payload,dataLastUpdated:stamp};
+    const durableSyncBase={...syncBase};
+    delete durableSyncBase.lineCompletion;
+    const checkpoint={kind:FULL_LINE_COMPLETION_KIND,phase:"prepared",
+      fileId:durableSyncBase.fileId,baseModifiedTime:meta?.modifiedTime||"",
+      baseEtag:meta?.etag||"",baseCanonical:canonicalJSON(basePayload),
+      targetCanonical:canonicalJSON(payload),payload,mutationIds:[...mutationIds],
+      rejected:[...rejected],stamp,fingerprint:dataFingerprint(payload),
+      localFileName,localBaselineCanonical:recoveryLocalCanonical(buildSavePayload()),
+      syncBase:durableSyncBase,matchResult};
+    await persistFullLineCompletion(checkpoint,durableSyncBase);
+    await finishFullLineCompletion(checkpoint);
     return true;
   };
 
@@ -12997,6 +13038,26 @@ export default function App() {
       const pushedFp = dataFingerprint(payload);
       const content = JSON.stringify(payload, null, 2);
       let meta;
+      if(prepared.mutationIds.length){
+        let basePayload,baseSync=gsync;
+        if(gsync.fileId){
+          meta=await GDrive.getMeta(gsync.fileId);
+          if(meta.trashed)throw new Error("The cloud file was deleted.");
+          basePayload=JSON.parse(await GDrive.download(gsync.fileId));
+        }else{
+          // Create the unmutated screen payload first. The mutation itself is
+          // written only after the returned file id is durably checkpointed.
+          const name=(config.defaultFilePath?.split(/[\\/]/).pop())||"My-Todo-Planner.json";
+          meta=await GDrive.createFile(name,JSON.stringify(screenPayload,null,2));
+          basePayload=screenPayload;
+          baseSync={...gsync,fileId:meta.id,fileName:meta.name,
+            localName:gsync.localName||meta.name,lastSyncAt:Date.now(),
+            lastCloudModified:meta.modifiedTime||"",lastPushedStamp:stamp,
+            lastPushedFp:dataFingerprint(screenPayload)};
+        }
+        await startFullLineCompletion({basePayload,prepared,meta,stamp,syncBase:baseSync});
+        return;
+      }
       if (gsync.fileId) meta = await GDrive.updateFile(gsync.fileId, content);
       else {
         const name = (config.defaultFilePath?.split(/[\\/]/).pop()) || "My-Todo-Planner.json";
@@ -13008,8 +13069,6 @@ export default function App() {
         lastSyncAt:Date.now(), lastCloudModified:meta.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
       void publishLineSnapshot(payload);
-      await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-      if(prepared.mutationIds.length)await applyPayloadLive(payload);
       setGsyncStatus("synced"); setGsyncError("");
       // A rejected/expired LINE mutation is worth breaking silence for — it is
       // the one thing in this path the owner cannot discover any other way.
@@ -13042,17 +13101,7 @@ export default function App() {
       // silently skip a confirmed LINE mutation either.
       const prepared = await prepareLineMutations(adopted);
       if (prepared.mutationIds.length) {
-        const stamp = new Date().toISOString();
-        const payload = { ...prepared.payload, dataLastUpdated: stamp };
-        const pushedFp = dataFingerprint(payload);
-        const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-        setDataLastUpdated(stamp);
-        await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
-          lastPushedStamp: stamp, lastPushedFp: pushedFp });
-        void publishLineSnapshot(payload);
-        await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-        await applyPayloadLive(payload);
-        setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
+        await startFullLineCompletion({basePayload:adopted,prepared,meta});
         return;
       }
       const pushedFp = dataFingerprint(adopted);
@@ -13201,19 +13250,7 @@ export default function App() {
         // with nothing telling the owner it never applied.
         const prepared = await prepareLineMutations(adopted);
         if (prepared.mutationIds.length) {
-          const stamp = new Date().toISOString();
-          const payload = { ...prepared.payload, dataLastUpdated: stamp };
-          const pushedFp = dataFingerprint(payload);
-          const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-          setDataLastUpdated(stamp);
-          await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
-            lastPushedStamp: stamp, lastPushedFp: pushedFp });
-          void publishLineSnapshot(payload);
-          await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-          await applyPayloadLive(payload);
-          setGsyncStatus("synced");
-          if (prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
-          else note("saved","Saved to cloud — a LINE change was applied");
+          await startFullLineCompletion({basePayload:adopted,prepared,meta});
         } else {
           const pushedFp = dataFingerprint(adopted);
           const stamp = await applyPayloadLive(adopted);
@@ -13226,6 +13263,11 @@ export default function App() {
         // Only local moved — safe to push, nothing cloud-side to lose.
         const { stamp, payload:screenPayload } = pushPayload();
         const prepared = await prepareLineMutations(screenPayload);
+        if(prepared.mutationIds.length){
+          const basePayload=JSON.parse(await GDrive.download(gsync.fileId));
+          await startFullLineCompletion({basePayload,prepared,meta,stamp});
+          return;
+        }
         const payload = { ...prepared.payload, dataLastUpdated: stamp };
         const pushedFp = dataFingerprint(payload);
         const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
@@ -13233,8 +13275,6 @@ export default function App() {
         await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
         void publishLineSnapshot(payload);
-        await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-        if(prepared.mutationIds.length) await applyPayloadLive(payload);
         setGsyncStatus("synced");
         if (prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
         else note("saved","Saved to cloud");
@@ -13244,21 +13284,10 @@ export default function App() {
         // touched, so this is exactly the case that used to leave it stranded:
         // the owner never opens Edit/Add on this device, only LINE, so
         // localChanged is never true and this branch ran forever instead.
-        const prepared = await prepareLineMutations(buildSavePayload());
+        const basePayload=JSON.parse(await GDrive.download(gsync.fileId));
+        const prepared = await prepareLineMutations(basePayload);
         if (prepared.mutationIds.length) {
-          const stamp = new Date().toISOString();
-          const payload = { ...prepared.payload, dataLastUpdated: stamp };
-          const pushedFp = dataFingerprint(payload);
-          const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-          setDataLastUpdated(stamp);
-          await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
-            lastPushedStamp: stamp, lastPushedFp: pushedFp });
-          void publishLineSnapshot(payload);
-          await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-          await applyPayloadLive(payload);
-          setGsyncStatus("synced");
-          if (prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
-          else note("saved","Saved to cloud — a LINE change was applied");
+          await startFullLineCompletion({basePayload,prepared,meta});
         } else {
           // Still stamp lastSyncAt: the check really did just happen and
           // confirmed both copies agree. Leaving it untouched is what made a
@@ -13322,17 +13351,7 @@ export default function App() {
         // anywhere, which is exactly what "Save to Cloud" is supposed to fix.
         const prepared = await prepareLineMutations(adopted);
         if (prepared.mutationIds.length) {
-          const stamp = new Date().toISOString();
-          const payload = { ...prepared.payload, dataLastUpdated: stamp };
-          const pushedFp = dataFingerprint(payload);
-          const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-          setDataLastUpdated(stamp);
-          await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
-            lastPushedStamp: stamp, lastPushedFp: pushedFp });
-          void publishLineSnapshot(payload);
-          await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-          await applyPayloadLive(payload);
-          setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
+          await startFullLineCompletion({basePayload:adopted,prepared,meta});
           return;
         }
         const pushedFp = dataFingerprint(adopted);
@@ -13347,6 +13366,11 @@ export default function App() {
       // getting a fresh upload is the whole contract of the button.
       const { stamp, payload:screenPayload } = pushPayload();
       const prepared = await prepareLineMutations(screenPayload);
+      if(prepared.mutationIds.length){
+        const basePayload=JSON.parse(await GDrive.download(gsync.fileId));
+        await startFullLineCompletion({basePayload,prepared,meta,stamp});
+        return;
+      }
       const payload = { ...prepared.payload, dataLastUpdated: stamp };
       const pushedFp = dataFingerprint(payload);
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
@@ -13355,8 +13379,6 @@ export default function App() {
         lastCloudModified: updated.modifiedTime || "",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
       void publishLineSnapshot(payload);
-      await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-      if(prepared.mutationIds.length)await applyPayloadLive(payload);
       setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
     } catch (e) {
       setGsyncStatus("error"); setGsyncError(e.message||"Save failed"); note("error", e.message||"Save failed");
@@ -13424,20 +13446,13 @@ export default function App() {
         // mutation can still be waiting even when the screen and cloud already
         // agree with each other (neither has it yet). Check before declaring
         // "nothing to sync", the same as every other branch below.
-        const prepared = await prepareLineMutations(localPayload);
+        // Fingerprint equality intentionally ignores metadata/settings. Apply
+        // the mutation to the exact downloaded payload so those fields cannot
+        // be replaced by this browser's partial-equivalent copy.
+        const prepared = await prepareLineMutations(cloudPayload);
         if (prepared.mutationIds.length) {
-          const stamp = new Date().toISOString();
-          const payload = { ...prepared.payload, dataLastUpdated: stamp };
-          const pushedFp = dataFingerprint(payload);
-          const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-          setDataLastUpdated(stamp);
-          await persistGsync({ ...gsync, lastSyncAt: Date.now(), lastCloudModified: updated.modifiedTime || "",
-            lastPushedStamp: stamp, lastPushedFp: pushedFp });
-          void publishLineSnapshot(payload);
-          await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-          await applyPayloadLive(payload);
-          setGsyncMatch({ state:"matched", at:Date.now(), msg:"Matched — a LINE change was applied" });
-          setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
+          await startFullLineCompletion({basePayload:cloudPayload,prepared,meta,
+            matchResult:{state:"matched",msg:"Matched — a LINE change was applied"}});
           return "matched";
         }
         // Matched — and heal the stamps while here. They are what the panel's green
@@ -13474,19 +13489,8 @@ export default function App() {
         // copy — it used to sit forever as "confirmed", applied_at=null.
         const prepared = await prepareLineMutations(cloudPayload);
         if (prepared.mutationIds.length) {
-          const stamp = new Date().toISOString();
-          const payload = { ...prepared.payload, dataLastUpdated: stamp };
-          const pushedFp = dataFingerprint(payload);
-          const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-          setDataLastUpdated(stamp);
-          await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
-            lastPushedStamp: stamp, lastPushedFp: pushedFp });
-          void publishLineSnapshot(payload);
-          await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-          await applyPayloadLive(payload);
-          setGsyncMatch({ state:"matched", at:Date.now(),
-            msg:"Matched — a LINE change was applied" });
-          setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
+          await startFullLineCompletion({basePayload:cloudPayload,prepared,meta,
+            matchResult:{state:"matched",msg:"Matched — a LINE change was applied"}});
           return "cloud";
         }
         const adopted = cloudPayload;
@@ -13505,6 +13509,11 @@ export default function App() {
         // gsyncNow makes, and "if unmatched it must get synced" is the ask.
         const { stamp, payload:screenPayload } = pushPayload();
         const prepared = await prepareLineMutations(screenPayload);
+        if(prepared.mutationIds.length){
+          await startFullLineCompletion({basePayload:cloudPayload,prepared,meta,stamp,
+            matchResult:{state:"matched",msg:"Matched — this screen was uploaded"}});
+          return "local";
+        }
         const payload = { ...prepared.payload, dataLastUpdated: stamp };
         const pushedFp = dataFingerprint(payload);
         const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
@@ -13512,8 +13521,6 @@ export default function App() {
         await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
           lastPushedStamp: stamp, lastPushedFp: pushedFp });
         void publishLineSnapshot(payload);
-        await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-        if(prepared.mutationIds.length) await applyPayloadLive(payload);
         setGsyncMatch({ state:"matched", at:Date.now(), msg:"Matched — this screen was uploaded" });
         setGsyncStatus("synced");
         if (prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
@@ -13623,17 +13630,8 @@ export default function App() {
       // toward the cloud copy.
       const prepared = await prepareLineMutations(adopted);
       if (prepared.mutationIds.length) {
-        const stamp = new Date().toISOString();
-        const payload = { ...prepared.payload, dataLastUpdated: stamp };
-        const pushedFp = dataFingerprint(payload);
-        const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
-        setDataLastUpdated(stamp);
-        await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
-          lastPushedStamp: stamp, lastPushedFp: pushedFp });
-        void publishLineSnapshot(payload);
-        await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-        await applyPayloadLive(payload);
-        setGsyncStatus("synced"); noteLineSaveResult(prepared.rejected);
+        await startFullLineCompletion({basePayload:adopted,prepared,
+          meta:{modifiedTime:gsyncConflict.cloudModified||"",etag:gsyncConflict.cloudEtag||""}});
       } else {
         const pushedFp = dataFingerprint(adopted);
         const stamp = await applyPayloadLive(adopted);
@@ -13658,6 +13656,14 @@ export default function App() {
       if (gsyncConflict.cloudText) await saveConflictCopy(gsyncConflict.cloudText, "Google Drive");
       const { stamp, payload:screenPayload } = pushPayload();
       const prepared = await prepareLineMutations(screenPayload);
+      if(prepared.mutationIds.length){
+        const basePayload=gsyncConflict.cloudPayload
+          ||JSON.parse(gsyncConflict.cloudText);
+        await startFullLineCompletion({basePayload,prepared,stamp,
+          meta:{modifiedTime:gsyncConflict.cloudModified||"",etag:gsyncConflict.cloudEtag||""}});
+        setGsyncConflict(null);
+        return;
+      }
       const payload = { ...prepared.payload, dataLastUpdated: stamp };
       const pushedFp = dataFingerprint(payload);
       const updated = await GDrive.updateFile(gsync.fileId, JSON.stringify(payload, null, 2));
@@ -13665,8 +13671,6 @@ export default function App() {
       await persistGsync({ ...gsync, lastSyncAt:Date.now(), lastCloudModified:updated.modifiedTime||"",
         lastPushedStamp: stamp, lastPushedFp: pushedFp });
       void publishLineSnapshot(payload);
-      await window.__MTP_LINE__?.completeMutations?.(prepared.mutationIds);
-      if(prepared.mutationIds.length) await applyPayloadLive(payload);
       setGsyncStatus("synced");
       if (prepared.rejected?.length) noteLineSaveResult(prepared.rejected);
       else note("saved","Saved to cloud — the previous cloud copy kept beside it");

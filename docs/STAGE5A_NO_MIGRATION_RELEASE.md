@@ -239,3 +239,31 @@ requires exact-head CI/generated-package parity plus independent review for
 dimension 5. Dimension 6 improves by retaining the original recovery file
 identity and serializing recovery entry points. Production promotion remains
 blocked until every exact-head release gate in this document passes.
+
+## Stage 5A final-review remediation
+
+The release-gate review found two P1 failures in the Full paths that had learned
+to apply pending LINE mutations outside the original local-file conflict flow:
+they uploaded before persisting a completion checkpoint, and cloud-adopt/check
+PATCHes did not pin the downloaded Drive revision. This one permitted remediation
+round closes both findings without changing the nine-file/source-only boundary:
+
+- All twelve Full mutation-upload call sites enter `startFullLineCompletion`.
+  The helper persists exact base/target canonical payloads, mutation IDs,
+  rejections and the owning sync/file identity before any mutation PATCH.
+- Recovery re-reads Drive and requires a non-empty current/base ETag for
+  `If-Match`. A concurrent save produces 412, keeps the newer Drive bytes and
+  retains the exact recovery as `blocked` for the existing keep-both decision.
+- An uploaded checkpoint survives an ambiguous queue-completion response. Retry
+  completes only its stored IDs, performs no second preparation or upload, and
+  clears the marker only after strict local adoption and sync metadata storage.
+- On a first save, Drive receives the unmutated screen payload first; the pending
+  mutation is uploaded only after the returned file identity is durably bound to
+  the same checkpoint primitive.
+- Focused executable regressions reproduce both ambiguous completion and a
+  concurrent Drive write between download and PATCH, including ETag, zero stale
+  writes, no duplicate preparation/upload and no premature queue completion.
+
+No Database, migration, Storage, Auth, RLS, provider, Environment, secret,
+Production data, backup/recovery workflow, deployment or destructive operation
+is part of this remediation.
