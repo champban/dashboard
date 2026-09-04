@@ -67,6 +67,18 @@ new_target = (
 )
 assignments = "mobile_name_old = " + repr(old_target) + "\nmobile_name_new = " + repr(new_target)
 script = script[:start] + assignments + script[end:]
+
+# Current Mobile already owns setDriveBusy/finally in this helper. Skip the two
+# obsolete anchor rewrites and normalize the exact current helper after the
+# checksum-pinned script has applied all other changes.
+for obsolete in (
+    'mobile = replace_once(mobile, blocked_old, blocked_new, "Mobile blocked-resolution single flight")',
+    'mobile = replace_once(mobile, blocked_catch_old, blocked_catch_new, "Mobile blocked-resolution finally")',
+):
+    if script.count(obsolete) != 1:
+        raise SystemExit(f"decoded patch call drifted: {obsolete}")
+    script = script.replace(obsolete, "mobile = mobile  # normalized by finalizer", 1)
+
 compile(script, "stage5a-r4-decoded.py", "exec")
 with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as handle:
     handle.write(script)
@@ -76,10 +88,17 @@ try:
 finally:
     decoded_path.unlink(missing_ok=True)
 
-# Final clean-review finding: a single-use completion checkpoint belongs to its
-# original Drive file. Refuse relinking until that recovery is resolved.
 mobile_path = ROOT / "mobile" / "index.html"
 mobile = mobile_path.read_text(encoding="utf-8")
+mobile = replace_once(
+    mobile,
+    "async function resolveBlockedLineCompletion(){\n  const checkpoint=state.sync.lineCompletion;\n  if(!checkpoint||checkpoint.phase!=='blocked')return false;\n  const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];\n  try{\n    setDriveBusy(true);",
+    "async function resolveBlockedLineCompletion(){\n  if(state.driveBusy)return false;\n  const checkpoint=state.sync.lineCompletion;\n  if(!checkpoint||checkpoint.kind!==MOBILE_LINE_COMPLETION_KIND||checkpoint.phase!=='blocked')return false;\n  const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];\n  try{\n    setDriveBusy(true);",
+    "Mobile blocked-recovery single flight",
+)
+
+# Final clean-review finding: a single-use completion checkpoint belongs to its
+# original Drive file. Refuse relinking until that recovery is resolved.
 mobile = replace_once(
     mobile,
     "async function linkCloudFile(id,name){try{setDriveBusy(true);",
@@ -95,7 +114,7 @@ tests_path = ROOT / "build" / "line-contract.test.mjs"
 tests = tests_path.read_text(encoding="utf-8")
 if "Mobile must block relinking before downloading" not in tests:
     anchor = "assert.match(mobileConflictBlock, /Keep both and finish LINE recovery/);"
-    block = """
+    block = r'''
 const mobileRelinkAt = mobile.indexOf("async function linkCloudFile(id,name){");
 const mobileRelinkEnd = mobile.indexOf("async function createCloudFile", mobileRelinkAt);
 const mobileRelinkBlock = mobile.slice(mobileRelinkAt, mobileRelinkEnd);
@@ -104,7 +123,7 @@ assert.match(mobileRelinkBlock, /if\(state\.driveBusy\)return/);
 assert.match(mobileRelinkBlock, /state\.sync\.lineCompletion/);
 assert.ok(mobileRelinkBlock.indexOf("state.sync.lineCompletion") < mobileRelinkBlock.indexOf("driveDownload"),
   "Mobile must block relinking before downloading or switching to another Drive file");
-""".rstrip()
+'''.rstrip()
     tests = replace_once(tests, anchor, anchor + block, "Mobile relink regression")
 tests_path.write_text(tests, encoding="utf-8")
 
