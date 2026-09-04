@@ -474,6 +474,11 @@ let savedBytes = null;
   const relink=full.slice(relinkAt,full.indexOf('const gsyncOpenFolder',relinkAt));
   const unlink=full.slice(unlinkAt,full.indexOf('const gsyncNow = async',unlinkAt));
   check('Full relink and unlink retain the original recovery file',/gsync\.lineCompletion/.test(linkGuard)&&relink.indexOf('blockFullLinkChangeDuringRecovery()')<relink.indexOf('persistGsync')&&unlink.indexOf('blockFullLinkChangeDuringRecovery()')<unlink.indexOf('persistGsync'));
+  const switchAt=full.indexOf('const switchProfile = (newId) => {');
+  const profileSwitch=full.slice(switchAt,full.indexOf('const toggleLang',switchAt));
+  const deleteProfileAt=full.indexOf('const handleDelete = (id) => {');
+  const deleteProfile=full.slice(deleteProfileAt,full.indexOf('const inp =',deleteProfileAt));
+  check('Full keeps recovery bound to the active profile',profileSwitch.indexOf('blockFullLinkChangeDuringRecovery()')<profileSwitch.indexOf('setActiveProfileId')&&deleteProfile.indexOf('onBeforeActiveProfileDelete?.()')<deleteProfile.indexOf('Object.keys(localStorage)')&&/onBeforeActiveProfileDelete=\{blockFullLinkChangeDuringRecovery\}/.test(full));
 }
 
 {
@@ -508,6 +513,10 @@ let savedBytes = null;
   const createFile=mobile.slice(createAt,mobile.indexOf('function syncTimestamp',createAt));
   check('Mobile file identity stays bound to pending recovery',/state\.sync\.lineCompletion/.test(fileGuard)&&linkFile.indexOf('blockCloudFileChangeDuringRecovery()')<linkFile.indexOf('driveDownload')&&createFile.indexOf('blockCloudFileChangeDuringRecovery()')<createFile.indexOf('driveCreate')&&deleteFile.indexOf('blockCloudFileChangeDuringRecovery(id)')<deleteFile.indexOf('driveDelete'));
   check('Mobile sync entry respects the Drive recovery lock',/async function syncNow\(silent=false\)\{\s*if\(state\.driveBusy\)return;/.test(mobile.slice(syncAt,mobile.indexOf('function showConflict(meta){',syncAt))));
+  const lockOwners=['connectDrive','showCloudFiles','renameCloudFile'];
+  const guardedOwners=lockOwners.every(name=>new RegExp(`async function ${name}\\([^)]*\\)\\{if\\(state\\.driveBusy\\)return;[\\s\\S]*?setDriveBusy\\(true\\)`).test(mobile));
+  const pushAt=mobile.indexOf('  const push=async()=>{',showAt),push=mobile.slice(pushAt,mobile.indexOf("  $('#conflictPull')",pushAt));
+  check('Every Mobile Drive UI owner rejects concurrent entry',guardedOwners&&/const push=async\(\)=>\{\s*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/.test(push));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

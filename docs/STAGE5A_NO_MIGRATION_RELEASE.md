@@ -224,6 +224,11 @@ Production data, backup/recovery, merge, deployment or HTML-status operation.
 - `build/line-contract.test.mjs` and `build/sync-content-check.test.mjs` pin the
   source ordering and exercise both trigger orders, proving a confirmed LINE
   `add` is prepared once under the guarded races.
+- Follow-up exact-head review also binds Full recovery to the active profile:
+  switching profiles or deleting the active profile is blocked before any
+  profile-scoped storage is changed. Mobile connect, file-list, rename and
+  conflict-save actions now reject entry before acquiring `driveBusy`, so no
+  contender can release another sync/recovery action's lock.
 
 The targeted 6D assessment for this bounded source change is unchanged in
 dimensions 1–3 (no Identity/Auth/RLS, secret/data contract or untrusted-input

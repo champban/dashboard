@@ -5,11 +5,15 @@
 - Full cloud-choice now defers while **Check Now** owns the checker lock, and
   Check Now already defers while cloud-choice owns the shared busy lock. Full
   relink/unlink cannot detach an active LINE completion checkpoint from its
-  original Drive file.
+  original Drive file; profile switching and active-profile deletion are also
+  blocked until the profile-scoped recovery completes.
 - Mobile link/create and deletion of the active Drive file are blocked while a
   single-use LINE completion checkpoint is pending. Mobile sync triggers also
   reject entry while conflict/recovery owns the Drive lock, preventing the old
   mutation from being lost, re-prepared, uploaded or completed twice.
+- Every Mobile Drive UI action now acquires the same synchronous lock only when
+  it is free, so connect, list, rename and conflict-save actions cannot clear a
+  lock owned by an in-flight sync or recovery.
 - Full local-file conflict → **Keep what is on Drive** now revalidates the
   selected Drive revision/content, uses an ETag write precondition, and reopens
   the conflict rather than overwriting a newer cloud save.

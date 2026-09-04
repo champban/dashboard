@@ -3,13 +3,13 @@
   "date": "2026-07-30",
   "full": {
     "path": "index.html",
-    "sha256": "9cda45a37b8609b85722ccd5d00819d1f3d12e71e801506020a8e09eb4138e42",
-    "bytes": 782119
+    "sha256": "f1dd7317b927a37f0e8461135450dbe60b7189216bb2cbba449525fa516c4872",
+    "bytes": 782236
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "4d88c3fa08e58de3c31e1e907083235f04b84d96df21ace8684f6159b2f74bcf",
-    "bytes": 116349,
+    "sha256": "cd38603bca13dfa7f1fea0c72e01a6a58a16fa9110bd04cb20e1814fe1c655e7",
+    "bytes": 116638,
     "note": "3.75.2 LINE task details; inline CSP hashes verified by regression test"
   },
   "csp": {

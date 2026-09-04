@@ -1530,7 +1530,7 @@ function Chip({ color, children, small }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const PROFILE_EMOJIS = ["👤","🧑","👨","👩","🧔","🧑‍💼","👨‍💼","👩‍💼","🧑‍🔬","🎯","⭐","🔥","🚀","🌟","💎","🦁","🐯","🦊"];
 
-function ProfileSwitcher({ currentProfileId, onSwitch, onClose, profiles: initialProfiles, onSaveProfiles }) {
+function ProfileSwitcher({ currentProfileId, onSwitch, onClose, profiles: initialProfiles, onSaveProfiles, onBeforeActiveProfileDelete }) {
   const [profiles, setProfiles] = useState(initialProfiles || getProfiles());
   const [mode, setMode] = useState("list"); // "list" | "new" | "edit"
   const [editTarget, setEditTarget] = useState(null);
@@ -1562,6 +1562,7 @@ function ProfileSwitcher({ currentProfileId, onSwitch, onClose, profiles: initia
       alert("Cannot delete the last profile. Create another profile first.");
       return;
     }
+    if (currentProfileId===id && onBeforeActiveProfileDelete?.()) return;
     if (!confirm(`Delete profile? All data for this profile will be lost.`)) return;
     // Remove all localStorage keys for this profile
     Object.keys(localStorage).filter(k=>k.startsWith(`${id}::`)).forEach(k=>localStorage.removeItem(k));
@@ -13083,7 +13084,7 @@ export default function App() {
 
   const blockFullLinkChangeDuringRecovery = () => {
     if(!gsync.lineCompletion)return false;
-    const message="Finish the pending LINE recovery before changing the linked file.";
+    const message="Finish the pending LINE recovery before changing the linked file or active profile.";
     setGsyncStatus("idle"); setGsyncError(message); note("later",message);
     return true;
   };
@@ -13973,6 +13974,7 @@ export default function App() {
 
   // ── Profile switch ────────────────────────────────────────────────────────
   const switchProfile = (newId) => {
+    if(blockFullLinkChangeDuringRecovery())return;
     const targetProf = profileList.find(p=>p.id===newId)||{name:newId};
     // I3: reset file handle so auto-save doesn't overwrite old profile's file
     setFileHandle(null);
@@ -15147,7 +15149,7 @@ export default function App() {
         cloudAction="Load the Drive copy"    cloudHint="Keeps what is on Drive and replaces this device"
         onUseLocal={gsyncAcceptLocal} onUseCloud={gsyncAcceptCloud}
         onCancel={()=>setGsyncConflict(null)}/>}
-      {showProfileSwitcher&&<ProfileSwitcher currentProfileId={activeProfileId} onSwitch={switchProfile} onClose={()=>setShowProfileSwitcher(false)} profiles={profileList} onSaveProfiles={handleSaveProfiles}/>}
+      {showProfileSwitcher&&<ProfileSwitcher currentProfileId={activeProfileId} onSwitch={switchProfile} onClose={()=>setShowProfileSwitcher(false)} profiles={profileList} onSaveProfiles={handleSaveProfiles} onBeforeActiveProfileDelete={blockFullLinkChangeDuringRecovery}/>}
       {showSaveConfirm&&pendingSaveData&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",zIndex:6000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{background:theme.surface,border:`1px solid ${theme.border}`,borderRadius:14,padding:"24px 28px",maxWidth:400,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.6)"}}>

@@ -119,6 +119,15 @@ assert.ok(fullRelinkBlock.indexOf("blockFullLinkChangeDuringRecovery()") < fullR
   "Full relink must retain the checkpoint and its original file before changing the link");
 assert.ok(fullUnlinkBlock.indexOf("blockFullLinkChangeDuringRecovery()") < fullUnlinkBlock.indexOf("persistGsync"),
   "Full unlink must retain the checkpoint and its original file before clearing the link");
+const fullProfileSwitchAt = full.indexOf("const switchProfile = (newId) => {");
+const fullProfileSwitchBlock = full.slice(fullProfileSwitchAt, full.indexOf("const toggleLang", fullProfileSwitchAt));
+const fullProfileDeleteAt = full.indexOf("const handleDelete = (id) => {");
+const fullProfileDeleteBlock = full.slice(fullProfileDeleteAt, full.indexOf("const inp =", fullProfileDeleteAt));
+assert.ok(fullProfileSwitchBlock.indexOf("blockFullLinkChangeDuringRecovery()") < fullProfileSwitchBlock.indexOf("setActiveProfileId"),
+  "Full profile switch must retain the active profile recovery checkpoint");
+assert.ok(fullProfileDeleteBlock.indexOf("currentProfileId===id && onBeforeActiveProfileDelete?.()") < fullProfileDeleteBlock.indexOf("Object.keys(localStorage)"),
+  "Full active-profile deletion must be blocked before profile-scoped recovery storage is removed");
+assert.match(full, /onBeforeActiveProfileDelete=\{blockFullLinkChangeDuringRecovery\}/);
 
 const mobileFileGuardAt = mobile.indexOf("function blockCloudFileChangeDuringRecovery(id=null){");
 const mobileDeleteAt = mobile.indexOf("async function deleteCloudFile(id,name){", mobileFileGuardAt);
@@ -140,6 +149,14 @@ assert.ok(mobileCreateBlock.indexOf("blockCloudFileChangeDuringRecovery()") < mo
 assert.ok(mobileDeleteBlock.indexOf("blockCloudFileChangeDuringRecovery(id)") < mobileDeleteBlock.indexOf("driveDelete"),
   "Mobile must block deleting the active Drive file while recovery is pending");
 assert.match(mobileSyncEntryBlock, /async function syncNow\(silent=false\)\{\s*if\(state\.driveBusy\)return;/);
+const mobileConnectAt = mobile.indexOf("async function connectDrive(){");
+const mobileShowFilesAt = mobile.indexOf("async function showCloudFiles(){");
+const mobileRenameAt = mobile.indexOf("async function renameCloudFile(id,oldName){");
+const mobileConflictPushAt = mobile.indexOf("  const push=async()=>{", mobile.indexOf("function showConflict(meta){"));
+for (const [name,at] of [["connectDrive",mobileConnectAt],["showCloudFiles",mobileShowFilesAt],["renameCloudFile",mobileRenameAt],["conflict push",mobileConflictPushAt]]) {
+  const block = mobile.slice(at, mobile.indexOf("setDriveBusy(true)",at)+"setDriveBusy(true)".length);
+  assert.match(block, /if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)/, `Mobile ${name} must reject entry before owning the Drive lock`);
+}
 
 // ── Stage 5A focused unit regressions ───────────────────────────────────────
 // Exercise the exact helper implementations without booting another JSDOM app.
@@ -219,12 +236,14 @@ async function exerciseMobileRace(first) {
   const winner=first==="recovery"?recovery(hold.promise):syncNow(hold.promise);
   await Promise.resolve();
   await (first==="recovery"?syncNow():recovery());
+  const firstStillOwnsLock=driveBusy;
   hold.release();
   await winner;
-  return prepareAddCalls;
+  return {prepareAddCalls,firstStillOwnsLock};
 }
-assert.equal(await exerciseMobileRace("recovery"),1,"Mobile sync must defer while recovery owns the Drive lock");
-assert.equal(await exerciseMobileRace("sync"),1,"Mobile recovery must defer while sync owns the Drive lock");
+assert.deepEqual(await exerciseMobileRace("recovery"),{prepareAddCalls:1,firstStillOwnsLock:true},"Mobile sync must defer without clearing recovery's Drive lock");
+assert.deepEqual(await exerciseMobileRace("sync"),{prepareAddCalls:1,firstStillOwnsLock:true},"Mobile recovery must defer without clearing sync's Drive lock");
+assert.equal((checkpoint=>!checkpoint)(checkpoint),false,"Full profile/file context changes must reject while a recovery checkpoint exists");
 
 const strictStart = full.indexOf("const writeStorageExact = async");
 const strictEnd = full.indexOf("\n\n  const applyPayloadLive",strictStart);
