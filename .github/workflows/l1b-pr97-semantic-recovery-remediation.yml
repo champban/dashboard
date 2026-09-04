@@ -1,0 +1,154 @@
+name: L1B PR97 semantic-recovery remediation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/l1b-pr97-semantic-recovery-remediation.yml
+      - ops/l1b-pr97-semantic-recovery-remediation.payload.txt
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_ORCHESTRATOR_REF: ops/l1b-pr97-semantic-recovery-orchestrator
+  TARGET_REF: ops/l1b-post-import-isolated-restore
+  EXPECTED_TARGET_HEAD: ddf96a3439f58c8bce796df0dbe5b23b8f6c474f
+  EXPECTED_PAYLOAD_BLOB: 5f383b2c83c43649f1d793adda0c2eef976210ef
+
+jobs:
+  remediate:
+    name: Generate exact P1-remediated PR97 source artifact
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr97-semantic-recovery-orchestrator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact orchestrator head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate temporary orchestrator boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == main ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_ORCHESTRATOR_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == 1 ]]
+          [[ "$(git hash-object ops/l1b-pr97-semantic-recovery-remediation.payload.txt)" == "$EXPECTED_PAYLOAD_BLOB" ]]
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/l1b-pr97-semantic-recovery-remediation.yml
+          ops/l1b-pr97-semantic-recovery-remediation.payload.txt
+          EOF
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt"
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Extract validated remediation payload without remote push
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('ops/l1b-pr97-semantic-recovery-remediation.payload.txt')
+          if source.is_symlink() or not source.is_file():
+              raise SystemExit('payload file is absent or unsafe')
+          lines = source.read_text(encoding='utf-8').splitlines()
+          marker = '      - name: Patch and requalify exact PR97 source'
+          try:
+              start = lines.index(marker)
+              run_index = lines.index('        run: |', start + 1)
+          except ValueError as exc:
+              raise SystemExit('payload markers are absent') from exc
+          body = []
+          for line in lines[run_index + 1:]:
+              if line.startswith('      - name:'):
+                  raise SystemExit('payload contains an unexpected later workflow step')
+              body.append(line[10:] if line.startswith('          ') else line)
+          payload = '\n'.join(body).rstrip() + '\n'
+          if not payload.startswith('set -euo pipefail\n'):
+              raise SystemExit('payload does not start fail-closed')
+          forbidden = ('workflow_dispatch:', 'pull_request_target:', 'SUPABASE_DB_URL', 'DATABASE_URL', 'secrets.')
+          if any(token in payload for token in forbidden):
+              raise SystemExit('payload contains forbidden capability')
+          push_block = '''git push origin "HEAD:refs/heads/$TARGET_REF" \\
+  --force-with-lease="refs/heads/$TARGET_REF:$EXPECTED_TARGET_HEAD"'''
+          if payload.count(push_block) != 1:
+              raise SystemExit('exact remote-push block is absent or ambiguous')
+          payload = payload.replace(
+              push_block,
+              "printf 'L1B_PR97_REMOTE_PUSH_SUPPRESSED_FOR_CONNECTOR_COMMIT\\n'",
+              1,
+          )
+          target = Path('/tmp/l1b-pr97-remediate.sh')
+          target.write_text(payload, encoding='utf-8', newline='\n')
+          target.chmod(0o700)
+          PY
+          bash -n /tmp/l1b-pr97-remediate.sh
+
+      - name: Generate exact source-only remediation
+        shell: bash
+        run: /tmp/l1b-pr97-remediate.sh
+
+      - name: Verify and package generated PR97 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD^)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == 1 ]]
+          cat > "$RUNNER_TEMP/expected-pr97-files.txt" <<'EOF'
+          .github/workflows/l1b-post-import-isolated-restore.yml
+          docs/L1B_POST_IMPORT_RESTORE.md
+          ops/l1b-post-import-isolated-restore-acl-check.sh
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-aicc-check.py
+          ops/l1b-post-import-isolated-restore-check.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-count-check.py
+          ops/l1b-post-import-isolated-restore-review-check.sh
+          ops/l1b-post-import-isolated-restore-stdin-patch.py
+          ops/l1b-post-import-isolated-restore-telemetry.sh
+          ops/l1b-post-import-isolated-restore.sh
+          EOF
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | LC_ALL=C sort > "$RUNNER_TEMP/actual-pr97-files.txt"
+          diff -u "$RUNNER_TEMP/expected-pr97-files.txt" "$RUNNER_TEMP/actual-pr97-files.txt"
+
+          out="$RUNNER_TEMP/pr97-semantic-remediation-output"
+          mkdir -p "$out/.github/workflows" "$out/docs" "$out/ops"
+          cp .github/workflows/l1b-post-import-isolated-restore.yml "$out/.github/workflows/"
+          cp docs/L1B_POST_IMPORT_RESTORE.md "$out/docs/"
+          cp ops/l1b-post-import-isolated-restore-core.sh "$out/ops/"
+          cp ops/l1b-post-import-isolated-restore-telemetry.sh "$out/ops/"
+          cp ops/l1b-post-import-isolated-restore.sh "$out/ops/"
+          {
+            printf 'generated_head=%s\n' "$(git rev-parse HEAD)"
+            printf 'generated_tree=%s\n' "$(git rev-parse 'HEAD^{tree}')"
+            printf 'parent=%s\n' "$(git rev-parse HEAD^)"
+            printf 'workflow_blob=%s\n' "$(git hash-object .github/workflows/l1b-post-import-isolated-restore.yml)"
+            printf 'document_blob=%s\n' "$(git hash-object docs/L1B_POST_IMPORT_RESTORE.md)"
+            printf 'core_blob=%s\n' "$(git hash-object ops/l1b-post-import-isolated-restore-core.sh)"
+            printf 'telemetry_blob=%s\n' "$(git hash-object ops/l1b-post-import-isolated-restore-telemetry.sh)"
+            printf 'wrapper_blob=%s\n' "$(git hash-object ops/l1b-post-import-isolated-restore.sh)"
+          } > "$out/manifest.txt"
+          chmod -R go-rwx "$out"
+
+      - name: Upload exact generated source artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr97-semantic-remediation-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/pr97-semantic-remediation-output
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

@@ -1,0 +1,263 @@
+name: L1B PR97 semantic-recovery remediation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/l1b-pr97-semantic-recovery-remediation.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: l1b-pr97-semantic-recovery-remediation
+  cancel-in-progress: false
+
+env:
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_BASE_SHA: 297854c09205097a6a58cbce4c64961c802cd7a3
+  EXPECTED_ORCHESTRATOR_REF: ops/l1b-pr97-semantic-recovery-orchestrator
+  TARGET_REF: ops/l1b-post-import-isolated-restore
+  EXPECTED_TARGET_HEAD: ddf96a3439f58c8bce796df0dbe5b23b8f6c474f
+
+jobs:
+  remediate:
+    name: Replace PR97 with exact P1-remediated one-commit source
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/l1b-pr97-semantic-recovery-orchestrator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact orchestrator head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate temporary orchestrator boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ github.repository_id }}" == "$EXPECTED_REPOSITORY_ID" ]]
+          [[ "$GITHUB_BASE_REF" == main ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_ORCHESTRATOR_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == 1 ]]
+          [[ "$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD)" == '.github/workflows/l1b-pr97-semantic-recovery-remediation.yml' ]]
+
+      - name: Patch and requalify exact PR97 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "refs/heads/$TARGET_REF:refs/remotes/origin/$TARGET_REF"
+          [[ "$(git rev-parse "refs/remotes/origin/$TARGET_REF")" == "$EXPECTED_TARGET_HEAD" ]]
+          [[ "$(git rev-parse "$EXPECTED_TARGET_HEAD^")" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA".."$EXPECTED_TARGET_HEAD")" == 1 ]]
+          git switch --detach "$EXPECTED_TARGET_HEAD"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          CORE = Path("ops/l1b-post-import-isolated-restore-core.sh")
+          TELEMETRY = Path("ops/l1b-post-import-isolated-restore-telemetry.sh")
+          WRAPPER = Path("ops/l1b-post-import-isolated-restore.sh")
+          WORKFLOW = Path(".github/workflows/l1b-post-import-isolated-restore.yml")
+          DOC = Path("docs/L1B_POST_IMPORT_RESTORE.md")
+
+          def read(path: Path) -> str:
+              return path.read_text(encoding="utf-8")
+
+          def write(path: Path, payload: str) -> None:
+              path.write_text(payload, encoding="utf-8", newline="\n")
+
+          def replace_once(payload: str, old: str, new: str, label: str) -> str:
+              count = payload.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: anchor count {count}, expected 1")
+              return payload.replace(old, new, 1)
+
+          core = read(CORE)
+          core = replace_once(core,"  [[ '4ae6222b2ff6f682c244344cdcbb92ff' =~ ^[0-9a-f]{32}$ ]]\n","  [[ '4ae6222b2ff6f682c244344cdcbb92ff' =~ ^[0-9a-f]{32}$ ]]\n  [[ '2532413a689e46fc350d77137984bbc7' =~ ^[0-9a-f]{32}$ ]]\n  [[ 'a0d2dde4e49c7c15bb2b04c7b2a2ba56' =~ ^[0-9a-f]{32}$ ]]\n  [[ '6ac0cbd6f5b79519165e2a8a453f176f' =~ ^[0-9a-f]{32}$ ]]\n  [[ 'e6d867e6658d53c68a542ab6f22b920a' =~ ^[0-9a-f]{32}$ ]]\n  [[ '694de6dfa636f3dc11931b016e83d77f' =~ ^[0-9a-f]{32}$ ]]\n  [[ '5c554bfe5a9a27a7f3549c2e88d630dc' =~ ^[0-9a-f]{32}$ ]]\n  [[ '587e7bf78ebb0993165f5b0db3814182' =~ ^[0-9a-f]{32}$ ]]\n  [[ '6e059025771f56da66f5303b050a770d' =~ ^[0-9a-f]{32}$ ]]\n  [[ '15d1af279461fc0cda1799bb3be5cadc' =~ ^[0-9a-f]{32}$ ]]\n  [[ 'd41d8cd98f00b204e9800998ecf8427e' =~ ^[0-9a-f]{32}$ ]]\n  [[ '0ecfcc5ee8b470ec5c47b1172c1bd1ec' =~ ^[0-9a-f]{32}$ ]]\n  [[ 'd41d8cd98f00b204e9800998ecf8427e' =~ ^[0-9a-f]{32}$ ]]\n","core-selftest-semantic-digests")
+          required_anchor=': "${EXPECTED_L0B_INDEX_FINGERPRINT:?EXPECTED_L0B_INDEX_FINGERPRINT is required}"\n'
+          required_block=required_anchor+"".join(': "$'+'{'+f'{name}:?{name} is required'+'}"\n' for name in ("EXPECTED_AICC_CONSTRAINT_PARTS","EXPECTED_AICC_CONSTRAINT_FINGERPRINT","EXPECTED_AICC_FUNCDEF_PARTS","EXPECTED_AICC_FUNCDEF_FINGERPRINT","EXPECTED_AICC_INDEX_PARTS","EXPECTED_AICC_INDEX_FINGERPRINT","EXPECTED_AICC_TRIGGER_PARTS","EXPECTED_AICC_TRIGGER_FINGERPRINT","EXPECTED_L0B_CONSTRAINT_PARTS","EXPECTED_L0B_CONSTRAINT_FINGERPRINT","EXPECTED_L0B_FUNCDEF_PARTS","EXPECTED_L0B_FUNCDEF_FINGERPRINT","EXPECTED_L0B_SEMANTIC_INDEX_PARTS","EXPECTED_L0B_SEMANTIC_INDEX_FINGERPRINT","EXPECTED_L0B_TRIGGER_PARTS","EXPECTED_L0B_TRIGGER_FINGERPRINT","EXPECTED_LINE_CONSTRAINT_PARTS","EXPECTED_LINE_CONSTRAINT_FINGERPRINT","EXPECTED_LINE_FUNCDEF_PARTS","EXPECTED_LINE_FUNCDEF_FINGERPRINT","EXPECTED_LINE_SEMANTIC_INDEX_PARTS","EXPECTED_LINE_SEMANTIC_INDEX_FINGERPRINT","EXPECTED_LINE_TRIGGER_PARTS","EXPECTED_LINE_TRIGGER_FINGERPRINT"))
+          core=replace_once(core,required_anchor,required_block,"core-required-semantic-vars")
+          frozen_old="   || \"$EXPECTED_LINE_INDEX_FINGERPRINT\" != 'e815ffd95253662ecc53481a825c7232' \\\n   || \"$EXPECTED_L0B_INDEX_FINGERPRINT\" != '4ae6222b2ff6f682c244344cdcbb92ff' ]]; then\n"
+          frozen_new="   || \"$EXPECTED_LINE_INDEX_FINGERPRINT\" != 'e815ffd95253662ecc53481a825c7232' \\\n   || \"$EXPECTED_L0B_INDEX_FINGERPRINT\" != '4ae6222b2ff6f682c244344cdcbb92ff' \\\n   || \"$EXPECTED_AICC_CONSTRAINT_PARTS\" != '24' \\\n   || \"$EXPECTED_AICC_CONSTRAINT_FINGERPRINT\" != '2532413a689e46fc350d77137984bbc7' \\\n   || \"$EXPECTED_AICC_FUNCDEF_PARTS\" != '6' \\\n   || \"$EXPECTED_AICC_FUNCDEF_FINGERPRINT\" != 'a0d2dde4e49c7c15bb2b04c7b2a2ba56' \\\n   || \"$EXPECTED_AICC_INDEX_PARTS\" != '22' \\\n   || \"$EXPECTED_AICC_INDEX_FINGERPRINT\" != '6ac0cbd6f5b79519165e2a8a453f176f' \\\n   || \"$EXPECTED_AICC_TRIGGER_PARTS\" != '9' \\\n   || \"$EXPECTED_AICC_TRIGGER_FINGERPRINT\" != 'e6d867e6658d53c68a542ab6f22b920a' \\\n   || \"$EXPECTED_L0B_CONSTRAINT_PARTS\" != '77' \\\n   || \"$EXPECTED_L0B_CONSTRAINT_FINGERPRINT\" != '694de6dfa636f3dc11931b016e83d77f' \\\n   || \"$EXPECTED_L0B_FUNCDEF_PARTS\" != '31' \\\n   || \"$EXPECTED_L0B_FUNCDEF_FINGERPRINT\" != '5c554bfe5a9a27a7f3549c2e88d630dc' \\\n   || \"$EXPECTED_L0B_SEMANTIC_INDEX_PARTS\" != '26' \\\n   || \"$EXPECTED_L0B_SEMANTIC_INDEX_FINGERPRINT\" != '587e7bf78ebb0993165f5b0db3814182' \\\n   || \"$EXPECTED_L0B_TRIGGER_PARTS\" != '5' \\\n   || \"$EXPECTED_L0B_TRIGGER_FINGERPRINT\" != '6e059025771f56da66f5303b050a770d' \\\n   || \"$EXPECTED_LINE_CONSTRAINT_PARTS\" != '22' \\\n   || \"$EXPECTED_LINE_CONSTRAINT_FINGERPRINT\" != '15d1af279461fc0cda1799bb3be5cadc' \\\n   || \"$EXPECTED_LINE_FUNCDEF_PARTS\" != '0' \\\n   || \"$EXPECTED_LINE_FUNCDEF_FINGERPRINT\" != 'd41d8cd98f00b204e9800998ecf8427e' \\\n   || \"$EXPECTED_LINE_SEMANTIC_INDEX_PARTS\" != '11' \\\n   || \"$EXPECTED_LINE_SEMANTIC_INDEX_FINGERPRINT\" != '0ecfcc5ee8b470ec5c47b1172c1bd1ec' \\\n   || \"$EXPECTED_LINE_TRIGGER_PARTS\" != '0' \\\n   || \"$EXPECTED_LINE_TRIGGER_FINGERPRINT\" != 'd41d8cd98f00b204e9800998ecf8427e' ]]; then\n"
+          core=replace_once(core,frozen_old,frozen_new,"core-frozen-semantic-pins")
+          core=replace_once(core,'INDEX_FINGERPRINTS="$WORK_DIR/index-fingerprints.tsv"\n','INDEX_FINGERPRINTS="$WORK_DIR/index-fingerprints.tsv"\nSCHEMA_SEMANTICS_FINGERPRINTS="$WORK_DIR/schema-semantics-fingerprints.tsv"\n',"core-semantic-fingerprint-path")
+          semantic_block=dedent(r'''
+l1b_b2_set_stage 'schema-semantics'
+if ! docker exec --interactive --env PGPASSWORD="$LOCAL_DB_PASSWORD" "$ISOLATED_DB_CONTAINER" \
+  psql -h /var/run/postgresql -U "$LOCAL_DB_ADMIN" -d postgres -XAtq -F $'\t' --set=ON_ERROR_STOP=1 >"$SCHEMA_SEMANTICS_FINGERPRINTS" 2>&1 <<'SQL'
+set search_path to pg_catalog, public, extensions;
+with target_relations as (
+  select c.oid,n.nspname,c.relname,case when c.relname like 'aicc_%' then 'AICC' when c.relname like 'mtp_line_%' then 'LINE' when c.relname in ('mtp_import_batches','mtp_import_chunks','mtp_import_staging','mtp_import_rejects','mtp_tasks','mtp_subtasks','mtp_events','mtp_event_windows','mtp_task_attachments') then 'L0B' end as scope
+  from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+  where n.nspname='public' and c.relkind in ('r','p') and (c.relname like 'aicc_%' or c.relname like 'mtp_line_%' or c.relname in ('mtp_import_batches','mtp_import_chunks','mtp_import_staging','mtp_import_rejects','mtp_tasks','mtp_subtasks','mtp_events','mtp_event_windows','mtp_task_attachments'))
+), function_parts as (
+  select case when p.proname like 'aicc_%' then 'AICC' when p.proname like 'mtp_line_%' then 'LINE' else 'L0B' end as scope,'FUNCDEF|'||n.nspname||'|'||p.proname||'|'||pg_catalog.pg_get_function_identity_arguments(p.oid)||'|'||pg_catalog.pg_get_function_result(p.oid)||'|'||l.lanname||'|'||p.prosecdef::text||'|'||p.provolatile::text||'|'||p.proparallel::text||'|'||p.proleakproof::text||'|'||coalesce(array_to_string(p.proconfig,E'\x1f'),'')||'|'||pg_catalog.pg_get_functiondef(p.oid) as part
+  from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace join pg_catalog.pg_language l on l.oid=p.prolang
+  where n.nspname='public' and (p.proname like 'aicc_%' or p.proname like 'mtp_line_%' or (p.proname like 'mtp_%' and p.proname not like 'mtp_line_%'))
+), index_parts as (
+  select t.scope,'INDEX|'||t.nspname||'|'||t.relname||'|'||i.relname||'|'||pg_catalog.pg_get_indexdef(i.oid)||'|'||x.indisunique::text||'|'||x.indisprimary::text||'|'||x.indisexclusion::text||'|'||x.indimmediate::text||'|'||x.indisclustered::text||'|'||x.indisvalid::text||'|'||x.indisready::text||'|'||x.indislive::text||'|'||x.indisreplident::text||'|'||x.indnullsnotdistinct::text as part
+  from target_relations t join pg_catalog.pg_index x on x.indrelid=t.oid join pg_catalog.pg_class i on i.oid=x.indexrelid
+), trigger_parts as (
+  select t.scope,'TRIGGER|'||t.nspname||'|'||t.relname||'|'||g.tgname||'|'||g.tgenabled::text||'|'||g.tgisinternal::text||'|'||pg_catalog.pg_get_triggerdef(g.oid,true) as part
+  from target_relations t join pg_catalog.pg_trigger g on g.tgrelid=t.oid where not g.tgisinternal
+), constraint_parts as (
+  select t.scope,'CONSTRAINT|'||t.nspname||'|'||t.relname||'|'||c.conname||'|'||c.contype::text||'|'||c.condeferrable::text||'|'||c.condeferred::text||'|'||c.convalidated::text||'|'||c.connoinherit::text||'|'||c.conislocal::text||'|'||c.coninhcount::text||'|'||pg_catalog.pg_get_constraintdef(c.oid,true) as part
+  from target_relations t join pg_catalog.pg_constraint c on c.conrelid=t.oid where c.contype<>'f'
+), all_parts as (
+  select scope,'FUNCDEF'::text as category,part from function_parts union all select scope,'INDEX',part from index_parts union all select scope,'TRIGGER',part from trigger_parts union all select scope,'CONSTRAINT',part from constraint_parts
+), expected as (
+  select scope,category from (values ('AICC'),('LINE'),('L0B')) s(scope) cross join (values ('FUNCDEF'),('INDEX'),('TRIGGER'),('CONSTRAINT')) c(category)
+)
+select e.scope||'_'||e.category,count(a.part),md5(coalesce(string_agg(a.part,E'\n' order by a.part),'')) from expected e left join all_parts a on a.scope=e.scope and a.category=e.category group by e.scope,e.category order by e.scope,e.category;
+SQL
+then
+  printf '::error::L1B_B2_SCHEMA_SEMANTICS_QUERY_FAILED stage=schema-semantics\n' >&2
+  exit 97
+fi
+chmod 600 "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics AICC_CONSTRAINT "$EXPECTED_AICC_CONSTRAINT_PARTS" "$EXPECTED_AICC_CONSTRAINT_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics AICC_FUNCDEF "$EXPECTED_AICC_FUNCDEF_PARTS" "$EXPECTED_AICC_FUNCDEF_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics AICC_INDEX "$EXPECTED_AICC_INDEX_PARTS" "$EXPECTED_AICC_INDEX_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics AICC_TRIGGER "$EXPECTED_AICC_TRIGGER_PARTS" "$EXPECTED_AICC_TRIGGER_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics L0B_CONSTRAINT "$EXPECTED_L0B_CONSTRAINT_PARTS" "$EXPECTED_L0B_CONSTRAINT_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics L0B_FUNCDEF "$EXPECTED_L0B_FUNCDEF_PARTS" "$EXPECTED_L0B_FUNCDEF_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics L0B_INDEX "$EXPECTED_L0B_SEMANTIC_INDEX_PARTS" "$EXPECTED_L0B_SEMANTIC_INDEX_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics L0B_TRIGGER "$EXPECTED_L0B_TRIGGER_PARTS" "$EXPECTED_L0B_TRIGGER_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics LINE_CONSTRAINT "$EXPECTED_LINE_CONSTRAINT_PARTS" "$EXPECTED_LINE_CONSTRAINT_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics LINE_FUNCDEF "$EXPECTED_LINE_FUNCDEF_PARTS" "$EXPECTED_LINE_FUNCDEF_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics LINE_INDEX "$EXPECTED_LINE_SEMANTIC_INDEX_PARTS" "$EXPECTED_LINE_SEMANTIC_INDEX_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+l1b_b2_assert_triplet schema-semantics LINE_TRIGGER "$EXPECTED_LINE_TRIGGER_PARTS" "$EXPECTED_LINE_TRIGGER_FINGERPRINT" "$SCHEMA_SEMANTICS_FINGERPRINTS"
+''')
+          index_anchor="grep -Fxq $'L0B\\t26\\t'\"$EXPECTED_L0B_INDEX_FINGERPRINT\" \"$INDEX_FINGERPRINTS\"\ngrep -Fxq $'LINE\\t11\\t'\"$EXPECTED_LINE_INDEX_FINGERPRINT\" \"$INDEX_FINGERPRINTS\"\n\n"
+          core=replace_once(core,index_anchor,index_anchor+semantic_block,"core-semantic-query")
+          core=replace_once(core,'  echo "- LINE/L0b/AICC catalog and LINE/L0b index fingerprints: **VERIFIED**"\n','  echo "- LINE/L0b/AICC catalog and LINE/L0b index fingerprints: **VERIFIED**"\n  echo "- Complete function definitions, all app indexes, triggers and non-FK constraints: **VERIFIED**"\n',"core-semantic-summary")
+          write(CORE,core)
+
+          telemetry=read(TELEMETRY)
+          telemetry=replace_once(telemetry,"L1B_B2_ALLOWED_STAGES=(exact-count postcheck catalog index raw-acl default-acl all-function-acl effective-privilege role-graph aicc-count auth-fk-fingerprint fk-fingerprint fk-row-validation private-storage)\n","L1B_B2_ALLOWED_STAGES=(exact-count postcheck catalog index schema-semantics raw-acl default-acl all-function-acl effective-privilege role-graph aicc-count auth-fk-fingerprint fk-fingerprint fk-row-validation private-storage)\n","telemetry-stage-list")
+          semantic_exports="export EXPECTED_AICC_CONSTRAINT_PARTS='24' EXPECTED_AICC_CONSTRAINT_FINGERPRINT='2532413a689e46fc350d77137984bbc7' EXPECTED_AICC_FUNCDEF_PARTS='6' EXPECTED_AICC_FUNCDEF_FINGERPRINT='a0d2dde4e49c7c15bb2b04c7b2a2ba56' EXPECTED_AICC_INDEX_PARTS='22' EXPECTED_AICC_INDEX_FINGERPRINT='6ac0cbd6f5b79519165e2a8a453f176f' EXPECTED_AICC_TRIGGER_PARTS='9' EXPECTED_AICC_TRIGGER_FINGERPRINT='e6d867e6658d53c68a542ab6f22b920a'\nexport EXPECTED_L0B_CONSTRAINT_PARTS='77' EXPECTED_L0B_CONSTRAINT_FINGERPRINT='694de6dfa636f3dc11931b016e83d77f' EXPECTED_L0B_FUNCDEF_PARTS='31' EXPECTED_L0B_FUNCDEF_FINGERPRINT='5c554bfe5a9a27a7f3549c2e88d630dc' EXPECTED_L0B_SEMANTIC_INDEX_PARTS='26' EXPECTED_L0B_SEMANTIC_INDEX_FINGERPRINT='587e7bf78ebb0993165f5b0db3814182' EXPECTED_L0B_TRIGGER_PARTS='5' EXPECTED_L0B_TRIGGER_FINGERPRINT='6e059025771f56da66f5303b050a770d'\nexport EXPECTED_LINE_CONSTRAINT_PARTS='22' EXPECTED_LINE_CONSTRAINT_FINGERPRINT='15d1af279461fc0cda1799bb3be5cadc' EXPECTED_LINE_FUNCDEF_PARTS='0' EXPECTED_LINE_FUNCDEF_FINGERPRINT='d41d8cd98f00b204e9800998ecf8427e' EXPECTED_LINE_SEMANTIC_INDEX_PARTS='11' EXPECTED_LINE_SEMANTIC_INDEX_FINGERPRINT='0ecfcc5ee8b470ec5c47b1172c1bd1ec' EXPECTED_LINE_TRIGGER_PARTS='0' EXPECTED_LINE_TRIGGER_FINGERPRINT='d41d8cd98f00b204e9800998ecf8427e'\n"
+          telemetry=replace_once(telemetry,"\nexport EXPECTED_AICC_ACL_PARTS=","\n"+semantic_exports+"export EXPECTED_AICC_ACL_PARTS=","telemetry-semantic-exports")
+          telemetry=replace_once(telemetry,'case "$stage" in catalog|index|raw-acl|effective-privilege|role-graph);;','case "$stage" in catalog|index|schema-semantics|raw-acl|effective-privilege|role-graph);;',"telemetry-validator-stage")
+          telemetry=replace_once(telemetry,'    else if(stage=="index") { add("L0B"); add("LINE") }\n    else if(stage=="raw-acl")','    else if(stage=="index") { add("L0B"); add("LINE") }\n    else if(stage=="schema-semantics") { split("AICC L0B LINE",s," "); split("CONSTRAINT FUNCDEF INDEX TRIGGER",k," "); for(i in s)for(j in k)add(s[i] "_" k[j]) }\n    else if(stage=="raw-acl")',"telemetry-validator-shape")
+          telemetry=replace_once(telemetry,'case "$scope" in AICC|AICC_REL|AICC_COL|AICC_POL|AICC_FUN|L0B|LINE|RUNTIME|ROLE_GRAPH);;','case "$scope" in AICC|AICC_REL|AICC_COL|AICC_POL|AICC_FUN|L0B|LINE|RUNTIME|ROLE_GRAPH|AICC_CONSTRAINT|AICC_FUNCDEF|AICC_INDEX|AICC_TRIGGER|L0B_CONSTRAINT|L0B_FUNCDEF|L0B_INDEX|L0B_TRIGGER|LINE_CONSTRAINT|LINE_FUNCDEF|LINE_INDEX|LINE_TRIGGER);;',"telemetry-semantic-scopes")
+          telemetry=replace_once(telemetry,'  [[ "${#L1B_B2_ALLOWED_STAGES[@]}" == 14 ]]\n','  [[ "${#L1B_B2_ALLOWED_STAGES[@]}" == 15 ]]\n',"telemetry-stage-count")
+          fixture="  printf 'AICC_CONSTRAINT\\t24\\t2532413a689e46fc350d77137984bbc7\\nAICC_FUNCDEF\\t6\\ta0d2dde4e49c7c15bb2b04c7b2a2ba56\\nAICC_INDEX\\t22\\t6ac0cbd6f5b79519165e2a8a453f176f\\nAICC_TRIGGER\\t9\\te6d867e6658d53c68a542ab6f22b920a\\nL0B_CONSTRAINT\\t77\\t694de6dfa636f3dc11931b016e83d77f\\nL0B_FUNCDEF\\t31\\t5c554bfe5a9a27a7f3549c2e88d630dc\\nL0B_INDEX\\t26\\t587e7bf78ebb0993165f5b0db3814182\\nL0B_TRIGGER\\t5\\t6e059025771f56da66f5303b050a770d\\nLINE_CONSTRAINT\\t22\\t15d1af279461fc0cda1799bb3be5cadc\\nLINE_FUNCDEF\\t0\\td41d8cd98f00b204e9800998ecf8427e\\nLINE_INDEX\\t11\\t0ecfcc5ee8b470ec5c47b1172c1bd1ec\\nLINE_TRIGGER\\t0\\td41d8cd98f00b204e9800998ecf8427e\\n' > \"$t/schema-semantics\"\n"
+          telemetry=replace_once(telemetry,"  printf 'L0B\\t26\\t11111111111111111111111111111111\\nLINE\\t11\\t11111111111111111111111111111111\\n' > \"$t/index\"\n","  printf 'L0B\\t26\\t11111111111111111111111111111111\\nLINE\\t11\\t11111111111111111111111111111111\\n' > \"$t/index\"\n"+fixture,"telemetry-semantic-fixture")
+          telemetry=replace_once(telemetry,'  l1b_b2_validate_triplet_file index "$t/index"\n','  l1b_b2_validate_triplet_file index "$t/index"\n  l1b_b2_validate_triplet_file schema-semantics "$t/schema-semantics"\n  l1b_b2_assert_triplet schema-semantics AICC_FUNCDEF "$EXPECTED_AICC_FUNCDEF_PARTS" "$EXPECTED_AICC_FUNCDEF_FINGERPRINT" "$t/schema-semantics"\n  l1b_b2_assert_triplet schema-semantics AICC_INDEX "$EXPECTED_AICC_INDEX_PARTS" "$EXPECTED_AICC_INDEX_FINGERPRINT" "$t/schema-semantics"\n  l1b_b2_assert_triplet schema-semantics L0B_TRIGGER "$EXPECTED_L0B_TRIGGER_PARTS" "$EXPECTED_L0B_TRIGGER_FINGERPRINT" "$t/schema-semantics"\n  l1b_b2_assert_triplet schema-semantics LINE_CONSTRAINT "$EXPECTED_LINE_CONSTRAINT_PARTS" "$EXPECTED_LINE_CONSTRAINT_FINGERPRINT" "$t/schema-semantics"\n',"telemetry-semantic-selftest")
+          write(TELEMETRY,telemetry)
+
+          wrapper=read(WRAPPER)
+          wrapper=replace_once(wrapper,"if core.count(catalog_search_path)!=1 or not catalog_anchor < core.index(catalog_search_path) < catalog_query:\n","if core.count(catalog_search_path)<2 or not catalog_anchor < core.index(catalog_search_path) < catalog_query:\n","wrapper-two-pinned-search-paths")
+          wrapper=replace_once(wrapper,"'index','raw-acl'","'index','schema-semantics','raw-acl'","wrapper-stage-contract")
+          wrapper=replace_once(wrapper,'(core, \'>"$INDEX_FINGERPRINTS" 2>&1\'),\n','(core, \'>"$INDEX_FINGERPRINTS" 2>&1\'),\n    (core, \'>"$SCHEMA_SEMANTICS_FINGERPRINTS" 2>&1\'),\n',"wrapper-private-semantic-log")
+          semantic_static=dedent(r'''
+schema_semantics_tokens=('SCHEMA_SEMANTICS_FINGERPRINTS="$WORK_DIR/schema-semantics-fingerprints.tsv"',"l1b_b2_set_stage 'schema-semantics'",'pg_catalog.pg_get_functiondef(p.oid)','pg_catalog.pg_get_function_result(p.oid)','pg_catalog.pg_get_indexdef(i.oid)','pg_catalog.pg_get_triggerdef(g.oid,true)','pg_catalog.pg_get_constraintdef(c.oid,true)',"where c.contype<>'f'",'L1B_B2_SCHEMA_SEMANTICS_QUERY_FAILED stage=schema-semantics','l1b_b2_assert_triplet schema-semantics AICC_FUNCDEF','l1b_b2_assert_triplet schema-semantics AICC_INDEX','l1b_b2_assert_triplet schema-semantics L0B_TRIGGER','l1b_b2_assert_triplet schema-semantics LINE_CONSTRAINT')
+for token in schema_semantics_tokens:
+    if token not in core: raise SystemExit(f'missing complete schema-semantics recovery token: {token}')
+semantic_anchor=core.index("l1b_b2_set_stage 'schema-semantics'")
+semantic_query=core.index('with target_relations as (',semantic_anchor)
+semantic_search_path=core.index(catalog_search_path,semantic_anchor)
+if not semantic_anchor < semantic_search_path < semantic_query: raise SystemExit('schema-semantics query does not pin the reviewed deterministic search_path')
+if 'schema-semantics' not in telemetry: raise SystemExit('telemetry does not validate the schema-semantics fingerprint file')
+''')
+          wrapper=replace_once(wrapper,"recovery_marker='L1B fresh post-import B-2 isolated restore:'+' PASS'\n",semantic_static+"\nrecovery_marker='L1B fresh post-import B-2 isolated restore:'+' PASS'\n","wrapper-semantic-static-checks")
+          wrapper=replace_once(wrapper,"EXPECTED_AUTH_FK_FINGERPRINT\n","EXPECTED_AUTH_FK_FINGERPRINT\nEXPECTED_AICC_FUNCDEF_FINGERPRINT\nEXPECTED_AICC_INDEX_FINGERPRINT\nEXPECTED_AICC_TRIGGER_FINGERPRINT\nEXPECTED_AICC_CONSTRAINT_FINGERPRINT\nEXPECTED_L0B_FUNCDEF_FINGERPRINT\nEXPECTED_L0B_SEMANTIC_INDEX_FINGERPRINT\nEXPECTED_L0B_TRIGGER_FINGERPRINT\nEXPECTED_L0B_CONSTRAINT_FINGERPRINT\nEXPECTED_LINE_FUNCDEF_FINGERPRINT\nEXPECTED_LINE_SEMANTIC_INDEX_FINGERPRINT\nEXPECTED_LINE_TRIGGER_FINGERPRINT\nEXPECTED_LINE_CONSTRAINT_FINGERPRINT\n","wrapper-static-contract-pins")
+          write(WRAPPER,wrapper)
+          doc=read(DOC)
+          doc=replace_once(doc,"This packet requalifies the AICC catalog representation and freezes the complete\nAuth FK inventory before post-load orphan validation.","This packet requalifies the AICC catalog representation, freezes the complete\nAuth FK inventory before post-load orphan validation, and fingerprints complete\nfunction definitions, all application index definitions, non-internal triggers,\nand every non-FK constraint before B-2 can report PASS.","doc-semantic-summary")
+          write(DOC,doc)
+          PY
+          RAW_CORE_BLOB="$(git hash-object ops/l1b-post-import-isolated-restore-core.sh)"
+          TELEMETRY_BLOB="$(git hash-object ops/l1b-post-import-isolated-restore-telemetry.sh)"
+          python3 - "$RAW_CORE_BLOB" "$TELEMETRY_BLOB" <<'PY'
+          from pathlib import Path
+          import sys
+          c,t=sys.argv[1:3]; p=Path('ops/l1b-post-import-isolated-restore.sh'); s=p.read_text()
+          for o,n in {'85f80a07385efb2dcc75ec684e52dc1a10f10bce':c,'284042ce029f16dc8d6aa9c80bd9765bf0e2b216':t,'379981c1838be1e128c1516ace59fbff0f11a7e3':'PENDING_STDIN_SAFE_CORE_BLOB','8d8253ea9c012453a774954e4969a5644a5df290':'PENDING_REVIEWED_CORE_BLOB'}.items():
+              if s.count(o)!=1: raise SystemExit(f'wrapper pin {o}: count {s.count(o)}')
+              s=s.replace(o,n,1)
+          p.write_text(s,newline='\n')
+          PY
+          PATCH_DIR="$(mktemp -d)"; trap 'rm -rf -- "$PATCH_DIR"' EXIT
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py patch ops/l1b-post-import-isolated-restore-core.sh "$PATCH_DIR/core.sh" --kind core --expected-fixes 3 >/dev/null
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py audit "$PATCH_DIR/core.sh"
+          STDIN_SAFE_CORE_BLOB="$(git hash-object "$PATCH_DIR/core.sh")"
+          python3 ops/l1b-post-import-isolated-restore-acl-patch.py "$PATCH_DIR/core.sh" "$PATCH_DIR/final.sh"
+          bash -n "$PATCH_DIR/final.sh"; REVIEWED_CORE_BLOB="$(git hash-object "$PATCH_DIR/final.sh")"
+          python3 - "$STDIN_SAFE_CORE_BLOB" "$REVIEWED_CORE_BLOB" <<'PY'
+          from pathlib import Path
+          import sys
+          a,b=sys.argv[1:3]; p=Path('ops/l1b-post-import-isolated-restore.sh'); s=p.read_text().replace('PENDING_STDIN_SAFE_CORE_BLOB',a).replace('PENDING_REVIEWED_CORE_BLOB',b); p.write_text(s,newline='\n')
+          PY
+          export RUNNER_TEMP="$(mktemp -d)"; trap 'rm -rf -- "$RUNNER_TEMP" "$PATCH_DIR"' EXIT
+          bash ops/l1b-post-import-isolated-restore-telemetry.sh --selftest
+          bash ops/l1b-post-import-isolated-restore.sh --selftest
+          WRAPPER_BLOB="$(git hash-object ops/l1b-post-import-isolated-restore.sh)"
+          python3 - "$RAW_CORE_BLOB" "$TELEMETRY_BLOB" "$WRAPPER_BLOB" "$STDIN_SAFE_CORE_BLOB" "$REVIEWED_CORE_BLOB" <<'PY'
+          from pathlib import Path
+          import sys
+          vals=sys.argv[1:]; p=Path('.github/workflows/l1b-post-import-isolated-restore.yml'); s=p.read_text()
+          for o,n in dict(zip(['85f80a07385efb2dcc75ec684e52dc1a10f10bce','284042ce029f16dc8d6aa9c80bd9765bf0e2b216','b2a2422bb7300c14f67326b0b172c5c5aacad302','379981c1838be1e128c1516ace59fbff0f11a7e3','8d8253ea9c012453a774954e4969a5644a5df290'],vals)).items():
+              if o not in s: raise SystemExit(f'workflow pin absent: {o}')
+              s=s.replace(o,n)
+          p.write_text(s,newline='\n')
+          PY
+          WORKFLOW_BLOB="$(git hash-object .github/workflows/l1b-post-import-isolated-restore.yml)"
+          python3 - "$RAW_CORE_BLOB" "$TELEMETRY_BLOB" "$WRAPPER_BLOB" "$STDIN_SAFE_CORE_BLOB" "$REVIEWED_CORE_BLOB" "$WORKFLOW_BLOB" <<'PY'
+          from pathlib import Path
+          import sys
+          vals=sys.argv[1:]; p=Path('docs/L1B_POST_IMPORT_RESTORE.md'); s=p.read_text()
+          olds=['85f80a07385efb2dcc75ec684e52dc1a10f10bce','284042ce029f16dc8d6aa9c80bd9765bf0e2b216','b2a2422bb7300c14f67326b0b172c5c5aacad302','379981c1838be1e128c1516ace59fbff0f11a7e3','8d8253ea9c012453a774954e4969a5644a5df290','b9ac3e5d72885cd3e558a5cd6f3d26526f5d98fb']
+          for o,n in zip(olds,vals):
+              if o not in s: raise SystemExit(f'doc pin absent: {o}')
+              s=s.replace(o,n)
+          anchor=f"- Final derived restore core:\n  `{vals[4]}`\n"
+          semantic="\n### Complete executable and schema-semantics Production pins\n\nA bounded read-only Production query freezes complete function definitions, all application indexes, non-internal triggers and every non-FK constraint. AICC pins: `24/2532413a689e46fc350d77137984bbc7`, `6/a0d2dde4e49c7c15bb2b04c7b2a2ba56`, `22/6ac0cbd6f5b79519165e2a8a453f176f`, `9/e6d867e6658d53c68a542ab6f22b920a`. L0b pins: `77/694de6dfa636f3dc11931b016e83d77f`, `31/5c554bfe5a9a27a7f3549c2e88d630dc`, `26/587e7bf78ebb0993165f5b0db3814182`, `5/6e059025771f56da66f5303b050a770d`. LINE pins: `22/15d1af279461fc0cda1799bb3be5cadc`, `0/d41d8cd98f00b204e9800998ecf8427e`, `11/0ecfcc5ee8b470ec5c47b1172c1bd1ec`, `0/d41d8cd98f00b204e9800998ecf8427e`.\n"
+          if s.count(anchor)!=1: raise SystemExit('doc anchor mismatch')
+          p.write_text(s.replace(anchor,anchor+semantic,1),newline='\n')
+          PY
+          bash -n ops/l1b-post-import-isolated-restore-core.sh
+          bash -n ops/l1b-post-import-isolated-restore-telemetry.sh
+          bash -n ops/l1b-post-import-isolated-restore.sh
+          python3 -m py_compile ops/l1b-post-import-isolated-restore-acl-patch.py ops/l1b-post-import-isolated-restore-aicc-check.py ops/l1b-post-import-isolated-restore-check.py ops/l1b-post-import-isolated-restore-count-check.py ops/l1b-post-import-isolated-restore-stdin-patch.py
+          python3 ops/l1b-post-import-isolated-restore-aicc-check.py selftest
+          python3 ops/l1b-post-import-isolated-restore-check.py selftest
+          python3 ops/l1b-post-import-isolated-restore-count-check.py selftest
+          python3 ops/l1b-post-import-isolated-restore-stdin-patch.py selftest
+          bash ops/l1b-post-import-isolated-restore-telemetry.sh --selftest
+          bash ops/l1b-post-import-isolated-restore.sh --selftest
+          git diff --check
+          printf '%s\n' .github/workflows/l1b-post-import-isolated-restore.yml docs/L1B_POST_IMPORT_RESTORE.md ops/l1b-post-import-isolated-restore-core.sh ops/l1b-post-import-isolated-restore-telemetry.sh ops/l1b-post-import-isolated-restore.sh | sort > "$RUNNER_TEMP/expected-remediation-files.txt"
+          git diff --name-only | sort > "$RUNNER_TEMP/actual-remediation-files.txt"; diff -u "$RUNNER_TEMP/expected-remediation-files.txt" "$RUNNER_TEMP/actual-remediation-files.txt"
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/l1b-post-import-isolated-restore.yml docs/L1B_POST_IMPORT_RESTORE.md ops/l1b-post-import-isolated-restore-core.sh ops/l1b-post-import-isolated-restore-telemetry.sh ops/l1b-post-import-isolated-restore.sh
+          git commit --amend --no-edit
+          NEW_HEAD="$(git rev-parse HEAD)"; [[ "$(git rev-parse HEAD^)" == "$EXPECTED_BASE_SHA" ]]; [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == 1 ]]
+          cat > "$RUNNER_TEMP/expected-pr97-files.txt" <<'EOF'
+          .github/workflows/l1b-post-import-isolated-restore.yml
+          docs/L1B_POST_IMPORT_RESTORE.md
+          ops/l1b-post-import-isolated-restore-acl-check.sh
+          ops/l1b-post-import-isolated-restore-acl-patch.py
+          ops/l1b-post-import-isolated-restore-aicc-check.py
+          ops/l1b-post-import-isolated-restore-check.py
+          ops/l1b-post-import-isolated-restore-core.sh
+          ops/l1b-post-import-isolated-restore-count-check.py
+          ops/l1b-post-import-isolated-restore-review-check.sh
+          ops/l1b-post-import-isolated-restore-stdin-patch.py
+          ops/l1b-post-import-isolated-restore-telemetry.sh
+          ops/l1b-post-import-isolated-restore.sh
+          EOF
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort > "$RUNNER_TEMP/actual-pr97-files.txt"; diff -u "$RUNNER_TEMP/expected-pr97-files.txt" "$RUNNER_TEMP/actual-pr97-files.txt"
+          git push origin "HEAD:refs/heads/$TARGET_REF" --force-with-lease="refs/heads/$TARGET_REF:$EXPECTED_TARGET_HEAD"
+          echo "New PR97 head: $NEW_HEAD" >> "$GITHUB_STEP_SUMMARY"
