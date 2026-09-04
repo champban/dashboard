@@ -463,6 +463,10 @@ let savedBytes = null;
   check('Full strict adoption precedes checkpoint clear',/applyPayloadLive\(checkpoint\.payload,\{strict:true\}\)/.test(finish)&&finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})')<finish.indexOf('delete next.lineCompletion'));
   check('Full keeps both before explicit blocked reconciliation',/saveConflictCopy\(currentText,"Google Drive before LINE recovery"\)/.test(full)&&/Keep both and finish LINE recovery/.test(full));
   check('Full stale/412 recovery retains rejection notice',/noteLineSaveResult\(rejected,message,rejected\.length\?"partial":"later"\)/.test(full));
+  check('Full checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/.test(cloud));
+  check('Full preserves later local edits before and after completion',finish.indexOf('preserveFullLocalEdits(checkpoint)')>=0&&finish.indexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')>finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})'));
+  check('Full conflict preparation is single-flight',/const importUseCloud = async \(\) => \{[\s\S]*if\(gsyncBusy\.current\)return;[\s\S]*gsyncBusy\.current=true;[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/.test(cloud));
+  check('Full poll pauses while recovery exists',/gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/.test(full)&&/gsyncBusy\.current \|\| gsyncChecking\.current \|\| gsync\.lineCompletion/.test(full));
 }
 
 {
@@ -484,6 +488,9 @@ let savedBytes = null;
   check('Mobile completion precedes exact adoption',resume.indexOf('await complete(checkpoint.mutationIds)')<resume.indexOf('state.data=normalizeProfile'));
   check('Mobile checkpoint clears only after durable local save',resume.indexOf('saveLocal(false,true)')<resume.indexOf('persistLineCompletion(null)'));
   check('Mobile rejection survives stale/failure recovery',/lineSaveToastText\(rejected,message\)/.test(mobile)&&/lineSaveToastText\(rejected,state\.driveError\)/.test(resume));
+  check('Mobile checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(state\.data\)/.test(pull));
+  check('Mobile preserves later local edits before and after completion',resume.indexOf('preserveMobileLocalEdits(checkpoint)')>=0&&resume.indexOf('preserveMobileLocalEdits(checkpoint)')<resume.indexOf('await complete(checkpoint.mutationIds)')&&resume.lastIndexOf('preserveMobileLocalEdits(checkpoint)')>resume.indexOf('await complete(checkpoint.mutationIds)')&&resume.lastIndexOf('preserveMobileLocalEdits(checkpoint)')<resume.indexOf('state.data=normalizeProfile'));
+  check('Mobile conflict pull is single-flight',/const pull=async\(\)=>\{[\s\S]*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/.test(pull));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

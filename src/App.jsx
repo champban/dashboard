@@ -650,6 +650,17 @@ function canonicalJSON(v){
 // Classify a recovery candidate using the complete canonical payload. A partial
 // sync fingerprint is intentionally insufficient here because losing even a
 // device setting or activity field after a single-use LINE mutation is data loss.
+function recoveryLocalCanonical(payload){
+  const copy=payload&&typeof payload==="object"
+    ?(typeof structuredClone==="function"?structuredClone(payload):JSON.parse(JSON.stringify(payload)))
+    :payload;
+  if(copy&&typeof copy==="object"){
+    delete copy.savedAt;
+    delete copy.dataLastUpdated;
+    delete copy.summary;
+  }
+  return canonicalJSON(copy);
+}
 function classifyLineRecoveryPayload(currentPayload, checkpoint){
   const currentCanonical=canonicalJSON(currentPayload);
   const targetCanonical=checkpoint.targetCanonical||canonicalJSON(checkpoint.payload);
@@ -12823,6 +12834,23 @@ export default function App() {
     return bridge?.prepareMutations?bridge.prepareMutations(payload):{payload,mutationIds:[]};
   };
 
+  const preserveFullLocalEdits = async (provided) => {
+    let checkpoint=provided;
+    for(let attempt=0;attempt<3;attempt+=1){
+      const currentLocal=buildSavePayload();
+      const currentCanonical=recoveryLocalCanonical(currentLocal);
+      if(currentCanonical===checkpoint.localBaselineCanonical
+          ||currentCanonical===checkpoint.preservedLocalCanonical) return checkpoint;
+      const copyName=await saveConflictCopy(
+        JSON.stringify(currentLocal,null,2),"this browser after LINE recovery started");
+      checkpoint={...checkpoint,preservedLocalCanonical:currentCanonical,
+        preservedLocalCopyName:copyName};
+      await persistFullLineCompletion(checkpoint);
+      if(recoveryLocalCanonical(buildSavePayload())===currentCanonical) return checkpoint;
+    }
+    throw new Error("This browser kept changing during LINE recovery. Stop editing and try again.");
+  };
+
   const reopenFullLineCompletionConflict = async (
     checkpoint, rejected, message, knownMeta=null, knownPayload=null,
   ) => {
@@ -12900,9 +12928,11 @@ export default function App() {
       }
       await persistFullLineCompletion(checkpoint);
 
+      checkpoint=await preserveFullLocalEdits(checkpoint);
       const complete=window.__MTP_LINE__?.completeMutations;
       if(typeof complete!=="function") throw new Error("LINE sync module is not ready. Reload and try again.");
       await complete(checkpoint.mutationIds);
+      checkpoint=await preserveFullLocalEdits(checkpoint);
       await applyPayloadLive(checkpoint.payload,{strict:true});
       const next={...gsync,lastSyncAt:Date.now(),
         lastCloudModified:checkpoint.modifiedTime||checkpoint.baseModifiedTime||"",
@@ -13360,7 +13390,7 @@ export default function App() {
   // that case asks, because guessing a direction there is guessing which device's
   // work to destroy.
   const gsyncCheckNow = async ({ silent = false } = {}) => {
-    if (gsyncChecking.current || gsyncBusy.current) return null;
+    if (gsyncChecking.current || gsyncBusy.current || gsync.lineCompletion) return null;
     if (!gsync.fileId) return null;
     // Never opens a sign-in popup: this also runs on a timer, and Safari blocks a
     // popup that is not inside a real tap anyway.
@@ -13516,7 +13546,7 @@ export default function App() {
     const tick = async () => {
       if (typeof document !== "undefined" && document.hidden) return;
       if (!GDrive.isSignedIn()) return;
-      if (gsyncBusy.current || gsyncChecking.current) return;
+      if (gsyncBusy.current || gsyncChecking.current || gsync.lineCompletion) return;
       if (gsyncConflict || gsyncCloudAhead) return;
       try {
         const meta = await GDrive.getMeta(gsync.fileId);
@@ -13527,7 +13557,7 @@ export default function App() {
     };
     const t = setInterval(tick, 10000);
     return ()=>clearInterval(t);
-  }, [gsyncAuto, gsync.fileId, gsync.lastCloudModified, gsyncMatch, gsyncConflict, gsyncCloudAhead]);
+  }, [gsyncAuto, gsync.fileId, gsync.lastCloudModified, gsync.lineCompletion, gsyncMatch, gsyncConflict, gsyncCloudAhead]);
 
   const cloudAheadUpdate = async () => {
     const c = gsyncCloudAhead; if(!c) return;
@@ -14267,9 +14297,12 @@ export default function App() {
   };
 
   const resolveFullLineRecoveryConflict = async () => {
+    if(gsyncBusy.current)return;
     const ic=importConflict;
     const checkpoint=ic?.completion||gsync.lineCompletion;
     if(!checkpoint||checkpoint.phase!=="blocked") return;
+    gsyncBusy.current=true;
+    setGsyncStatus("syncing");
     const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];
     try{
       const meta=await GDrive.getMeta(checkpoint.fileId);
@@ -14299,6 +14332,8 @@ export default function App() {
       const message=error?.message||"Could not reconcile the pending LINE recovery.";
       setGsyncStatus("error"); setGsyncError(message);
       noteLineSaveResult(rejected,message,"error");
+    }finally{
+      gsyncBusy.current=false;
     }
   };
 
@@ -14316,12 +14351,15 @@ export default function App() {
   // completion checkpoint so an ambiguous Supabase response can only retry the
   // idempotent queue update — never reapply an add/edit/delete mutation.
   const importUseCloud = async () => {
+    if(gsyncBusy.current)return;
     const ic=importConflict;
     const durable=gsync.lineCompletion;
-    if(durable){ await finishFullLineCompletion(durable); return; }
-    if(!ic) return;
+    if(!durable&&!ic)return;
+    gsyncBusy.current=true;
+    setGsyncStatus("syncing");
     let rejected=[];
     try{
+      if(durable){ await finishFullLineCompletion(durable); return; }
       if(!gsync.fileId) throw new Error("No Google Drive file is linked.");
       const latestMeta=await GDrive.getMeta(gsync.fileId);
       if(latestMeta.trashed) throw new Error("The cloud file was deleted.");
@@ -14348,7 +14386,8 @@ export default function App() {
           baseEtag:latestMeta.etag||"",baseCanonical:canonicalJSON(latestPayload),
           targetCanonical:canonicalJSON(payload),payload,mutationIds:[...mutationIds],
           rejected:[...rejected],stamp,fingerprint:dataFingerprint(payload),
-          localPayload:ic.parsed,localFileName:ic.fileName||"opened file"};
+          localPayload:ic.parsed,localFileName:ic.fileName||"opened file",
+          localBaselineCanonical:recoveryLocalCanonical(buildSavePayload())};
         await persistFullLineCompletion(checkpoint);
         setImportConflict({...ic,cloud:{payload:latestPayload,
           modifiedTime:latestMeta.modifiedTime||"",etag:latestMeta.etag||""},completion:checkpoint});
@@ -14367,6 +14406,8 @@ export default function App() {
       const message=error?.message||"Could not apply the Google Drive copy.";
       setGsyncStatus("error"); setGsyncError(message);
       noteLineSaveResult(rejected,message,"error");
+    }finally{
+      gsyncBusy.current=false;
     }
   };
 

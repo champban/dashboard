@@ -2,6 +2,7 @@
 
 ## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02
 
+- Mobile refuses to relink to another Drive file while a single-use LINE completion checkpoint is pending, preventing the old mutation from being lost or re-prepared on a new file.
 - Full local-file conflict → **Keep what is on Drive** now revalidates the
   selected Drive revision/content, uses an ETag write precondition, and reopens
   the conflict rather than overwriting a newer cloud save.
@@ -22,6 +23,10 @@
 - Added focused regressions for null/mismatched browser-storage writes, strict
   local-adoption failure, full-field drift, ambiguous PATCH recovery, keep-both
   reconciliation, completion-only retry, language and rejection reporting.
+- Full and Mobile now snapshot the local browser state when LINE recovery starts,
+  preserve later edits as a same-folder conflict copy before and after queue
+  completion, and serialize conflict preparation/recovery. Full background checks
+  pause while a completion checkpoint exists.
 - Closed the `importUseCloud` backlog gap and strengthened the
   `LINE-CLOUD-ADOPT-1` recurrence-prevention rule.
 - Source-only candidate: no Database, migration, Storage, Auth, RLS, provider,

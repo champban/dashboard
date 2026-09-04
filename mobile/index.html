@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-NIZo+wg6Vb4QH2FZZvGGE1x/mfQXQjqSzpcWBOFUG5Q=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-j6vD4J2lbhREq255oziI06zDaB+2smAGNVXdDDybUsU=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -115,6 +115,7 @@ const typeStatus=type=>type==='work'?'todo':'pending';
 const readJSON=(key,fallback)=>{try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback}catch{return fallback}};
 const writeJSON=(key,v)=>{try{localStorage.setItem(key,JSON.stringify(v));return true}catch{return false}};
 function canonicalJSON(v){if(v===undefined)return'null';if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return'['+v.map(canonicalJSON).join(',')+']';return'{'+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+canonicalJSON(v[k])).join(',')+'}'}
+function recoveryLocalCanonical(payload){const copy=payload&&typeof payload==='object'?cloneProfileData(payload):payload;if(copy&&typeof copy==='object'){delete copy.savedAt;delete copy.dataLastUpdated;delete copy.summary}return canonicalJSON(copy)}
 function classifyLineRecoveryPayload(currentPayload,checkpoint){const currentCanonical=canonicalJSON(currentPayload),targetCanonical=checkpoint.targetCanonical||canonicalJSON(checkpoint.payload),baseCanonical=checkpoint.baseCanonical||'';if(currentCanonical===targetCanonical)return{state:'target',currentCanonical,targetCanonical,baseCanonical};if(checkpoint.phase==='prepared'&&baseCanonical&&currentCanonical===baseCanonical)return{state:'base',currentCanonical,targetCanonical,baseCanonical};return{state:'blocked',currentCanonical,targetCanonical,baseCanonical}}
 
 const I18N={
@@ -393,7 +394,7 @@ async function showCloudFiles(){try{setDriveBusy(true);state.driveError='';await
 function showFileModal(){const rows=state.driveFiles.length?state.driveFiles.map(f=>`<div class="file-row"><div class="file-icon">📄</div><div class="file-info"><strong>${esc(f.name)}</strong><span>${new Date(f.modifiedTime).toLocaleString()}</span><a class="drive-folder-link" href="${driveFolderURL(f)}" target="_blank" rel="noopener noreferrer">↗ ${tr('openFolder')}</a></div><div class="file-actions"><button type="button" data-cloud-use="${esc(f.id)}" data-cloud-name="${esc(f.name)}">${tr('useFile')}</button><button type="button" class="file-rename" data-cloud-rename="${esc(f.id)}" data-cloud-name="${esc(f.name)}" aria-label="${esc(tr('renameFile')+' '+f.name)}">✎</button><button type="button" class="file-delete" data-cloud-delete="${esc(f.id)}" data-cloud-name="${esc(f.name)}" aria-label="${esc(tr('deleteCloudFile')+' '+f.name)}">⌫</button></div></div>`).join(''):`<div class="empty"><div class="icon">☁️</div><h4>${tr('noFiles')}</h4></div>`;showModal(tr('cloudFiles'),`<div class="sync-actions two" style="margin-bottom:12px"><button class="primary" type="button" id="modalAddCloud">＋ ${tr('addCloudFile')}</button><button class="secondary" type="button" id="modalRefreshCloud">↻ ${tr('refreshFiles')}</button></div>${rows}`);$$('[data-cloud-use]').forEach(b=>b.onclick=()=>linkCloudFile(b.dataset.cloudUse,b.dataset.cloudName));$$('[data-cloud-rename]').forEach(b=>b.onclick=()=>renameCloudFile(b.dataset.cloudRename,b.dataset.cloudName));$$('[data-cloud-delete]').forEach(b=>b.onclick=()=>deleteCloudFile(b.dataset.cloudDelete,b.dataset.cloudName));$('#modalAddCloud').onclick=beginCreateCloudFile;$('#modalRefreshCloud').onclick=showCloudFiles}
 async function renameCloudFile(id,oldName){const requested=prompt(tr('renamePrompt'),oldName);if(requested===null)return;try{setDriveBusy(true);const files=await listDriveFiles(),file=files.find(f=>sameId(f.id,id)),parentId=file?.parents?.[0]||'',name=uniqueCloudName(files,requested,parentId,id),updated=await driveRename(id,name);if(sameId(state.sync.fileId,id)){state.sync.fileName=updated.name;state.sync.lastCloudModified=updated.modifiedTime||state.sync.lastCloudModified;saveLocal(false)}state.driveFiles=await listDriveFiles();toast('✓ '+updated.name);showFileModal()}catch(e){state.driveError=e.message;toast(e.message)}finally{setDriveBusy(false);updateHeader()}}
 async function deleteCloudFile(id,name){if(!confirm(tr('deleteCloudConfirm')+'\n'+name))return;try{setDriveBusy(true);await driveDelete(id);if(sameId(state.sync.fileId,id)){state.sync={...state.sync,fileId:'',fileName:'',lastCloudModified:'',lastSyncAt:0,dirty:false};saveLocal(false)}state.driveFiles=await listDriveFiles();toast('✓ '+tr('deleteCloudFile'));showFileModal()}catch(e){state.driveError=e.message;toast(e.message)}finally{setDriveBusy(false);updateHeader()}}
-async function linkCloudFile(id,name){try{setDriveBusy(true);const text=await driveDownload(id),data=normalizeProfile(JSON.parse(text));if(!validProfile(data))throw Error('Not a My Todo Planner profile file.');pushHistory('Load cloud file');state.data=data;state.lang=data.config?.lang||state.lang;const m=await driveMeta(id);state.sync={...state.sync,fileId:id,fileName:name||m.name,lastCloudModified:m.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};saveLocal(false);void publishLineSnapshot(data);closeModal();toast('✓ '+tr('synced'));render()}catch(e){toast(e.message)}finally{setDriveBusy(false)}}
+async function linkCloudFile(id,name){if(state.driveBusy)return;if(state.sync.lineCompletion){state.driveError='Finish the pending LINE recovery before switching cloud files.';toast(state.driveError);render();return}try{setDriveBusy(true);const text=await driveDownload(id),data=normalizeProfile(JSON.parse(text));if(!validProfile(data))throw Error('Not a My Todo Planner profile file.');pushHistory('Load cloud file');state.data=data;state.lang=data.config?.lang||state.lang;const m=await driveMeta(id);state.sync={...state.sync,fileId:id,fileName:name||m.name,lastCloudModified:m.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};saveLocal(false);void publishLineSnapshot(data);closeModal();toast('✓ '+tr('synced'));render()}catch(e){toast(e.message)}finally{setDriveBusy(false)}}
 async function createCloudFile(folderTab=null){try{setDriveBusy(true);await ensureToken();const files=await listDriveFiles();let parentId=files[0]?.parents?.[0]||'';if(state.sync.fileId){const current=files.find(f=>sameId(f.id,state.sync.fileId))||await driveMeta(state.sync.fileId);parentId=current?.parents?.[0]||parentId}const name=uniqueCloudName(files,'My-Todo-Planner.json',parentId),payload=prepareForSave(),r=await driveCreate(name,JSON.stringify(payload,null,2),parentId);state.sync={...state.sync,fileId:r.id,fileName:r.name,lastCloudModified:r.modifiedTime||'',lastSyncAt:Date.now(),dirty:false};state.driveFiles=[r,...files];saveLocal(false);void publishLineSnapshot(payload);toast('✓ '+r.name);render();navigateFolderTab(folderTab,r)}catch(e){if(folderTab&&!folderTab.closed)folderTab.close();state.driveError=e.message;toast(e.message);render()}finally{setDriveBusy(false)}}
 function syncTimestamp(value){const time=Date.parse(value||'');return Number.isFinite(time)?time:0}
 function formatSyncTimestamp(value){const time=syncTimestamp(value);return time?new Date(time).toLocaleString():'Unknown'}
@@ -410,6 +411,8 @@ function persistLineCompletion(checkpoint){
   throw Error('Could not save LINE completion recovery state.');
 }
 function lineRecoveryCopyName(){const base=cleanCloudName(state.sync.fileName||'My-Todo-Planner.json').replace(/\.json$/i,''),d=new Date(),p=n=>String(n).padStart(2,'0');return`${base} (conflicted copy before LINE recovery ${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}).json`}
+function lineRecoveryLocalCopyName(){const base=cleanCloudName(state.sync.fileName||'My-Todo-Planner.json').replace(/\.json$/i,''),d=new Date(),p=n=>String(n).padStart(2,'0');return`${base} (conflicted copy from this device after LINE recovery started ${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}).json`}
+async function preserveMobileLocalEdits(provided){let checkpoint=provided;for(let attempt=0;attempt<3;attempt++){const local=cloneProfileData(state.data),localCanonical=recoveryLocalCanonical(local);if(localCanonical===checkpoint.localBaselineCanonical||localCanonical===checkpoint.preservedLocalCanonical)return checkpoint;const meta=await driveMeta(checkpoint.fileId),parent=meta.parents?.[0]||'';const made=await driveCreate(lineRecoveryLocalCopyName(),JSON.stringify(local,null,2),parent);if(!made?.id)throw Error('Could not verify the local recovery conflict copy on Google Drive.');checkpoint={...checkpoint,preservedLocalCanonical:localCanonical,preservedLocalCopyName:made.name||''};persistLineCompletion(checkpoint);if(recoveryLocalCanonical(state.data)===localCanonical)return checkpoint}throw Error('This device kept changing during LINE recovery. Stop editing and try again.')}
 async function reopenLineCompletionConflict(checkpoint,rejected,message,knownMeta=null,knownPayload=null){
   const latest=knownMeta||await driveMeta(checkpoint.fileId);
   if(latest.trashed)throw Error('Cloud file was deleted.');
@@ -421,8 +424,9 @@ async function reopenLineCompletionConflict(checkpoint,rejected,message,knownMet
   toast(lineSaveToastText(rejected,message));return true;
 }
 async function resolveBlockedLineCompletion(){
+  if(state.driveBusy)return false;
   const checkpoint=state.sync.lineCompletion;
-  if(!checkpoint||checkpoint.phase!=='blocked')return false;
+  if(!checkpoint||checkpoint.kind!==MOBILE_LINE_COMPLETION_KIND||checkpoint.phase!=='blocked')return false;
   const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];
   try{
     setDriveBusy(true);
@@ -477,9 +481,11 @@ async function resumeLineCompletion({silent=false,closeConflict=false}={}){
       }
     }else checkpoint={...checkpoint,phase:'uploaded',targetCanonical,modifiedTime:currentMeta.modifiedTime||checkpoint.modifiedTime||''};
     persistLineCompletion(checkpoint);
+    checkpoint=await preserveMobileLocalEdits(checkpoint);
     const complete=window.__MTP_LINE__?.completeMutations;
     if(typeof complete!=='function')throw Error('LINE sync module is not ready. Reload and try again.');
     await complete(checkpoint.mutationIds);
+    checkpoint=await preserveMobileLocalEdits(checkpoint);
     pushHistory('Resolve conflict from cloud');
     state.data=normalizeProfile(cloneProfileData(checkpoint.payload));state.lang=state.data.config?.lang||state.lang;
     state.sync.lastCloudModified=checkpoint.modifiedTime||checkpoint.baseModifiedTime||'';
@@ -539,6 +545,8 @@ function showConflict(meta){
   const cloudTime=syncTimestamp(meta.modifiedTime),localTime=syncTimestamp(state.data.savedAt),cloudNewer=cloudTime>localTime,localNewer=localTime>cloudTime,recommendation=cloudNewer?'Cloud → Local':localNewer?'Local → Cloud':'Either copy';
   showModal(tr('conflict'),`<p class="note" style="font-size:14px">Both copies changed. Compare their timestamps, then choose the direction. <strong>Recommended: ${recommendation}</strong></p><div class="file-row"><div class="file-icon">☁️</div><div class="file-info"><strong>Cloud ${cloudNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(meta.modifiedTime))}</span></div><span aria-hidden="true">→</span></div><div class="file-row"><div class="file-icon">📱</div><div class="file-info"><strong>Local ${localNewer?'· Newer':''}</strong><span>${esc(formatSyncTimestamp(state.data.savedAt))}</span></div><span aria-hidden="true">→</span></div><div class="sync-actions" style="margin-top:12px"><button class="${cloudNewer?'primary':'secondary'}" id="conflictPull">☁️ → 📱 ${tr('pullCloud')} ${cloudNewer?'· Recommended':''}</button><button class="${localNewer?'primary':'secondary'}" id="conflictPush">📱 → ☁️ ${tr('pushLocal')} ${localNewer?'· Recommended':''}</button><button class="secondary" id="conflictExport">${tr('exportFirst')}</button></div>`);
   const pull=async()=>{
+    if(state.driveBusy)return;
+    setDriveBusy(true);
     let rejected=[];
     try{
       if(await resumeLineCompletion({closeConflict:true}))return;
@@ -565,6 +573,7 @@ function showConflict(meta){
           fileId:state.sync.fileId,baseModifiedTime:currentMeta.modifiedTime||'',
           baseEtag:currentMeta.etag||'',baseCanonical:canonicalJSON(downloaded),
           targetCanonical:canonicalJSON(payload),modifiedTime:currentMeta.modifiedTime||'',
+          localBaselineCanonical:recoveryLocalCanonical(state.data),
           payload,mutationIds:[...mutationIds],rejected:[...rejected]};
         persistLineCompletion(checkpoint);
         await resumeLineCompletion({closeConflict:true});
@@ -577,6 +586,7 @@ function showConflict(meta){
       render();
     }catch(e){state.driveError=e.message||'Cloud conflict recovery failed.';
       toast(lineSaveToastText(rejected,state.driveError));render()}
+    finally{setDriveBusy(false)}
   };
   const push=async()=>{
     const payload=prepareForSave(),r=await driveUpdate(state.sync.fileId,JSON.stringify(payload,null,2));

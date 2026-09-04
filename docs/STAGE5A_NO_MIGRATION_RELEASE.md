@@ -187,3 +187,28 @@ rejection reporting. The source boundary remains no-migration/no-Production.
 - No Database, migration, Storage, Auth, RLS, provider, Environment, secret,
   Production data, custom backup/recovery lane, merge, deployment or HTML-status
   work is part of this remediation.
+
+## Exact-head review remediation round 4
+
+The latest exact-head independent review required four final source-only controls:
+
+- Full and Mobile record a canonical local baseline when recovery begins. If the
+  user edits locally while completion is pending, the latest local payload is
+  saved beside the master as a conflict copy before and after queue completion,
+  before the recovered payload can be adopted.
+- Full `importUseCloud` and blocked-recovery actions are single-flight. Full
+  background content checks and the 10-second poll pause while a completion
+  checkpoint exists.
+- Mobile Cloud-to-Local preparation and blocked-recovery actions use the existing
+  synchronous `driveBusy` guard with unconditional release.
+- Focused contracts verify local-edit detection, copy-before-adopt ordering,
+  before/after-completion preservation and single-flight guards.
+
+This round remains inside the exact nine-file no-migration boundary. It performs
+no Database, migration, Storage, Auth, RLS, provider, Environment, secret,
+Production data, backup/recovery, merge, deployment or HTML-status operation.
+
+## Final relink safety closure
+
+- Mobile blocks selection of another Drive file while a durable LINE completion checkpoint exists. The pending mutation must be reconciled on its original file before relinking, so the same confirmed mutation cannot be lost or re-prepared against a different file.
+- `build/line-contract.test.mjs` pins the guard before any new-file download or file-id replacement.

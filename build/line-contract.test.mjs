@@ -62,6 +62,12 @@ assert.match(full, /const persistGsyncStrict = async[\s\S]*writeStorageExact\(pk
 assert.match(full, /applyPayloadLive = async \(parsed, \{ strict=false \} = \{\}\)/);
 assert.match(full, /if \(strict\) await writeStorageExact\(pk\(DATA_UPDATED_KEY\)/);
 assert.match(full, /const resolveFullLineRecoveryConflict = async[\s\S]*saveConflictCopy\(currentText,"Google Drive before LINE recovery"\)[\s\S]*finishFullLineCompletion\(resumed\)/);
+assert.match(full, /function recoveryLocalCanonical\(payload\)/);
+assert.match(full, /const preserveFullLocalEdits = async[\s\S]*saveConflictCopy[\s\S]*preservedLocalCanonical[\s\S]*persistFullLineCompletion/);
+assert.match(fullCompletionBlock, /preserveFullLocalEdits\(checkpoint\)[\s\S]*await complete\(checkpoint\.mutationIds\)[\s\S]*preserveFullLocalEdits\(checkpoint\)[\s\S]*applyPayloadLive/);
+assert.match(full.slice(fullImportCloudAt), /localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/);
+assert.match(full.slice(fullImportCloudAt), /if\(gsyncBusy\.current\)return;[\s\S]*gsyncBusy\.current=true[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/);
+assert.match(full, /gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/);
 assert.match(full, /FULL_LINE_COMPLETION_KIND = "import-cloud-conflict-v2"/);
 for (const marker of ["const gsyncPush = async", "const gsyncPull = async", "const gsyncNow = async", "const gsyncSaveNow = async"]) {
   const at=full.indexOf(marker),end=full.indexOf("\n  };",at);
@@ -88,7 +94,20 @@ assert.match(mobileRecoveryBlock, /await complete\(checkpoint\.mutationIds\)[\s\
 assert.doesNotMatch(mobileRecoveryBlock, /prepareMutations/);
 assert.match(mobileRecoveryBlock, /saveLocal\(false,true\)[\s\S]*persistLineCompletion\(null\)/);
 assert.match(mobile, /async function resolveBlockedLineCompletion\(\)[\s\S]*driveCreate\(lineRecoveryCopyName\(\),currentText[\s\S]*resumeLineCompletion/);
+assert.match(mobile, /function recoveryLocalCanonical\(payload\)/);
+assert.match(mobile, /async function preserveMobileLocalEdits\(provided\)[\s\S]*driveCreate\(lineRecoveryLocalCopyName\(\)[\s\S]*preservedLocalCanonical[\s\S]*persistLineCompletion/);
+assert.match(mobileRecoveryBlock, /preserveMobileLocalEdits\(checkpoint\)[\s\S]*await complete\(checkpoint\.mutationIds\)[\s\S]*preserveMobileLocalEdits\(checkpoint\)[\s\S]*state\.data=normalizeProfile/);
+assert.match(mobileConflictBlock, /localBaselineCanonical:recoveryLocalCanonical\(state\.data\)/);
+assert.match(mobileConflictBlock, /const pull=async\(\)=>\{[\s\S]*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/);
 assert.match(mobileConflictBlock, /Keep both and finish LINE recovery/);
+const mobileRelinkAt = mobile.indexOf("async function linkCloudFile(id,name){");
+const mobileRelinkEnd = mobile.indexOf("async function createCloudFile", mobileRelinkAt);
+const mobileRelinkBlock = mobile.slice(mobileRelinkAt, mobileRelinkEnd);
+assert.ok(mobileRelinkAt >= 0, "Mobile relink handler must exist");
+assert.match(mobileRelinkBlock, /if\(state\.driveBusy\)return/);
+assert.match(mobileRelinkBlock, /state\.sync\.lineCompletion/);
+assert.ok(mobileRelinkBlock.indexOf("state.sync.lineCompletion") < mobileRelinkBlock.indexOf("driveDownload"),
+  "Mobile must block relinking before downloading or switching to another Drive file");
 
 // ── Stage 5A focused unit regressions ───────────────────────────────────────
 // Exercise the exact helper implementations without booting another JSDOM app.
@@ -109,6 +128,18 @@ assert.equal(classifyRecovery(targetPayload,checkpoint).state,"target", "exact u
 assert.equal(classifyRecovery({...targetPayload,tabReads:{today:2}},checkpoint).state,"blocked", "tab-read-only drift must not be hidden by a partial fingerprint");
 assert.equal(classifyRecovery({...targetPayload,config:{lang:"TH"}},checkpoint).state,"blocked", "settings-only drift must not be overwritten by stale recovery bytes");
 assert.equal(classifyRecovery({...basePayload,activity:[{id:"newer"}]},checkpoint).state,"blocked", "activity-only drift must force explicit reconciliation");
+
+const recoveryLocalSource = full.slice(
+  full.indexOf("function recoveryLocalCanonical(payload){"),
+  full.indexOf("function classifyLineRecoveryPayload",full.indexOf("function recoveryLocalCanonical(payload){")),
+);
+const localContext={structuredClone:value=>JSON.parse(JSON.stringify(value)),JSON};
+vm.runInNewContext(`${fullCanonicalSource}\n${recoveryLocalSource}\nthis.recoveryLocalCanonical=recoveryLocalCanonical;`,localContext);
+const localCanonical=localContext.recoveryLocalCanonical;
+const localBaseline={personal:[{id:"a",title:"One"}],work:[],savedAt:"old",dataLastUpdated:"old",summary:{personalCount:1},config:{lang:"EN"}};
+assert.equal(localCanonical({...localBaseline,savedAt:"new",dataLastUpdated:"new",summary:{personalCount:99}}),localCanonical(localBaseline),"volatile save metadata must not create a false local-edit conflict");
+assert.notEqual(localCanonical({...localBaseline,personal:[{id:"a",title:"Edited while recovering"}]}),localCanonical(localBaseline),"task edits during recovery must be detected");
+assert.notEqual(localCanonical({...localBaseline,config:{lang:"TH"}}),localCanonical(localBaseline),"settings edits during recovery must be detected");
 
 const strictStart = full.indexOf("const writeStorageExact = async");
 const strictEnd = full.indexOf("\n\n  const applyPayloadLive",strictStart);
