@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — Stage 5A post-merge recovery race hotfix — 2026-09-05
+
+- Full recovery preservation now reads the latest committed React application
+  state after every Drive/LINE await. A task edit made while queue completion is
+  pending is saved to the existing same-folder conflict-copy path before strict
+  recovery adoption can replace the screen.
+- The local-file import chooser remains mounted and visibly disabled while a
+  **Keep what is on Drive** adoption owns the shared recovery lock. Local,
+  Cancel, Back, Escape and backdrop dismissal are blocked, and the App-level
+  Local/Cancel handlers independently reject stale or crafted events.
+- Added focused browser regressions that hold queue completion while a real
+  Personal task is completed, and hold mutation preparation while Local,
+  Cancel and Escape are attempted. The tests require one safety copy of the
+  live edit and zero PATCH/completion/adoption side effects from the locked
+  import race.
+- This fix-forward changes no Mobile runtime, Database, migration, Storage,
+  Auth, RLS, provider, Environment, secret, Production data or workflow.
+
 ## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02
 
 - Final-review remediation routes all twelve Full mutation-upload paths through

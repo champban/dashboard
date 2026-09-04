@@ -34,6 +34,30 @@ L1B source merge/publication closure: `2026-08-24T21:07:52+07:00`
 
 Repository: `champban/dashboard`
 
+## Stage 5A post-merge hotfix targeted pre-release decision
+
+Assessment time: `2026-09-05T01:13:49+07:00` (`Asia/Bangkok`)
+
+Base: `main@881ad6f707bfe5f94882b9530da9b3f602f0ed3a`, tree
+`ed791bb0d02694dc05a2539c3462f4c28c2b443a`
+
+**Decision: CONDITIONAL PASS FOR THE TWO-FINDING SOURCE HOTFIX. RELEASE REMAINS
+GATED ON EXACT-HEAD CI 6/6, ONE INDEPENDENT REVIEW WITH NO REAL P1/P2,
+TREE-PINNED MERGE, PAGES SUCCESS AND FULL/MOBILE SMOKE.**
+
+| Dimension | Decision | Evidence / boundary |
+|---|---|---|
+| 1. Identity and access | PASS / unchanged | No Auth, identity, role, ACL, RLS, provider or credential path changes. Existing browser/Drive session boundaries are untouched. |
+| 2. Secrets and data | PASS / unchanged | No secret, Production-data, database, migration, Storage or backup operation. The only runtime source change is Full browser recovery coordination; secret scan remains a release gate. |
+| 3. Input and content safety | PASS / unchanged | No new external input format, parser, HTML renderer or network payload field. The local-file fixture is test-only and uses the existing validated JSON path. |
+| 4. Browser and network controls | PASS FOR CANDIDATE | Recovery reads the latest committed React state through a layout-ref and fails closed if unavailable. The import modal stays blocking with disabled controls and guarded Escape/backdrop; Drive PATCH behavior, CSP origins and Mobile runtime are unchanged. |
+| 5. Supply chain and delivery | CONDITIONAL | No dependency, lockfile or workflow change. The normal generated-artifact parity, exact-head CI `6/6`, independent review, pinned squash merge and Pages gates must all pass on the final head. |
+| 6. Operations and recovery | PASS FOR CANDIDATE | A real edit made during queue-completion wait is preserved before strict adoption; Cloud adoption is single-flight against Local/Cancel/dismissal. Focused runtime tests require one preservation copy and zero prohibited adoption side effects under the chooser race. |
+
+Rollback is a revert of the single hotfix squash merge. The branch is retained.
+Browser + Google Drive remain authoritative; L1 Production promotion and L1C
+cutover are outside this release.
+
 ## L1B full planner parity targeted source and publication closure
 
 **Decision: PASS FOR THE EXACT APPROVED DISABLED SOURCE MERGE/PUBLICATION

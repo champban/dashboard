@@ -1,14 +1,22 @@
 # Stage 5A — No-Migration LINE Conflict Safety
 
-Status: **APPROVED FOR SOURCE IMPLEMENTATION / DO NOT MERGE OR DEPLOY**
+Status: **POST-MERGE HOTFIX RELEASE CONTROL — FINAL RESULT IS RECORDED ON THE
+HOTFIX PR**
 
 Owner approval date: `2026-09-02` (`Asia/Bangkok`)
+
+Post-merge hotfix approval: `2026-09-05` (`Asia/Bangkok`)
 
 Repository: `champban/dashboard`
 
 Base: `main@297854c09205097a6a58cbce4c64961c802cd7a3`
 
 Branch: `feature/stage5a-line-import-conflict`
+
+Post-merge hotfix base: `main@881ad6f707bfe5f94882b9530da9b3f602f0ed3a`,
+tree `ed791bb0d02694dc05a2539c3462f4c28c2b443a`
+
+Post-merge hotfix branch: `hotfix/stage5a-post-merge-races`
 
 ## Objective
 
@@ -320,3 +328,55 @@ dependency, provider or workflow contract. Targeted 6D dimensions 1–5 remain
 unchanged; dimension 6 improves because every automatic recovery entry observes
 the durable checkpoint. Exact-head CI 6/6 and one final independent review are
 required before the approved Ready/merge/Pages-smoke sequence.
+
+## Stage 5A post-merge hotfix — two late P1 races
+
+PR #105 merged as exact `main@881ad6f707bfe5f94882b9530da9b3f602f0ed3a`
+with tree `ed791bb0d02694dc05a2539c3462f4c28c2b443a`. Two late review
+threads then identified real Full-only races in the deployed source. The Owner
+authorized exactly one fix-forward round from that merge; PR #105 remains closed
+and the hotfix uses one new Draft PR.
+
+### P1: live application state during recovery preservation
+
+`finishFullLineCompletion` can span a Drive PATCH, durable checkpoint writes,
+LINE completion and conflict-copy uploads. Its original render closure therefore
+cannot represent edits committed while those awaits are pending. Full now refreshes
+a dedicated payload-reader ref in `useLayoutEffect` after every committed render.
+Both preservation reads use that ref and fail closed if no committed source is
+available; the operation-start baseline remains unchanged.
+
+The focused runtime regression holds `completeMutations`, completes the real
+`OnThisDevice` Personal task through the rendered control, and then releases the
+acknowledgement. It requires exactly one conflict copy containing `t1` with
+`status: done`, one preparation, one revision-conditioned PATCH, one completion,
+and checkpoint clearing only after preservation and strict target adoption.
+
+### P1: import choice during Cloud adoption
+
+The Full import decision now exposes the shared recovery lock as
+`importDecisionBusy`. While **Keep what is on Drive** is preparing or recovering,
+the modal stays mounted with `aria-busy=true`; Local, Cloud, confirm, Back and
+Cancel are disabled, and Escape/backdrop dismissal is ignored. App-level Local
+and Cancel handlers also inspect the synchronous Drive/check locks, so correctness
+does not depend on the DOM disabled attribute.
+
+The focused runtime regression holds mutation preparation and attempts Local,
+Cancel and Escape, including stale/crafted events with the HTML disabled bit
+removed. Browser data and the chooser must remain intact; releasing the gate with
+a failure must restore an enabled chooser and produce zero Drive PATCHes, queue
+completions or cloud-payload adoptions.
+
+### Release boundary and gates
+
+- Runtime source change: `src/App.jsx` only; Mobile remains byte-identical.
+- Tests: `build/sync-content-check.test.mjs` and
+  `build/line-contract.test.mjs`.
+- Generated Full `index.html` and `BUILD-MANIFEST.json` may change only through
+  the normal package pipeline.
+- No Database, migration, Storage, Auth, RLS, provider, Environment, secret,
+  Production-data, backup or workflow change is permitted.
+- Final release requires exact-head CI `6/6`, one independent exact-head review
+  with no real P1/P2, Ready conversion, squash merge pinned to the reviewed head,
+  successful Pages deployment, non-destructive Full/Mobile smoke and an evidence
+  comment on the same hotfix PR. The branch must not be deleted.

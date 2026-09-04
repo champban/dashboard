@@ -47,6 +47,9 @@ assert.match(full.slice(fullImportCloudAt,fullImportFinishAt), /targetCanonical:
 const fullCompletionAt = full.indexOf("const finishFullLineCompletion = async");
 const fullCompletionEnd = full.indexOf("const refreshLineStatus", fullCompletionAt);
 const fullCompletionBlock = full.slice(fullCompletionAt, fullCompletionEnd);
+const fullPreserveAt = full.indexOf("const preserveFullLocalEdits = async");
+const fullPreserveBlock = full.slice(fullPreserveAt,
+  full.indexOf("const reopenFullLineCompletionConflict", fullPreserveAt));
 assert.match(fullCompletionBlock, /provided\|\|gsync\.lineCompletion/);
 assert.match(fullCompletionBlock, /GDrive\.getMeta[\s\S]*GDrive\.download/);
 assert.match(full, /function classifyLineRecoveryPayload\(currentPayload, checkpoint\)/);
@@ -66,9 +69,32 @@ assert.match(full, /const resolveFullLineRecoveryConflict = async[\s\S]*saveConf
 assert.match(full, /function recoveryLocalCanonical\(payload\)/);
 assert.match(full, /const preserveFullLocalEdits = async[\s\S]*saveConflictCopy[\s\S]*preservedLocalCanonical[\s\S]*persistFullLineCompletion/);
 assert.match(fullCompletionBlock, /preserveFullLocalEdits\(checkpoint\)[\s\S]*await complete\(checkpoint\.mutationIds\)[\s\S]*preserveFullLocalEdits\(checkpoint\)[\s\S]*applyPayloadLive/);
+assert.match(full, /useLayoutEffect\(\(\)=>\{ fullLivePayloadRef\.current=buildSavePayload; \}\)/,
+  "Full recovery must refresh its payload reader after every committed render");
+assert.equal((fullPreserveBlock.match(/readFullLivePayload\(\)/g)||[]).length,2,
+  "Full preservation must read live application state before and after its safety-copy await");
+assert.doesNotMatch(fullPreserveBlock,/buildSavePayload\(\)/,
+  "Full preservation must not retain the async starter render closure");
 assert.match(full.slice(fullImportCloudAt), /localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/);
 const fullImportCloudBlock = full.slice(fullImportCloudAt, full.indexOf("// ── N104:", fullImportCloudAt));
 assert.match(fullImportCloudBlock, /if\(gsyncBusy\.current\|\|gsyncChecking\.current\)[\s\S]*gsyncBusy\.current=true[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/);
+const fullImportLocalAt=full.indexOf("const importUseLocal = async");
+const fullImportChoiceBlock=full.slice(fullImportLocalAt,full.indexOf("// ── N104:",fullImportLocalAt));
+assert.match(fullImportCloudBlock,/setImportDecisionBusy\(true\)[\s\S]*finally\{[\s\S]*setImportDecisionBusy\(false\)/,
+  "Full cloud adoption must expose its shared lock to the chooser for the whole operation");
+assert.match(fullImportChoiceBlock,/const importUseLocal = async \(\) => \{\s*if\(gsyncBusy\.current\|\|gsyncChecking\.current\|\|importDecisionBusy\)/,
+  "Full Local import must independently reject the recovery lock");
+assert.match(fullImportChoiceBlock,/const cancelImportConflict = \(\) => \{\s*if\(gsyncBusy\.current\|\|gsyncChecking\.current\|\|importDecisionBusy\)/,
+  "Full import cancel must independently reject the recovery lock");
+const directionAt=full.indexOf("function DirectionDialog({");
+const directionBlock=full.slice(directionAt,full.indexOf("// N107 wrapper:",directionAt));
+assert.match(directionBlock,/aria-busy=\{busy\}/);
+assert.ok((directionBlock.match(/disabled=\{busy\}/g)||[]).length>=5,
+  "Full import chooser must disable every decision control while cloud adoption is busy");
+assert.match(directionBlock,/e\.key==="Escape"&&!busy/);
+assert.match(directionBlock,/onClick=\{\(\)=>\{ if\(busy\)return;/,
+  "Full import chooser backdrop must respect the busy lock");
+assert.match(full,/busy=\{importDecisionBusy\}/);
 assert.ok(fullImportCloudBlock.indexOf("gsyncBusy.current=true") < fullImportCloudBlock.indexOf("prepareLineMutations(latestPayload)"),
   "Full cloud-choice must own the shared exclusion before preparing a LINE mutation");
 const fullCheckAt = full.indexOf("const gsyncCheckNow = async");
