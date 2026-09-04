@@ -68,16 +68,21 @@ new_target = (
 assignments = "mobile_name_old = " + repr(old_target) + "\nmobile_name_new = " + repr(new_target)
 script = script[:start] + assignments + script[end:]
 
-# Current Mobile already owns setDriveBusy/finally in this helper. Skip the two
-# obsolete anchor rewrites and normalize the exact current helper after the
-# checksum-pinned script has applied all other changes.
-for obsolete in (
-    'mobile = replace_once(mobile, blocked_old, blocked_new, "Mobile blocked-resolution single flight")',
-    'mobile = replace_once(mobile, blocked_catch_old, blocked_catch_new, "Mobile blocked-resolution finally")',
-):
-    if script.count(obsolete) != 1:
-        raise SystemExit(f"decoded patch call drifted: {obsolete}")
-    script = script.replace(obsolete, "mobile = mobile  # normalized by finalizer", 1)
+# Current Mobile already owns setDriveBusy/finally in this helper, and its
+# checkpoint field ordering differs from the earlier patch source. Skip those
+# three obsolete exact-anchor calls; normalize them against current source below.
+skip_labels = {
+    "Mobile blocked-resolution single flight",
+    "Mobile blocked-resolution finally",
+    "Mobile local baseline checkpoint",
+}
+normalized_lines = []
+for line in script.splitlines():
+    if "replace_once" in line and any(f'"{label}"' in line for label in skip_labels):
+        normalized_lines.append("mobile = mobile  # normalized by finalizer")
+    else:
+        normalized_lines.append(line)
+script = "\n".join(normalized_lines) + "\n"
 
 compile(script, "stage5a-r4-decoded.py", "exec")
 with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".py", delete=False) as handle:
@@ -90,6 +95,12 @@ finally:
 
 mobile_path = ROOT / "mobile" / "index.html"
 mobile = mobile_path.read_text(encoding="utf-8")
+mobile = replace_once(
+    mobile,
+    "targetCanonical:canonicalJSON(payload),modifiedTime:currentMeta.modifiedTime||'',\n          payload,mutationIds:[...mutationIds],rejected:[...rejected]};",
+    "targetCanonical:canonicalJSON(payload),modifiedTime:currentMeta.modifiedTime||'',\n          localBaselineCanonical:recoveryLocalCanonical(state.data),\n          payload,mutationIds:[...mutationIds],rejected:[...rejected]};",
+    "Mobile local baseline checkpoint",
+)
 mobile = replace_once(
     mobile,
     "async function resolveBlockedLineCompletion(){\n  const checkpoint=state.sync.lineCompletion;\n  if(!checkpoint||checkpoint.phase!=='blocked')return false;\n  const rejected=Array.isArray(checkpoint.rejected)?checkpoint.rejected:[];\n  try{\n    setDriveBusy(true);",
