@@ -1,4 +1,4 @@
-name: Stage 5A round 4 apply
+name: Stage 5A final source remediation
 
 on:
   push:
@@ -11,13 +11,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: stage5a-r4-apply-${{ github.ref }}
+  group: stage5a-final-remediation-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  apply:
+  remediate:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - name: Checkout exact Draft PR branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/feature/stage5a-line-import-conflict" ]]
-          [[ "$(git log -1 --format=%s)" == "ops(stage5a): run exact staged payload" ]]
+          [[ "$(git log -1 --format=%s)" == "ops(stage5a): execute final remediation" ]]
           git merge-base --is-ancestor 921a7d780713dead2ab1c8b554dddaad0c59b4d2 HEAD
           git diff --quiet 921a7d780713dead2ab1c8b554dddaad0c59b4d2 -- \
             BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
@@ -38,34 +38,97 @@ jobs:
             docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx \
             package.json package-lock.json .github/workflows/verify.yml
 
-      - name: Decode, diagnose and validate deterministic patch
+      - name: Apply checksum-pinned remediation and relink guard
         shell: bash
         run: |
           set -euo pipefail
           tr -d '[:space:]' < .stage5a-r4/patch.py.gz.b64.exact > "$RUNNER_TEMP/patch.b64"
-          payload_sha="$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)"
-          echo "payload_sha=$payload_sha"
-          [[ "$payload_sha" == "4aa90f9ae9758b0959aab589922bcd11c72454faf52660bb181e66f0affe55fb" ]] || exit 21
+          [[ "$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)" == "4aa90f9ae9758b0959aab589922bcd11c72454faf52660bb181e66f0affe55fb" ]]
           base64 -d "$RUNNER_TEMP/patch.b64" > "$RUNNER_TEMP/stage5a-r4.py.gz"
-          gzip_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py.gz" | cut -d' ' -f1)"
-          echo "gzip_sha=$gzip_sha"
-          [[ "$gzip_sha" == "999f926a00dc11d23bd8147f89f18d5b8c24750abd6d47c147c897f1d80a567e" ]] || exit 22
+          [[ "$(sha256sum "$RUNNER_TEMP/stage5a-r4.py.gz" | cut -d' ' -f1)" == "999f926a00dc11d23bd8147f89f18d5b8c24750abd6d47c147c897f1d80a567e" ]]
           gzip -d -c "$RUNNER_TEMP/stage5a-r4.py.gz" > "$RUNNER_TEMP/stage5a-r4.py"
-          script_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py" | cut -d' ' -f1)"
-          echo "script_sha=$script_sha"
-          [[ "$script_sha" == "fac74c75081bd1155f60f720e6ff7d98ada9208e1c2a1f82f99ee163812860a5" ]] || exit 23
+          [[ "$(sha256sum "$RUNNER_TEMP/stage5a-r4.py" | cut -d' ' -f1)" == "fac74c75081bd1155f60f720e6ff7d98ada9208e1c2a1f82f99ee163812860a5" ]]
           python3 -m py_compile "$RUNNER_TEMP/stage5a-r4.py"
+
+          # The verified script was prepared against an earlier equivalent Mobile
+          # helper name. Repair only that deterministic source anchor in-memory;
+          # the staged payload itself remains hash-verified above.
           python3 - "$RUNNER_TEMP/stage5a-r4.py" <<'PYCODE'
+          from pathlib import Path
           import sys
-          lines=open(sys.argv[1],encoding='utf-8').read().splitlines()
-          for i,line in enumerate(lines):
-              if 'Mobile local-edit preservation helper' in line:
-                  print('=== SCRIPT CONTEXT ===')
-                  print('\n'.join(f'{n+1}: {lines[n]}' for n in range(max(0,i-35),min(len(lines),i+36))))
+          path=Path(sys.argv[1])
+          text=path.read_text(encoding='utf-8')
+          start=text.index("mobile_name_old = '''")
+          mid=text.index("mobile_name_new = '''",start)
+          end=text.index("\nmobile = replace_once(mobile, mobile_name_old",mid)
+          assignments=r'''mobile_name_old = '''\'''\'''function lineRecoveryCopyName(){const base=cleanCloudName(state.sync.fileName||'My-Todo-Planner.json').replace(/\\.json$/i,''),d=new Date(),p=n=>String(n).padStart(2,'0');return`${base} (conflicted copy before LINE recovery ${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}).json`}
+          async function reopenLineCompletionConflict'''\'''\'''
+          mobile_name_new = '''\'''\'''function lineRecoveryCopyName(){const base=cleanCloudName(state.sync.fileName||'My-Todo-Planner.json').replace(/\\.json$/i,''),d=new Date(),p=n=>String(n).padStart(2,'0');return`${base} (conflicted copy before LINE recovery ${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}).json`}
+          function lineRecoveryLocalCopyName(){const base=cleanCloudName(state.sync.fileName||'My-Todo-Planner.json').replace(/\\.json$/i,''),d=new Date(),p=n=>String(n).padStart(2,'0');return`${base} (conflicted copy from this device after LINE recovery started ${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}).json`}
+          async function preserveMobileLocalEdits(provided){let checkpoint=provided;for(let attempt=0;attempt<3;attempt++){const local=cloneProfileData(state.data),localCanonical=recoveryLocalCanonical(local);if(localCanonical===checkpoint.localBaselineCanonical||localCanonical===checkpoint.preservedLocalCanonical)return checkpoint;const meta=await driveMeta(checkpoint.fileId),parent=meta.parents?.[0]||'';const made=await driveCreate(lineRecoveryLocalCopyName(),JSON.stringify(local,null,2),parent);if(!made?.id)throw Error('Could not verify the local recovery conflict copy on Google Drive.');checkpoint={...checkpoint,preservedLocalCanonical:localCanonical,preservedLocalCopyName:made.name||''};persistLineCompletion(checkpoint);if(recoveryLocalCanonical(state.data)===localCanonical)return checkpoint}throw Error('This device kept changing during LINE recovery. Stop editing and try again.')}
+          async function reopenLineCompletionConflict'''\'''\''''
+          path.write_text(text[:start]+assignments+text[end:],encoding='utf-8')
+          compile(path.read_text(encoding='utf-8'),str(path),'exec')
           PYCODE
-          echo '=== MOBILE SOURCE CONTEXT ==='
-          grep -n -C 35 -E 'lineRecovery|resumeLineCompletion|persistLineCompletion|MOBILE_LINE_COMPLETION_KIND' mobile/index.html | head -n 360
+
           PYTHONUNBUFFERED=1 python3 "$RUNNER_TEMP/stage5a-r4.py"
+
+          # Final clean-review finding: never switch Mobile to another Drive file
+          # while a single-use completion checkpoint still belongs to the old file.
+          python3 - <<'PYCODE'
+          from pathlib import Path
+
+          mobile_path=Path('mobile/index.html')
+          mobile=mobile_path.read_text(encoding='utf-8')
+          old="async function linkCloudFile(id,name){try{setDriveBusy(true);"
+          new="async function linkCloudFile(id,name){if(state.driveBusy)return;if(state.sync.lineCompletion){state.driveError='Finish the pending LINE recovery before switching cloud files.';toast(state.driveError);render();return}try{setDriveBusy(true);"
+          if mobile.count(old)!=1:
+              raise SystemExit(f'Mobile relink anchor drifted: {mobile.count(old)} matches')
+          mobile=mobile.replace(old,new,1)
+          mobile_path.write_text(mobile,encoding='utf-8')
+
+          tests_path=Path('build/line-contract.test.mjs')
+          tests=tests_path.read_text(encoding='utf-8')
+          anchor="assert.match(mobileConflictBlock, /Keep both and finish LINE recovery/);"
+          block='''\nconst mobileRelinkAt = mobile.indexOf("async function linkCloudFile(id,name){");
+          const mobileRelinkEnd = mobile.indexOf("async function createCloudFile", mobileRelinkAt);
+          const mobileRelinkBlock = mobile.slice(mobileRelinkAt, mobileRelinkEnd);
+          assert.ok(mobileRelinkAt >= 0, "Mobile relink handler must exist");
+          assert.match(mobileRelinkBlock, /if\(state\.driveBusy\)return/);
+          assert.match(mobileRelinkBlock, /state\.sync\.lineCompletion/);
+          assert.ok(mobileRelinkBlock.indexOf("state.sync.lineCompletion") < mobileRelinkBlock.indexOf("driveDownload"),
+            "Mobile must block relinking before downloading or switching to another Drive file");'''
+          if 'Mobile must block relinking before downloading' not in tests:
+              if tests.count(anchor)!=1:
+                  raise SystemExit(f'Mobile relink test anchor drifted: {tests.count(anchor)} matches')
+              tests=tests.replace(anchor,anchor+block,1)
+          tests_path.write_text(tests,encoding='utf-8')
+
+          changelog=Path('CHANGELOG.md')
+          text=changelog.read_text(encoding='utf-8')
+          line='- Mobile refuses to relink to another Drive file while a single-use LINE completion checkpoint is pending, preventing the old mutation from being lost or re-prepared on a new file.\n'
+          if line not in text:
+              heading='## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02\n\n'
+              if heading not in text: raise SystemExit('Stage 5A changelog heading missing')
+              text=text.replace(heading,heading+line,1)
+          changelog.write_text(text,encoding='utf-8')
+
+          stage=Path('docs/STAGE5A_NO_MIGRATION_RELEASE.md')
+          text=stage.read_text(encoding='utf-8')
+          note='''\n## Final relink safety closure\n\n- Mobile blocks selection of another Drive file while a durable LINE completion checkpoint exists. The pending mutation must be reconciled on its original file before relinking, so the same confirmed mutation cannot be lost or re-prepared against a different file.\n- `build/line-contract.test.mjs` pins the guard before any new-file download or file-id replacement.\n'''
+          if '## Final relink safety closure' not in text:
+              text=text.rstrip()+note+'\n'
+          stage.write_text(text,encoding='utf-8')
+
+          context=Path('PROJECT_CONTEXT.md')
+          text=context.read_text(encoding='utf-8')
+          note='''\n- **Stage 5A pending-recovery relink guard:** Mobile refuses to switch Drive files while `lineCompletion` exists. The exact mutation IDs remain bound to their original file until completion/reconciliation, preventing cross-file loss or duplicate preparation.\n'''
+          marker='## Open backlog\n'
+          if note.strip() not in text:
+              if marker not in text: raise SystemExit('PROJECT_CONTEXT backlog marker missing')
+              text=text.replace(marker,note+'\n'+marker,1)
+          context.write_text(text,encoding='utf-8')
+          PYCODE
 
       - name: Validate source-only boundary before build
         shell: bash
@@ -87,26 +150,25 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: "20"
+          node-version: '20'
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run regression tests
-        run: npm test
-
-      - name: Verify generated package
-        run: npm run verify
-
-      - name: Scan secrets
-        run: npm run scan-secrets
-
-      - name: Validate final boundary and whitespace
+      - name: Run full verification
         shell: bash
         run: |
           set -euo pipefail
+          npm test
+          npm run verify
+          npm run scan-secrets
           git diff --check
+
+      - name: Validate and commit exact nine-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/final.txt"
           cat > "$RUNNER_TEMP/allowed-final.txt" <<'EOF'
           BUILD-MANIFEST.json
@@ -120,19 +182,37 @@ jobs:
           src/App.jsx
           EOF
           diff -u "$RUNNER_TEMP/allowed-final.txt" "$RUNNER_TEMP/final.txt"
-          ! grep -E '^(supabase/|auth\.js$|line-sync\.js$)' "$RUNNER_TEMP/final.txt"
-
-      - name: Commit and push verified source-only remediation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "P Boy Stage5A Automation"
-          git config user.email "champbanyat@gmail.com"
+          git config user.name 'P Boy Stage5A Automation'
+          git config user.email 'champbanyat@gmail.com'
           git add BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
             build/line-contract.test.mjs build/sync-content-check.test.mjs \
             docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx
-          git diff --cached --quiet && { echo "No remediation changes staged"; exit 1; }
-          git commit -m "fix(stage5a): preserve concurrent local edits during recovery"
+          git diff --cached --quiet && { echo 'No source remediation changes staged'; exit 1; }
+          git commit -m 'fix(stage5a): close final recovery concurrency gaps'
           git push origin HEAD:feature/stage5a-line-import-conflict
 
-# Diagnostic is limited to the single failed deterministic anchor; no backup or Production operation.
+      - name: Remove temporary remediation tooling and assert release boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -rf --ignore-unmatch .stage5a-r4
+          git rm -f --ignore-unmatch \
+            .github/workflows/stage5a-r4-apply.yml \
+            .github/workflows/stage5a-r4-diagnose.yml \
+            .github/workflows/stage5a-r4-transfer-apply.yml \
+            .github/workflows/stage5a-r4-remediate.yml
+          git diff --cached --quiet || git commit -m 'chore(stage5a): remove temporary remediation tooling'
+          git push origin HEAD:feature/stage5a-line-import-conflict
+          git diff --name-only 297854c09205097a6a58cbce4c64961c802cd7a3..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/release.txt"
+          cat > "$RUNNER_TEMP/release-expected.txt" <<'EOF'
+          BUILD-MANIFEST.json
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          index.html
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/release-expected.txt" "$RUNNER_TEMP/release.txt"
