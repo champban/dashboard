@@ -1236,6 +1236,13 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
   PATCH, blocks on 412, and completes only stored IDs after an uploaded checkpoint
   is durable. The first-file path creates only its unmutated base until the new
   file identity is stored in that checkpoint.
+- **Stage 5A Mobile missing-ETag fail-closed guard:** prepared Mobile recovery
+  trims and prefers the current Drive ETag, then falls back to the checkpoint
+  base ETag. If neither is non-empty, it stops before `driveUpdate`, queue
+  completion, local adoption or checkpoint clearing and rewrites the unchanged
+  checkpoint for a later retry. The executable contract asserts zero PATCH,
+  completion, adoption and publish side effects while the exact checkpoint
+  remains present.
 
 ## Open backlog
 

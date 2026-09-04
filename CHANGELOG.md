@@ -33,14 +33,18 @@
   both the exact base and target, recovery remains durably blocked; the explicit
   **Keep both** action saves the current Drive copy before finishing the exact
   queued mutation, so retries cannot duplicate an `add` or overwrite newer data.
-- Mobile extracts Drive ETags and uses `If-Match` for conflict uploads. Uploaded
-  checkpoints remain completion-only across reloads and cannot reapply an `add`.
+- Mobile extracts Drive ETags and requires a non-empty, trimmed current or
+  checkpoint ETag before a recovery PATCH. If neither exists, recovery fails
+  closed before upload, queue completion or local adoption and retains the
+  checkpoint; uploaded checkpoints remain completion-only across reloads and
+  cannot reapply an `add`.
 - Mobile preserves the downloaded cloud profile language, and Full/Mobile report
   earlier rejected mutations even when upload, completion, stale-revision refresh,
   or local adoption later fails.
 - Added focused regressions for null/mismatched browser-storage writes, strict
-  local-adoption failure, full-field drift, ambiguous PATCH recovery, keep-both
-  reconciliation, completion-only retry, language and rejection reporting.
+  local-adoption failure, full-field drift, missing-ETag fail-closed recovery,
+  ambiguous PATCH recovery, keep-both reconciliation, completion-only retry,
+  language and rejection reporting.
 - Full and Mobile now snapshot the local browser state when LINE recovery starts,
   preserve later edits as a same-folder conflict copy before and after queue
   completion, and serialize conflict preparation/recovery. Full background checks

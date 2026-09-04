@@ -267,3 +267,31 @@ round closes both findings without changing the nine-file/source-only boundary:
 No Database, migration, Storage, Auth, RLS, provider, Environment, secret,
 Production data, backup/recovery workflow, deployment or destructive operation
 is part of this remediation.
+
+## Stage 5A exceptional Mobile ETag remediation
+
+The exact-head follow-up review found one remaining P1: a prepared Mobile
+recovery could reach `driveUpdate` without `If-Match` when both Drive metadata
+and the stored checkpoint lacked an ETag. The owner-authorized exceptional
+remediation is limited to that finding and preserves the nine-file/source-only
+boundary:
+
+- The prepared/base recovery path trims the current ETag, falls back to the
+  trimmed checkpoint base ETag, and fails closed before PATCH when neither is
+  non-empty. Exact-target/uploaded recovery still bypasses the upload path and
+  may finish its stored mutation IDs.
+- Failure performs no PATCH, queue completion, local payload adoption, history
+  update, snapshot publication or checkpoint clear. The unchanged checkpoint is
+  retained and rewritten by the existing recovery catch for a later retry.
+- A focused executable regression runs the exact Mobile recovery function with
+  both ETags empty and asserts every prohibited side effect remains zero while
+  the checkpoint remains present; the static contracts bind the guard before
+  `driveUpdate`, and Mobile CSP hashes are regenerated.
+
+The targeted 6D result remains unchanged in dimensions 1–3 and 5: no identity,
+data-contract, input, dependency, workflow or provider surface changes.
+Dimension 4 improves by refusing an unconditioned browser PATCH while retaining
+generated CSP integrity, and dimension 6 improves through a durable retryable
+checkpoint. Exact-head CI 6/6 and one independent follow-up review remain the
+release gates; no prohibited Database, migration, Storage, Auth, RLS, provider,
+Environment, secret, Production-data or workflow action is introduced.

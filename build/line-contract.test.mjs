@@ -120,7 +120,9 @@ assert.doesNotMatch(mobileConflictBlock, /persistLineCompletion\(checkpoint\)[\s
 assert.match(mobile, /function classifyLineRecoveryPayload\(currentPayload,checkpoint\)/);
 assert.match(mobileRecoveryBlock, /recoveryState=classifyLineRecoveryPayload\(current,checkpoint\)/);
 assert.match(mobileRecoveryBlock, /recoveryState\.state!=='target'[\s\S]*recoveryState\.state!=='base'/);
-assert.match(mobileRecoveryBlock, /driveUpdate\(checkpoint\.fileId[\s\S]*currentMeta\.etag\|\|checkpoint\.baseEtag/);
+assert.match(mobileRecoveryBlock, /const expectedEtag=String\(currentMeta\.etag\|\|''\)\.trim\(\)\|\|String\(checkpoint\.baseEtag\|\|''\)\.trim\(\);[\s\S]*if\(!expectedEtag\)throw Error\('Could not verify the Google Drive revision\. LINE recovery remains pending\.'\);[\s\S]*driveUpdate\(checkpoint\.fileId[\s\S]*expectedEtag/);
+assert.ok(mobileRecoveryBlock.indexOf("if(!expectedEtag)") < mobileRecoveryBlock.indexOf("driveUpdate(checkpoint.fileId"),
+  "Mobile recovery must fail closed before PATCH when no non-empty current/base ETag exists");
 assert.match(mobileRecoveryBlock, /reopenLineCompletionConflict/);
 assert.match(mobileRecoveryBlock, /await complete\(checkpoint\.mutationIds\)[\s\S]*state\.data=normalizeProfile/);
 assert.doesNotMatch(mobileRecoveryBlock, /prepareMutations/);
@@ -268,6 +270,47 @@ async function exerciseMobileRace(first) {
 }
 assert.deepEqual(await exerciseMobileRace("recovery"),{prepareAddCalls:1,firstStillOwnsLock:true},"Mobile sync must defer without clearing recovery's Drive lock");
 assert.deepEqual(await exerciseMobileRace("sync"),{prepareAddCalls:1,firstStillOwnsLock:true},"Mobile recovery must defer without clearing sync's Drive lock");
+
+// Execute the exact Mobile recovery function with both revision tags empty.
+// The catch may rewrite the same sync checkpoint, but no remote or adoption
+// side effect may run and the durable completion checkpoint must remain intact.
+const missingEtagCheckpoint={kind:"cloud-conflict-v1",phase:"prepared",fileId:"drive-1",
+  payload:{personal:[{id:"line-1",title:"Queued LINE add"}],config:{lang:"EN"}},
+  mutationIds:["mutation-1"],baseCanonical:"base",targetCanonical:"target",baseEtag:"   "};
+const missingEtagData={personal:[{id:"local-1",title:"Existing local task"}],config:{lang:"EN"}};
+const missingEtagState={data:missingEtagData,lang:"EN",sync:{fileId:"drive-1",lineCompletion:missingEtagCheckpoint}};
+const missingEtagCalls={patch:0,complete:0,persist:0,clear:0,save:0,history:0,publish:0,write:0};
+let missingEtagSavedSync="",missingEtagError="";
+const mobileRecoveryRuntime=vm.createContext({
+  state:missingEtagState,MOBILE_LINE_COMPLETION_KIND:"cloud-conflict-v1",JSON,String,Date,
+  sameId:(left,right)=>String(left)===String(right),
+  driveMeta:async()=>({etag:"   ",trashed:false,modifiedTime:"2026-09-04T00:00:00.000Z"}),
+  driveDownload:async()=>JSON.stringify({personal:[],config:{lang:"EN"}}),
+  normalizeProfile:value=>value,
+  classifyLineRecoveryPayload:()=>({state:"base",currentCanonical:"base",targetCanonical:"target"}),
+  reopenLineCompletionConflict:async()=>{throw Error("unexpected conflict reopen");},
+  driveUpdate:async()=>{missingEtagCalls.patch+=1;return{};},
+  persistLineCompletion:value=>{missingEtagCalls.persist+=1;if(value===null)missingEtagCalls.clear+=1;},
+  preserveMobileLocalEdits:async value=>value,
+  window:{__MTP_LINE__:{completeMutations:async()=>{missingEtagCalls.complete+=1;}}},
+  pushHistory:()=>{missingEtagCalls.history+=1;},cloneProfileData:value=>JSON.parse(JSON.stringify(value)),
+  saveLocal:()=>{missingEtagCalls.save+=1;return true;},
+  publishLineSnapshot:()=>{missingEtagCalls.publish+=1;},
+  closeModal:()=>{},toast:message=>{missingEtagError=message;},render:()=>{},
+  lineSaveToastText:(_rejected,message)=>message,tr:key=>key,
+  writeJSON:(_key,value)=>{missingEtagCalls.write+=1;missingEtagSavedSync=JSON.stringify(value);return true;},
+  LS_SYNC:"sync",pendingConflictMeta:null,
+});
+vm.runInContext(`${mobileRecoveryBlock}\nthis.resumeLineCompletion=resumeLineCompletion;`,mobileRecoveryRuntime);
+assert.equal(await mobileRecoveryRuntime.resumeLineCompletion(),true,"missing-Etag recovery must remain handled and pending");
+assert.deepEqual({...missingEtagCalls},{patch:0,complete:0,persist:0,clear:0,save:0,history:0,publish:0,write:1},
+  "missing-Etag recovery must not PATCH, complete, adopt, publish or clear its checkpoint");
+assert.equal(missingEtagState.data,missingEtagData,"missing-Etag recovery must not adopt the queued payload");
+assert.equal(missingEtagState.sync.lineCompletion,missingEtagCheckpoint,"missing-Etag recovery must retain the exact checkpoint");
+assert.equal(JSON.parse(missingEtagSavedSync).lineCompletion.fileId,"drive-1","rewritten sync state must still contain the checkpoint");
+assert.match(missingEtagError,/Google Drive revision.*remains pending/,
+  "missing-Etag recovery must explain why it stayed pending");
+
 const fullContextChangeAllowed=(busy,storedCheckpoint)=>!(busy||storedCheckpoint);
 assert.equal(fullContextChangeAllowed(false,checkpoint),false,"Full profile/file context changes must reject while a recovery checkpoint exists");
 assert.equal(fullContextChangeAllowed(true,null),false,"Full context changes must reject while cloud-choice owns the lock before its checkpoint exists");

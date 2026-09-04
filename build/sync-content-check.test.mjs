@@ -591,7 +591,7 @@ let savedBytes = null;
   const resume=mobile.slice(resumeAt,resumeEnd);
   check('Mobile uses complete canonical payload comparison',/function canonicalJSON\(v\)/.test(mobile)&&/classifyLineRecoveryPayload\(current,checkpoint\)/.test(resume)&&/currentCanonical,targetCanonical/.test(resume));
   check('Mobile final decision pins exact base and target',/baseCanonical:canonicalJSON\(downloaded\)/.test(pull)&&/targetCanonical:canonicalJSON\(payload\)/.test(pull));
-  check('Mobile recovery uploads with precondition',/driveUpdate\(checkpoint\.fileId[\s\S]*currentMeta\.etag\|\|checkpoint\.baseEtag/.test(resume));
+  check('Mobile recovery refuses PATCH without a non-empty precondition',/const expectedEtag=String\(currentMeta\.etag\|\|''\)\.trim\(\)\|\|String\(checkpoint\.baseEtag\|\|''\)\.trim\(\);[\s\S]*if\(!expectedEtag\)throw Error[\s\S]*driveUpdate\(checkpoint\.fileId[\s\S]*expectedEtag/.test(resume)&&resume.indexOf('if(!expectedEtag)')<resume.indexOf('driveUpdate(checkpoint.fileId'));
   check('Mobile ambiguous recovery persists blocked state',/phase:'blocked'/.test(mobile)&&/persistLineCompletion\(blocked\)/.test(mobile));
   check('Mobile blocked recovery keeps both first',/driveCreate\(lineRecoveryCopyName\(\),currentText/.test(mobile)&&/Keep both and finish LINE recovery/.test(mobile));
   check('Mobile uploaded retry never prepares again',! /prepareMutations/.test(resume));

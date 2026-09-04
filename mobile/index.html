@@ -11,7 +11,7 @@
 <title>My Todo Planner Mobile</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%230f766e'/%3E%3Cpath d='M18 33l9 9 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-F9v+VJ9xCObpHBAdyHfbrzRtqaQtzYrsKOl1CBgdmZU=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://cdnjs.cloudflare.com 'sha256-SqvedItKrI952Z08btnRCygMKZduaaUsN2aadFFYYJY=' 'sha256-+blFi8cghIN9se3Vj3w7haJm1Yj8PPGPW6tmuntcz94=' 'sha256-ldOF6w8Shs0oh2WFVnvv7/uiIbgvvcBFe1+2/6vjAF8='; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com https://qjaywadzvwvcspdsjxth.supabase.co; frame-src https://accounts.google.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com; manifest-src 'self' data:; worker-src 'self' blob:; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <style>
@@ -469,7 +469,9 @@ async function resumeLineCompletion({silent=false,closeConflict=false}={}){
           'Google Drive changed after the LINE update started — keep both copies before continuing.',currentMeta,current);
       }
       try{
-        const uploaded=await driveUpdate(checkpoint.fileId,JSON.stringify(checkpoint.payload,null,2),currentMeta.etag||checkpoint.baseEtag||'');
+        const expectedEtag=String(currentMeta.etag||'').trim()||String(checkpoint.baseEtag||'').trim();
+        if(!expectedEtag)throw Error('Could not verify the Google Drive revision. LINE recovery remains pending.');
+        const uploaded=await driveUpdate(checkpoint.fileId,JSON.stringify(checkpoint.payload,null,2),expectedEtag);
         checkpoint={...checkpoint,phase:'uploaded',targetCanonical,modifiedTime:uploaded.modifiedTime||currentMeta.modifiedTime||''};
       }catch(error){
         const message=error?.message||'Could not update Google Drive.';

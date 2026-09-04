@@ -8,8 +8,8 @@
   },
   "mobile": {
     "path": "mobile/index.html",
-    "sha256": "cd38603bca13dfa7f1fea0c72e01a6a58a16fa9110bd04cb20e1814fe1c655e7",
-    "bytes": 116638,
+    "sha256": "a054fcf991c32adfcbdc767b6f568c9bdff15fae235ddac1c18c05bc2a9884da",
+    "bytes": 116829,
     "note": "3.75.2 LINE task details; inline CSP hashes verified by regression test"
   },
   "csp": {
