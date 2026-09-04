@@ -79,3 +79,5 @@ jobs:
           git diff --name-only 297854c09205097a6a58cbce4c64961c802cd7a3..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/release.txt"
           printf '%s\n' BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md build/line-contract.test.mjs build/sync-content-check.test.mjs docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx | LC_ALL=C sort > "$RUNNER_TEMP/release-expected.txt"
           diff -u "$RUNNER_TEMP/release-expected.txt" "$RUNNER_TEMP/release.txt"
+
+# finalizer retry after normalizing the pre-existing Mobile busy/finally helper
