@@ -1,0 +1,231 @@
+name: Stage 5A final review guards
+
+on:
+  push:
+    branches:
+      - feature/stage5a-line-import-conflict
+    paths:
+      - .github/workflows/stage5a-final-review-guards.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage5a-final-review-guards-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Draft PR branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: feature/stage5a-line-import-conflict
+          fetch-depth: 0
+
+      - name: Validate exact approved source state
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/feature/stage5a-line-import-conflict" ]]
+          [[ "$(git log -1 --format=%s)" == "ops(stage5a): apply final review guards" ]]
+          git merge-base --is-ancestor 0bad8090e97577deb247947dcffe46aef41f44a9 HEAD
+          git diff --quiet 0bad8090e97577deb247947dcffe46aef41f44a9 -- \
+            BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx \
+            package.json package-lock.json .github/workflows/verify.yml
+
+      - name: Apply four exact source-only review guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              print(f'{label}: exact_count={count}')
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 exact match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 1. Full: a cloud-choice action must not start while Check Now already owns
+          # the separate checking lock. Once import owns gsyncBusy, Check Now already
+          # defers on that lock, so this closes both directions of the race.
+          replace_once(
+              'src/App.jsx',
+              '''  const importUseCloud = async () => {\n    if(gsyncBusy.current)return;\n    gsyncBusy.current=true;''',
+              '''  const importUseCloud = async () => {\n    if(gsyncBusy.current||gsyncChecking.current){\n      note("later","Google Drive is still checking — choose the cloud copy again when it finishes");\n      return;\n    }\n    gsyncBusy.current=true;''',
+              'Full import/check shared lock',
+          )
+
+          # 2. Full: do not abandon a profile-scoped completion checkpoint by loading
+          # another profile. Restore both React state and the persisted active profile
+          # before any data or Drive-sync state reset runs.
+          replace_once(
+              'src/App.jsx',
+              '''  // ── Load all state from profile-scoped storage ────────────────────────────\n  useEffect(()=>{\n    setLoaded(false);''',
+              '''  // ── Load all state from profile-scoped storage ────────────────────────────\n  useEffect(()=>{\n    if(gsyncProfRef.current!==null&&gsyncProfRef.current!==activeProfileId&&gsync.lineCompletion){\n      try{localStorage.setItem(ACTIVE_PROF_KEY,gsyncProfRef.current)}catch{}\n      setActiveProfileId(gsyncProfRef.current);\n      setGsyncStatus("idle");\n      setGsyncError("Finish the pending LINE recovery before switching profiles.");\n      return;\n    }\n    setLoaded(false);''',
+              'Full profile data-load guard',
+          )
+          replace_once(
+              'src/App.jsx',
+              '''  useEffect(()=>{ (async()=>{\n    // Switching profile means a different data set → drop the old file pairing and''',
+              '''  useEffect(()=>{ (async()=>{\n    if(gsyncProfRef.current!==null&&gsyncProfRef.current!==activeProfileId&&gsync.lineCompletion){\n      try{localStorage.setItem(ACTIVE_PROF_KEY,gsyncProfRef.current)}catch{}\n      setActiveProfileId(gsyncProfRef.current);\n      return;\n    }\n    // Switching profile means a different data set → drop the old file pairing and''',
+              'Full profile sync-reset guard',
+          )
+
+          # 3. Full: relink/unlink may resume the existing checkpoint but always abort
+          # the current link change. The owner can retry after recovery has completed.
+          replace_once(
+              'src/App.jsx',
+              '''  // switch the linked file to a different one the user picks (keeps auth)\n  const gsyncRelink = async (fileId, fileName) => {''',
+              '''  const blockFullLinkChangeDuringRecovery = async () => {\n    const checkpoint=gsync.lineCompletion;\n    if(!checkpoint)return false;\n    if(!gsyncBusy.current&&!gsyncChecking.current){\n      gsyncBusy.current=true;\n      try{await finishFullLineCompletion(checkpoint);}\n      finally{gsyncBusy.current=false;}\n    }\n    note("later","Finish the pending LINE recovery before changing the linked file");\n    return true;\n  };\n\n  // switch the linked file to a different one the user picks (keeps auth)\n  const gsyncRelink = async (fileId, fileName) => {\n    if(await blockFullLinkChangeDuringRecovery())return;''',
+              'Full relink recovery guard',
+          )
+          replace_once(
+              'src/App.jsx',
+              '''  const gsyncUnlink = async () => {\n    if (gsyncTimer.current) clearTimeout(gsyncTimer.current);''',
+              '''  const gsyncUnlink = async () => {\n    if(await blockFullLinkChangeDuringRecovery())return;\n    if (gsyncTimer.current) clearTimeout(gsyncTimer.current);''',
+              'Full unlink recovery guard',
+          )
+
+          # 4. Mobile: every online/visibility/manual sync entry respects the same
+          # synchronous Drive-action lock held by Cloud→Local and blocked recovery.
+          replace_once(
+              'mobile/index.html',
+              '''async function syncNow(silent=false){\n  if(!navigator.onLine){if(!silent)toast(tr('offline'));return}''',
+              '''async function syncNow(silent=false){\n  if(state.driveBusy)return;\n  if(!navigator.onLine){if(!silent)toast(tr('offline'));return}''',
+              'Mobile sync action lock',
+          )
+
+          # Focused regression contracts. These pin ordering/guard placement so the
+          # same four races cannot be reopened by later refactors.
+          tests = Path('build/sync-content-check.test.mjs')
+          text = tests.read_text(encoding='utf-8')
+          old = '''  check('Full conflict preparation is single-flight',/const importUseCloud = async \\(\\) => \\{[\\s\\S]*if\\(gsyncBusy\\.current\\)return;[\\s\\S]*gsyncBusy\\.current=true;[\\s\\S]*finally\\{[\\s\\S]*gsyncBusy\\.current=false/.test(cloud));'''
+          new = '''  check('Full conflict preparation shares the checker lock',/const importUseCloud = async \\(\\) => \\{[\\s\\S]*if\\(gsyncBusy\\.current\\|\\|gsyncChecking\\.current\\)[\\s\\S]*gsyncBusy\\.current=true;[\\s\\S]*finally\\{[\\s\\S]*gsyncBusy\\.current=false/.test(cloud));'''
+          if text.count(old) != 1:
+              raise SystemExit(f'Full single-flight test anchor: expected 1, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          full_insert = '''  check('Full poll pauses while recovery exists',/gsyncChecking\\.current \\|\\| gsyncBusy\\.current \\|\\| gsync\\.lineCompletion/.test(full)&&/gsyncBusy\\.current \\|\\| gsyncChecking\\.current \\|\\| gsync\\.lineCompletion/.test(full));\n'''
+          full_extra = '''  check('Full poll pauses while recovery exists',/gsyncChecking\\.current \\|\\| gsyncBusy\\.current \\|\\| gsync\\.lineCompletion/.test(full)&&/gsyncBusy\\.current \\|\\| gsyncChecking\\.current \\|\\| gsync\\.lineCompletion/.test(full));\n  const profileLoadAt=full.indexOf('// ── Load all state from profile-scoped storage');\n  const profileLoadEnd=full.indexOf('// N106: persist the stamp',profileLoadAt);\n  const profileLoad=full.slice(profileLoadAt,profileLoadEnd);\n  const syncLoadAt=full.indexOf('// ── Google Drive sync: load state');\n  const syncLoadEnd=full.indexOf('// remember the auto on/off choice',syncLoadAt);\n  const syncLoad=full.slice(syncLoadAt,syncLoadEnd);\n  check('Full profile change is blocked before planner state reset',/gsyncProfRef\\.current!==null&&gsyncProfRef\\.current!==activeProfileId&&gsync\\.lineCompletion/.test(profileLoad)&&profileLoad.indexOf('gsync.lineCompletion')<profileLoad.indexOf('setLoaded(false)')&&/localStorage\\.setItem\\(ACTIVE_PROF_KEY,gsyncProfRef\\.current\\)/.test(profileLoad));\n  check('Full profile change is blocked before Drive state reset',/gsyncProfRef\\.current!==null&&gsyncProfRef\\.current!==activeProfileId&&gsync\\.lineCompletion/.test(syncLoad)&&syncLoad.indexOf('gsync.lineCompletion')<syncLoad.indexOf('setGsync({ fileId:null'));\n  const linkGuardAt=full.indexOf('const blockFullLinkChangeDuringRecovery = async');\n  const relinkAt=full.indexOf('const gsyncRelink = async',linkGuardAt);\n  const unlinkAt=full.indexOf('const gsyncUnlink = async',relinkAt);\n  const unlinkEnd=full.indexOf('// unlink from Google',unlinkAt);\n  const linkGuard=full.slice(linkGuardAt,relinkAt);\n  check('Full link changes retain or resume the exact checkpoint',/gsync\\.lineCompletion/.test(linkGuard)&&/finishFullLineCompletion\\(checkpoint\\)/.test(linkGuard)&&full.slice(relinkAt,unlinkAt).indexOf('blockFullLinkChangeDuringRecovery()')>=0&&full.slice(unlinkAt,unlinkEnd).indexOf('blockFullLinkChangeDuringRecovery()')>=0);\n'''
+          if text.count(full_insert) != 1:
+              raise SystemExit(f'Full test insertion anchor: expected 1, found {text.count(full_insert)}')
+          text = text.replace(full_insert, full_extra, 1)
+
+          mobile_insert = '''  check('Mobile conflict pull is single-flight',/const pull=async\\(\\)=>\\{[\\s\\S]*if\\(state\\.driveBusy\\)return;[\\s\\S]*setDriveBusy\\(true\\)[\\s\\S]*finally\\{setDriveBusy\\(false\\)\\}/.test(pull));\n'''
+          mobile_extra = '''  check('Mobile conflict pull is single-flight',/const pull=async\\(\\)=>\\{[\\s\\S]*if\\(state\\.driveBusy\\)return;[\\s\\S]*setDriveBusy\\(true\\)[\\s\\S]*finally\\{setDriveBusy\\(false\\)\\}/.test(pull));\n  const mobileSyncAt=mobile.indexOf('async function syncNow(silent=false){');\n  const mobileSyncEnd=mobile.indexOf('function showConflict(meta){',mobileSyncAt);\n  check('Mobile sync entry respects the conflict action lock',/async function syncNow\\(silent=false\\)\\{\\s*if\\(state\\.driveBusy\\)return;/.test(mobile.slice(mobileSyncAt,mobileSyncEnd)));\n'''
+          if text.count(mobile_insert) != 1:
+              raise SystemExit(f'Mobile test insertion anchor: expected 1, found {text.count(mobile_insert)}')
+          tests.write_text(text.replace(mobile_insert, mobile_extra, 1), encoding='utf-8')
+
+          # Minimal durable records required by repository policy.
+          changelog = Path('CHANGELOG.md')
+          text = changelog.read_text(encoding='utf-8')
+          marker = '## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02\n\n'
+          addition = ('- Final race guards now reject Full cloud-choice while Check Now owns its lock; '
+                      'profile/file changes retain an active completion checkpoint; and Mobile sync entry '
+                      'points defer while a conflict action owns the Drive lock.\n')
+          if addition not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit('CHANGELOG Stage 5A marker drifted')
+              text = text.replace(marker, marker + addition, 1)
+              changelog.write_text(text, encoding='utf-8')
+
+          context = Path('PROJECT_CONTEXT.md')
+          text = context.read_text(encoding='utf-8')
+          section = '''\n\n### Stage 5A final review race guards — 2026-09-04\n\n- Full cloud-choice cannot race an already-running content check. Active completion checkpoints block profile switching and linked-file relink/unlink until the exact recovery is resumed. Mobile sync entry points share the same synchronous Drive-action lock as conflict recovery. Focused source contracts and the full repository verification suite gate these controls.\n'''
+          if '### Stage 5A final review race guards — 2026-09-04' not in text:
+              context.write_text(text.rstrip() + section, encoding='utf-8')
+
+          stage = Path('docs/STAGE5A_NO_MIGRATION_RELEASE.md')
+          text = stage.read_text(encoding='utf-8')
+          section = '''\n\n## Final review race guards\n\n- Full `importUseCloud` shares the Check Now exclusion, and profile/file-link changes cannot discard an active completion checkpoint.\n- Mobile `syncNow` defers while Cloud→Local or blocked recovery owns the synchronous Drive-action lock.\n- Focused contracts pin guard ordering; merge/deploy still require exact-head CI and independent review.\n'''
+          if '## Final review race guards' not in text:
+              stage.write_text(text.rstrip() + section, encoding='utf-8')
+          PYCODE
+
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/prebuild.txt"
+          cat > "$RUNNER_TEMP/prebuild.expected" <<'EOF'
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/prebuild.expected" "$RUNNER_TEMP/prebuild.txt"
+          ! grep -E '^(supabase/|auth\.js$|line-sync\.js$)' "$RUNNER_TEMP/prebuild.txt"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Run complete verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+          npm run verify
+          npm run scan-secrets
+          git diff --check
+          git diff --name-only | LC_ALL=C sort > "$RUNNER_TEMP/final-worktree.txt"
+          while IFS= read -r path; do
+            grep -Fxq "$path" <<'EOF' || { echo "Unexpected changed path: $path"; exit 1; }
+          BUILD-MANIFEST.json
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          index.html
+          mobile/index.html
+          src/App.jsx
+          EOF
+          done < "$RUNNER_TEMP/final-worktree.txt"
+          ! grep -E '^(supabase/|auth\.js$|line-sync\.js$)' "$RUNNER_TEMP/final-worktree.txt"
+
+      - name: Commit verified nine-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "P Boy Stage5A Automation"
+          git config user.email "champbanyat@gmail.com"
+          git add BUILD-MANIFEST.json CHANGELOG.md PROJECT_CONTEXT.md \
+            build/line-contract.test.mjs build/sync-content-check.test.mjs \
+            docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx
+          git diff --cached --quiet && { echo "No final guard changes staged"; exit 1; }
+          git commit -m "fix(stage5a): close final release races"
+          git push origin HEAD:feature/stage5a-line-import-conflict
+
+      - name: Remove temporary workflow and prove final boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/stage5a-final-review-guards.yml
+          git commit -m "chore(stage5a): remove final remediation workflow"
+          git push origin HEAD:feature/stage5a-line-import-conflict
+          git diff --name-only 297854c09205097a6a58cbce4c64961c802cd7a3..HEAD | LC_ALL=C sort > "$RUNNER_TEMP/release.txt"
+          cat > "$RUNNER_TEMP/release.expected" <<'EOF'
+          BUILD-MANIFEST.json
+          CHANGELOG.md
+          PROJECT_CONTEXT.md
+          build/line-contract.test.mjs
+          build/sync-content-check.test.mjs
+          docs/STAGE5A_NO_MIGRATION_RELEASE.md
+          index.html
+          mobile/index.html
+          src/App.jsx
+          EOF
+          diff -u "$RUNNER_TEMP/release.expected" "$RUNNER_TEMP/release.txt"
+          test "$(git rev-parse HEAD^{tree})" != ""
