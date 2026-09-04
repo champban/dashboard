@@ -38,23 +38,33 @@ jobs:
             docs/STAGE5A_NO_MIGRATION_RELEASE.md index.html mobile/index.html src/App.jsx \
             package.json package-lock.json .github/workflows/verify.yml
 
-      - name: Decode and validate deterministic patch
+      - name: Decode, diagnose and validate deterministic patch
         shell: bash
         run: |
           set -euo pipefail
           tr -d '[:space:]' < .stage5a-r4/patch.py.gz.b64.exact > "$RUNNER_TEMP/patch.b64"
           payload_sha="$(sha256sum "$RUNNER_TEMP/patch.b64" | cut -d' ' -f1)"
           echo "payload_sha=$payload_sha"
-          [[ "$payload_sha" == "4aa90f9ae9758b0959aab589922bcd11c72454faf52660bb181e66f0affe55fb" ]] || { echo "payload checksum mismatch"; exit 21; }
+          [[ "$payload_sha" == "4aa90f9ae9758b0959aab589922bcd11c72454faf52660bb181e66f0affe55fb" ]] || exit 21
           base64 -d "$RUNNER_TEMP/patch.b64" > "$RUNNER_TEMP/stage5a-r4.py.gz"
           gzip_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py.gz" | cut -d' ' -f1)"
           echo "gzip_sha=$gzip_sha"
-          [[ "$gzip_sha" == "999f926a00dc11d23bd8147f89f18d5b8c24750abd6d47c147c897f1d80a567e" ]] || { echo "gzip checksum mismatch"; exit 22; }
+          [[ "$gzip_sha" == "999f926a00dc11d23bd8147f89f18d5b8c24750abd6d47c147c897f1d80a567e" ]] || exit 22
           gzip -d -c "$RUNNER_TEMP/stage5a-r4.py.gz" > "$RUNNER_TEMP/stage5a-r4.py"
           script_sha="$(sha256sum "$RUNNER_TEMP/stage5a-r4.py" | cut -d' ' -f1)"
           echo "script_sha=$script_sha"
-          [[ "$script_sha" == "fac74c75081bd1155f60f720e6ff7d98ada9208e1c2a1f82f99ee163812860a5" ]] || { echo "script checksum mismatch"; exit 23; }
+          [[ "$script_sha" == "fac74c75081bd1155f60f720e6ff7d98ada9208e1c2a1f82f99ee163812860a5" ]] || exit 23
           python3 -m py_compile "$RUNNER_TEMP/stage5a-r4.py"
+          python3 - "$RUNNER_TEMP/stage5a-r4.py" <<'PYCODE'
+          import sys
+          lines=open(sys.argv[1],encoding='utf-8').read().splitlines()
+          for i,line in enumerate(lines):
+              if 'Mobile local-edit preservation helper' in line:
+                  print('=== SCRIPT CONTEXT ===')
+                  print('\n'.join(f'{n+1}: {lines[n]}' for n in range(max(0,i-35),min(len(lines),i+36))))
+          PYCODE
+          echo '=== MOBILE SOURCE CONTEXT ==='
+          grep -n -C 35 -E 'lineRecovery|resumeLineCompletion|persistLineCompletion|MOBILE_LINE_COMPLETION_KIND' mobile/index.html | head -n 360
           PYTHONUNBUFFERED=1 python3 "$RUNNER_TEMP/stage5a-r4.py"
 
       - name: Validate source-only boundary before build
@@ -125,4 +135,4 @@ jobs:
           git commit -m "fix(stage5a): preserve concurrent local edits during recovery"
           git push origin HEAD:feature/stage5a-line-import-conflict
 
-# Owner-triggered reuse of the already staged, checksum-pinned patch. No backup or Production operation.
+# Diagnostic is limited to the single failed deterministic anchor; no backup or Production operation.
