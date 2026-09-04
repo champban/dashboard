@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased — Stage 5A no-migration cloud conflict safety — 2026-09-02
+
+- Final-review remediation routes all twelve Full mutation-upload paths through
+  one durable prepared/uploaded checkpoint. Each PATCH now requires the ETag of
+  the re-downloaded Drive revision; a 412 retains a blocked recovery, while an
+  ambiguous completion retries only the exact stored IDs and cannot duplicate
+  an `add`. First-file saves create the unmutated base before checkpointing the
+  mutation upload.
+- Full cloud-choice now defers while **Check Now** owns the checker lock, and
+  Check Now already defers while cloud-choice owns the shared busy lock. Full
+  relink/unlink cannot detach an active LINE completion checkpoint from its
+  original Drive file; profile switching and active-profile deletion are also
+  blocked both while recovery owns the synchronous lock and after its durable
+  profile-scoped checkpoint exists.
+- Full's 15-second auto-sync timer and focus/visibility listeners now refresh
+  whenever `lineCompletion` changes. An automatic retry therefore sees the
+  current uploaded checkpoint, completes only its stored mutation IDs, and
+  cannot re-prepare or re-upload a confirmed `add` after an ambiguous response.
+- Mobile link/create and deletion of the active Drive file are blocked while a
+  single-use LINE completion checkpoint is pending. Mobile sync triggers also
+  reject entry while conflict/recovery owns the Drive lock, preventing the old
+  mutation from being lost, re-prepared, uploaded or completed twice.
+- Every Mobile Drive UI action now acquires the same synchronous lock only when
+  it is free, so connect, list, rename and conflict-save actions cannot clear a
+  lock owned by an in-flight sync or recovery.
+- Full local-file conflict → **Keep what is on Drive** now revalidates the
+  selected Drive revision/content, uses an ETag write precondition, and reopens
+  the conflict rather than overwriting a newer cloud save.
+- Full persists profile-scoped prepared/uploaded completion checkpoints before
+  Drive upload/queue completion. Every checkpoint and recovered profile write
+  now requires a successful exact storage read-back; local adoption and sync
+  metadata must both be durable before the single-use checkpoint is cleared.
+- Full and Mobile compare the complete canonical payload, not the normal partial
+  sync fingerprint. If a PATCH result is ambiguous and Drive later differs from
+  both the exact base and target, recovery remains durably blocked; the explicit
+  **Keep both** action saves the current Drive copy before finishing the exact
+  queued mutation, so retries cannot duplicate an `add` or overwrite newer data.
+- Mobile extracts Drive ETags and requires a non-empty, trimmed current or
+  checkpoint ETag before a recovery PATCH. If neither exists, recovery fails
+  closed before upload, queue completion or local adoption and retains the
+  checkpoint; uploaded checkpoints remain completion-only across reloads and
+  cannot reapply an `add`.
+- Mobile preserves the downloaded cloud profile language, and Full/Mobile report
+  earlier rejected mutations even when upload, completion, stale-revision refresh,
+  or local adoption later fails.
+- Added focused regressions for null/mismatched browser-storage writes, strict
+  local-adoption failure, full-field drift, missing-ETag fail-closed recovery,
+  ambiguous PATCH recovery, stale automatic-sync closures, keep-both
+  reconciliation, completion-only retry, language and rejection reporting.
+- Full and Mobile now snapshot the local browser state when LINE recovery starts,
+  preserve later edits as a same-folder conflict copy before and after queue
+  completion, and serialize conflict preparation/recovery. Full background checks
+  pause while a completion checkpoint exists.
+- Closed the `importUseCloud` backlog gap and strengthened the
+  `LINE-CLOUD-ADOPT-1` recurrence-prevention rule.
+- Source-only candidate: no Database, migration, Storage, Auth, RLS, provider,
+  secret, backup, deployment, merge, activation, reconciliation or Production
+  operation is included.
+
 ## Unreleased — L0b normalized data foundation — 2026-08-20
 
 - Added an unapplied nine-table Supabase migration with owner-composite foreign
