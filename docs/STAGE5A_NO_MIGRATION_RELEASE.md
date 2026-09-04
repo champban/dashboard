@@ -295,3 +295,28 @@ generated CSP integrity, and dimension 6 improves through a durable retryable
 checkpoint. Exact-head CI 6/6 and one independent follow-up review remain the
 release gates; no prohibited Database, migration, Storage, Auth, RLS, provider,
 Environment, secret, Production-data or workflow action is introduced.
+
+## Stage 5A final automatic-closure remediation
+
+The next exact-head follow-up found that Full's 10-second poll refreshed when a
+`lineCompletion` checkpoint changed, but the 15-second timer and
+focus/visibility listeners retained their earlier `gsyncNow` closure. After an
+ambiguous queue-completion response, one of those stale callbacks could miss the
+uploaded checkpoint and prepare/upload the confirmed mutation again.
+
+- Both automatic-sync effects now depend on `gsync.lineCompletion`. Checkpoint
+  transitions cancel the earlier timeout/listeners and recreate them with the
+  current recovery-aware `gsyncNow` closure.
+- The focused browser regression first demonstrates an uploaded checkpoint
+  surviving an ambiguous completion, then dispatches `focus`. It requires one
+  preparation, one revision-conditioned PATCH, two completion attempts using the
+  stored ID, successful strict adoption and final checkpoint clearing.
+- A second preparation or upload fails the regression, and static contracts pin
+  the checkpoint dependency on the 15-second timer plus the shared
+  focus/visibility listener effect.
+
+This source-only change alters no identity, secret/data, input, CSP/network,
+dependency, provider or workflow contract. Targeted 6D dimensions 1–5 remain
+unchanged; dimension 6 improves because every automatic recovery entry observes
+the durable checkpoint. Exact-head CI 6/6 and one final independent review are
+required before the approved Ready/merge/Pages-smoke sequence.

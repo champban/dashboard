@@ -13685,7 +13685,7 @@ export default function App() {
     if (gsyncTimer.current) clearTimeout(gsyncTimer.current);
     gsyncTimer.current = setTimeout(()=>{ gsyncNow(); }, 15000);
     return ()=>{ if(gsyncTimer.current) clearTimeout(gsyncTimer.current); };
-  }, [personal, work, events, notes, gsyncAuto]);   // data signals
+  }, [personal, work, events, notes, gsyncAuto, gsync.lineCompletion]);   // data signals + recovery
 
   // B: also sync when the tab/app regains focus — catches changes made on
   // another device while this one was in the background, without a fixed poll.
@@ -13696,7 +13696,7 @@ export default function App() {
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVis);
     return ()=>{ window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVis); };
-  }, [gsyncAuto, gsync.fileId]);
+  }, [gsyncAuto, gsync.fileId, gsync.lineCompletion]);
 
   const buildSavePayload = () => ({
     version: 7,

@@ -321,7 +321,7 @@ let savedBytes = null;
 // must resume the exact checkpoint. Re-preparing an `add` here would allocate a
 // second task id and duplicate it in the master file.
 {
-  console.log('\n--- ambiguous completion: checkpoint retries IDs without a second upload ---');
+  console.log('\n--- ambiguous completion: refreshed focus closure retries IDs without a second upload ---');
   const lineMutation = async (payload) => ({
     payload: { ...payload, personal: [...(payload.personal || []),
       { id: 'line-added-once', title: 'LINE add once', status: 'todo' }] },
@@ -329,7 +329,7 @@ let savedBytes = null;
   });
   const { window, store, uploads, uploadEtags, errors, lineCalls, restore } = boot({
     cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
-    lastPushedStamp: LOCAL_EDIT, lineMutation,
+    lastPushedStamp: LOCAL_EDIT, lineMutation, auto: true,
     completeMutation: async (_ids,attempt) => {
       if(attempt === 1)throw new Error('ambiguous completion response');
     },
@@ -342,10 +342,11 @@ let savedBytes = null;
   check('uploaded checkpoint survives the ambiguous completion',
     pending?.phase === 'uploaded' && pending?.mutationIds?.[0] === 'line-add-1',
     JSON.stringify(pending));
-  await saveToCloud(window);
-  check('retry never re-prepares the mutation',lineCalls.prepareMutations.length === 1,
+  window.dispatchEvent(new window.Event('focus'));
+  await settle(1200);
+  check('focus retry never re-prepares the mutation',lineCalls.prepareMutations.length === 1,
     `${lineCalls.prepareMutations.length} preparations`);
-  check('retry completes the stored id without uploading again',
+  check('refreshed focus closure completes the stored id without uploading again',
     uploads.length === 1 && lineCalls.completeMutations.length === 2,
     `${uploads.length} uploads / ${lineCalls.completeMutations.length} completions`);
   check('the only mutation upload remained revision-conditioned',
@@ -562,6 +563,13 @@ let savedBytes = null;
   check('Full preserves later local edits before and after completion',finish.indexOf('preserveFullLocalEdits(checkpoint)')>=0&&finish.indexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')>finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})'));
   check('Full cloud-choice shares the checker exclusion',/const importUseCloud = async \(\) => \{[\s\S]*if\(gsyncBusy\.current\|\|gsyncChecking\.current\)[\s\S]*gsyncBusy\.current=true;[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/.test(cloud)&&cloud.indexOf('gsyncBusy.current=true')<cloud.indexOf('prepareLineMutations(latestPayload)'));
   check('Full poll pauses while recovery exists',/gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/.test(full)&&/gsyncBusy\.current \|\| gsyncChecking\.current \|\| gsync\.lineCompletion/.test(full));
+  const autoSyncAt=full.indexOf('// B: debounced auto-SYNC');
+  const autoSync=full.slice(autoSyncAt,full.indexOf('const buildSavePayload',autoSyncAt));
+  check('Full automatic sync closures refresh when recovery changes',
+    /\[personal, work, events, notes, gsyncAuto, gsync\.lineCompletion\]/.test(autoSync)
+      && /\[gsyncAuto, gsync\.fileId, gsync\.lineCompletion\]/.test(autoSync)
+      && /addEventListener\("focus", onFocus\)/.test(autoSync)
+      && /addEventListener\("visibilitychange", onVis\)/.test(autoSync));
   const linkGuardAt=full.indexOf('const blockFullLinkChangeDuringRecovery = () => {');
   const relinkAt=full.indexOf('const gsyncRelink = async',linkGuardAt);
   const unlinkAt=full.indexOf('const gsyncUnlink = async',relinkAt);

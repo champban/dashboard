@@ -1243,6 +1243,13 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
   checkpoint for a later retry. The executable contract asserts zero PATCH,
   completion, adoption and publish side effects while the exact checkpoint
   remains present.
+- **Stage 5A Full automatic-retry closure guard:** both the 15-second timer and
+  the shared focus/visibility listener effect depend on `gsync.lineCompletion`.
+  A prepared-to-uploaded checkpoint transition therefore cancels stale timer
+  callbacks and recreates every automatic `gsyncNow` entry with the current
+  recovery state. The focused browser regression forces an ambiguous completion,
+  dispatches `focus`, and permits one preparation/upload plus an ID-only retry;
+  any second preparation or upload fails the suite.
 
 ## Open backlog
 

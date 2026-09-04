@@ -14,6 +14,10 @@
   original Drive file; profile switching and active-profile deletion are also
   blocked both while recovery owns the synchronous lock and after its durable
   profile-scoped checkpoint exists.
+- Full's 15-second auto-sync timer and focus/visibility listeners now refresh
+  whenever `lineCompletion` changes. An automatic retry therefore sees the
+  current uploaded checkpoint, completes only its stored mutation IDs, and
+  cannot re-prepare or re-upload a confirmed `add` after an ambiguous response.
 - Mobile link/create and deletion of the active Drive file are blocked while a
   single-use LINE completion checkpoint is pending. Mobile sync triggers also
   reject entry while conflict/recovery owns the Drive lock, preventing the old
@@ -43,8 +47,8 @@
   or local adoption later fails.
 - Added focused regressions for null/mismatched browser-storage writes, strict
   local-adoption failure, full-field drift, missing-ETag fail-closed recovery,
-  ambiguous PATCH recovery, keep-both reconciliation, completion-only retry,
-  language and rejection reporting.
+  ambiguous PATCH recovery, stale automatic-sync closures, keep-both
+  reconciliation, completion-only retry, language and rejection reporting.
 - Full and Mobile now snapshot the local browser state when LINE recovery starts,
   preserve later edits as a same-folder conflict copy before and after queue
   completion, and serialize conflict preparation/recovery. Full background checks
