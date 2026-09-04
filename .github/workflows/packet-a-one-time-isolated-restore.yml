@@ -1,0 +1,197 @@
+# Source-only until the separately approved label and protected Environment gate.
+name: Packet A refreshed one-time isolated backup restore
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [main]
+    paths:
+      - ".github/workflows/packet-a-one-time-isolated-restore.yml"
+      - "ops/packet-a-one-time-isolated-restore.sh"
+      - "ops/packet-a-one-time-isolated-restore-check.py"
+      - "docs/PACKET_A_BACKUP_RESTORE_TEST.md"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: packet-a-b2-restore-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BASE_REF: main
+  EXPECTED_BASE_SHA: eeac0ba1c542a17e3d9570f34dba936a20416c6e
+  EXPECTED_HEAD_REF: ops/packet-a-isolated-restore-refresh
+  EXPECTED_REPOSITORY_ID: '1297538303'
+  EXPECTED_BACKUP_RUN_ID: '32587955307'
+  EXPECTED_BACKUP_HEAD_REF: ops/l0a-one-time-production-backup
+  EXPECTED_ARTIFACT_ID: '9479566992'
+  EXPECTED_ARTIFACT_NAME: dashboard-supabase-backup-20260822T173203Z
+  EXPECTED_ARTIFACT_CREATED_AT: 2026-08-22T17:33:07Z
+  EXPECTED_ARTIFACT_EXPIRES_AT: 2026-08-23T17:33:07Z
+  EXPECTED_ARTIFACT_ZIP_BYTES: '30428'
+  EXPECTED_ARTIFACT_ZIP_SHA256: d771caa09a77e3b5e6f558dcdda155410c21ebadc786ec6434b1336791ce4d8d
+  EXPECTED_BACKUP_STAMP: 20260822T173203Z
+  EXPECTED_PROJECT_REF: qjaywadzvwvcspdsjxth
+  EXPECTED_SOURCE_SHA: bb11eae5632cc615dff3029b87e6413caad3a279
+  EXPECTED_ARCHIVE_BYTES: '29153'
+  EXPECTED_ARCHIVE_SHA256: b7f651d32b7ac31225839484736e0c8d926e65523120bcc94924c5520a166807
+  EXPECTED_ROLES_SHA256: 25873cec56a2cc6514e204f420231777f85c03da818caa7090cdcdfa89776ecd
+  EXPECTED_SCHEMA_SHA256: 486740df4ff1dd27ab57a780f1330b27fb46b0acc35986bf5bf821188e5c9c51
+  EXPECTED_DATA_SHA256: ba5df3ef02b265060a142ab7e744258f47c13da5ad242c07c789c88ce202d9ef
+  EXPECTED_PACKET_A_ACL_MIGRATION_SHA256: 554c2cc12d970795439d5ba41ed96ef15eae176737cdd6862c7e2b7cb77c2d3a
+  EXPECTED_DB_IMAGE: supabase/postgres@sha256:ca7871b587ca2c401ac0f325df6249c9aa0d25647ded34631158efc51176767f
+  EXPECTED_STORAGE_BASELINE_MAX_MIGRATION: '60'
+  EXPECTED_STORAGE_COMPAT_TARGET_MIGRATION: '62'
+  EXPECTED_STORAGE_MIGRATION_61_BLOB_SHA: 473f19ac94419f9cd3f25f2e40c97cefafb2798d
+  EXPECTED_STORAGE_MIGRATION_62_BLOB_SHA: 76cf3f7f0f26d37d257c32ebb90f5beeb5a32a1e
+
+jobs:
+  source-safety:
+    name: B-2 source / secret-safety contract
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/packet-a-isolated-restore-refresh'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == "1" ]]
+
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/packet-a-one-time-isolated-restore.yml
+          docs/PACKET_A_BACKUP_RESTORE_TEST.md
+          ops/packet-a-one-time-isolated-restore-check.py
+          ops/packet-a-one-time-isolated-restore.sh
+          EOF
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Execute source-only safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/packet-a-one-time-isolated-restore.sh
+          python3 -m py_compile ops/packet-a-one-time-isolated-restore-check.py
+          bash ops/packet-a-one-time-isolated-restore.sh --selftest
+          python3 ops/packet-a-one-time-isolated-restore-check.py contract \
+            .github/workflows/packet-a-one-time-isolated-restore.yml \
+            ops/packet-a-one-time-isolated-restore.sh
+
+  isolated-restore:
+    name: B-2 isolated restore (Owner-gated)
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'owner-approved-b2-restore' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/packet-a-isolated-restore-refresh'
+    needs: source-safety
+    environment: production-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate exact execution source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_BASE_REF" == "$EXPECTED_BASE_REF" ]]
+          [[ "$GITHUB_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "${{ github.event.pull_request.base.sha }}" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "${{ github.event.pull_request.head.sha }}" ]]
+          [[ "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" == "$EXPECTED_BASE_SHA" ]]
+          [[ "$(git rev-list --count "$EXPECTED_BASE_SHA"..HEAD)" == "1" ]]
+
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort > "$RUNNER_TEMP/actual-files.txt"
+          cat > "$RUNNER_TEMP/expected-files.txt" <<'EOF'
+          .github/workflows/packet-a-one-time-isolated-restore.yml
+          docs/PACKET_A_BACKUP_RESTORE_TEST.md
+          ops/packet-a-one-time-isolated-restore-check.py
+          ops/packet-a-one-time-isolated-restore.sh
+          EOF
+          diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
+
+      - name: Download and validate the exact immutable backup artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/packet-a-b2-artifact.json"
+          archive="$RUNNER_TEMP/packet-a-b2-artifact.zip"
+          artifact_dir="$RUNNER_TEMP/packet-a-b2-artifact"
+          mkdir -p "$artifact_dir"
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            "/repos/$GITHUB_REPOSITORY/actions/artifacts/$EXPECTED_ARTIFACT_ID" \
+            > "$metadata"
+          python3 ops/packet-a-one-time-isolated-restore-check.py metadata "$metadata"
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            "/repos/$GITHUB_REPOSITORY/actions/artifacts/$EXPECTED_ARTIFACT_ID/zip" \
+            > "$archive"
+          [[ "$(stat -c '%s' "$archive")" == "$EXPECTED_ARTIFACT_ZIP_BYTES" ]]
+          [[ "$(sha256sum "$archive" | awk '{print $1}')" == "$EXPECTED_ARTIFACT_ZIP_SHA256" ]]
+          python3 ops/packet-a-one-time-isolated-restore-check.py artifact \
+            "$archive" "$artifact_dir"
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@aa3515eac405eac768fa4a72147c22d88a283c7b
+        with:
+          version: 2.111.0
+
+      - name: Verify disposable restore tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null
+          command -v gpg >/dev/null
+          command -v python3 >/dev/null
+          command -v supabase >/dev/null
+          docker --version
+          gpg --version | head -n 1
+          python3 --version
+          supabase --version
+
+      - name: Materialize the existing passphrase for local-only use
+        shell: bash
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ ${#BACKUP_PASSPHRASE} -ge 24 ]]
+          printf '%s' "$BACKUP_PASSPHRASE" > "$RUNNER_TEMP/packet-a-b2-passphrase"
+          chmod 600 "$RUNNER_TEMP/packet-a-b2-passphrase"
+          unset BACKUP_PASSPHRASE
+
+      - name: Decrypt, restore and reconcile on a network-isolated target
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/packet-a-b2-artifact
+          BACKUP_PASSPHRASE_FILE: ${{ runner.temp }}/packet-a-b2-passphrase
+        run: bash ops/packet-a-one-time-isolated-restore.sh --run
