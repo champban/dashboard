@@ -215,6 +215,32 @@ jobs:
               need(isinstance(result,dict) and set(result)==CHECKS, 'result_shape')
               need(all(v is True for v in result.values()), 'baseline_mismatch')
 
+          def error_category(raw):
+              # Inspect captured bytes in memory only. Categories are diagnostic
+              # hints, not proof of a root cause; never return a matched excerpt.
+              message = raw.lower()
+              for category, phrases in (
+                  ('DNS', (b'could not translate host name', b'name or service not known',
+                      b'temporary failure in name resolution', b'nodename nor servname provided')),
+                  ('TLS', (b'certificate verify failed', b'does not match host name',
+                      b'root certificate file', b'server does not support ssl', b'ssl error',
+                      b'ssl syscall error', b'ssl connection has been closed unexpectedly')),
+                  ('AUTH', (b'password authentication failed', b'no password supplied',
+                      b'no pg_hba.conf entry', b'tenant or user not found',
+                      b'sasl authentication failed', b'scram authentication requires')),
+                  ('SQL_PERMISSION', (b'permission denied for', b'must be owner of', b'must be superuser')),
+              ):
+                  if any(phrase in message for phrase in phrases):
+                      return category
+              if re.search(rb'\b(relation|column|schema|function|type|operator) [^\r\n]+ does not exist\b', message):
+                  return 'SQL_CATALOG'
+              if any(phrase in message for phrase in (b'connection refused', b'connection timed out',
+                  b'timeout expired', b'network is unreachable', b'no route to host',
+                  b'could not connect to server', b'server closed the connection unexpectedly',
+                  b'connection to server was lost')):
+                  return 'CONNECTIVITY'
+              return 'UNKNOWN'
+
           def execute(env, run=subprocess.run):
               host, password, pem = binding(env)
               version = run([CLIENT,'--version'], env=CLEAN, capture_output=True, timeout=5, check=True)
@@ -222,12 +248,18 @@ jobs:
               with tempfile.TemporaryDirectory(prefix='l1-readonly-') as directory:
                   args, clean = connection(host,password,pem,Path(directory))
                   result = run(args, env=clean, input=SQL.encode(), capture_output=True, timeout=40, check=False)
+                  if result.returncode != 0:
+                      # Only subprocess's numeric status and an allowlisted label
+                      # leave memory. Raw stderr/stdout stay suppressed.
+                      print(f'L1_PREFLIGHT_DIAGNOSTIC:exit_code={int(result.returncode)};category={error_category(result.stderr)}', file=sys.stderr)
                   need(result.returncode==0, 'connection_or_query')
                   result_check(result.stdout)
               # Print only fixed text, never server values, stderr, SQL, or credentials.
               print('L1_BOUNDED_READONLY_PREFLIGHT:PASS (9 fixed checks; not Production apply/recovery qualification)')
 
           def self_test():
+              from contextlib import redirect_stderr, redirect_stdout
+              from io import StringIO
               from unittest.mock import patch
               pem = Path('/etc/ssl/certs/ca-certificates.crt').read_text()
               # Nonsecret synthetic values. No network or real psql call in tests.
@@ -297,17 +329,57 @@ jobs:
                           result.stdout=json.dumps(dict.fromkeys(CHECKS,False)).encode()
                       return result
                   try:
-                      execute(valid, failed)
+                      with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                          execute(valid, failed)
                   except (Refused,subprocess.TimeoutExpired):
                       pass
                   else:
                       raise Refused('test_failure_accepted')
                   need(len(calls)==(1 if failure=='client_version' else 2), 'test_retry')
                   need(all(not path.exists() for path in private_files), 'test_failure_cleanup')
+              # Exercise real execute/refusal flow with synthetic subprocess
+              # outcomes, including hostile output and secret-like sentinels.
+              diagnostics = [
+                  (2, b'could not translate host name "test": Name or service not known', 'DNS'),
+                  (2, b'connection to server failed: Connection refused', 'CONNECTIVITY'),
+                  (2, b'connection timed out', 'CONNECTIVITY'),
+                  (2, b'SSL error: certificate verify failed', 'TLS'),
+                  (2, b'server certificate does not match host name "test"', 'TLS'),
+                  (2, b'FATAL: password authentication failed for user "test"', 'AUTH'),
+                  (2, b'FATAL: Tenant or user not found', 'AUTH'),
+                  (3, b'ERROR: permission denied for schema test', 'SQL_PERMISSION'),
+                  (3, b'ERROR: column "test" does not exist', 'SQL_CATALOG'),
+                  (3, b'ERROR: function test(integer) does not exist', 'SQL_CATALOG'),
+                  (1, b'ERROR: unrecognized diagnostic', 'UNKNOWN'),
+                  (-9, b'', 'UNKNOWN'),
+                  (2, b'\xff\x00::error::INJECTED\ncategory=AUTH\n', 'UNKNOWN'),
+              ]
+              for returncode, diagnostic, category in diagnostics:
+                  calls.clear()
+                  sentinel = b'SYNTHETIC_PRIVATE_SENTINEL'
+                  def diagnostic_failure(args, **kw):
+                      result = fake(args, **kw)
+                      if args!=[CLIENT,'--version']:
+                          result.returncode = returncode
+                          result.stdout = sentinel + b'\n::error::UNTRUSTED_STDOUT'
+                          result.stderr = diagnostic + b'\n' + sentinel + valid['L1_PASSWORD'].encode()
+                      return result
+                  stdout, stderr = StringIO(), StringIO()
+                  try:
+                      with redirect_stdout(stdout), redirect_stderr(stderr):
+                          execute(valid, diagnostic_failure)
+                  except Refused as error:
+                      need(str(error)=='connection_or_query', 'test_diagnostic_refusal')
+                  else:
+                      raise Refused('test_diagnostic_accepted')
+                  expected = f'L1_PREFLIGHT_DIAGNOSTIC:exit_code={returncode};category={category}\n'
+                  need(stdout.getvalue()=='' and stderr.getvalue()==expected, 'test_diagnostic_disclosure')
+                  need(len(calls)==2, 'test_diagnostic_retry')
+                  need(all(not path.exists() for path in private_files), 'test_diagnostic_cleanup')
               need(SQL.strip().lower().startswith('begin transaction isolation level repeatable read read only;'), 'test_begin')
               need(SQL.strip().lower().endswith('rollback;'), 'test_rollback')
               need(not re.search(r'\b(insert|update|delete|create|alter|drop|truncate|commit|copy|call|do)\b',SQL,re.I), 'test_sql_write')
-              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; result, TLS, cleanup, no-retry checks)')
+              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; 13 sanitized diagnostics; result, TLS, cleanup, no-retry checks)')
 
           if __name__=='__main__':
               try:
