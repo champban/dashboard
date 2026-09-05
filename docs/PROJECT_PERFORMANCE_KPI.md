@@ -37,6 +37,39 @@ complete. L1A/L1B source publication is complete, but any repeat import,
 Production promotion/activation, cleanup, source-of-truth cutover or L1C action
 remains separately Owner-gated.
 
+## Stage 5A post-merge hotfix KPI record
+
+M0 authorization: `2026-09-05T01:13:49+07:00` (`Asia/Bangkok`)
+
+Classification: `SEQUENTIAL_ONLY` — one writer owns the two coupled Full
+recovery races. Read-only analysis/review may run in parallel. Base was
+revalidated as exact
+`main@881ad6f707bfe5f94882b9530da9b3f602f0ed3a`, tree
+`ed791bb0d02694dc05a2539c3462f4c28c2b443a`, before implementation.
+
+| KPI | Candidate value | Final authority |
+|---|---:|---|
+| Authorized P1 findings | `2` | Live-state preservation; import chooser/recovery lock |
+| Pre-fix focused reproductions | `2/2` | Browser runtime harness failed on the exact base before source changes |
+| Source remediation rounds | `1` maximum | This post-merge fix-forward only |
+| Runtime source files | `1` | `src/App.jsx`; no Mobile runtime change |
+| Dependency/lockfile/workflow changes | `0` | Exact changed-file review and CI |
+| Database/Storage/Auth/RLS/provider/secret/Production-data operations | `0` | Repository diff plus release record |
+| Focused runtime outcomes | `2/2` local PASS | Live task edit produces one safety copy; locked chooser produces zero PATCH/completion/adoption |
+| Exact-head CI / independent review / deployment / smoke | `PENDING` in source record | Final hotfix PR comment records immutable IDs and hashes without changing the reviewed head |
+
+Planning progress uses eight equal release deliverables: two fixes, focused
+regressions, one Draft PR, exact-head CI `6/6`, clean independent review,
+pinned Ready/merge/Pages, and Full/Mobile smoke plus evidence record. The lane
+starts at `0/8`; its final score must be calculated from actual hotfix PR
+evidence, never inferred from this candidate document.
+
+The full six-milestone product roadmap remains `4/6 = 66.7%` before and after
+this quality hotfix: L0a, L0b, L1A source and L1B source are delivered, while
+L1 Production promotion and L1C cutover are not authorized. Stage 4 remains
+`BLOCKED / WAIVED-NOT-PASS`; Stage 5 Production apply remains `0/3`; Stage 6
+remains `0/4`. This percentage is a planning calculation, not a repository KPI.
+
 ## Outcome
 
 The owner can link one LINE user to the signed-in My Todo Planner account and

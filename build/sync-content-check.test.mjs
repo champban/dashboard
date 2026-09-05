@@ -42,7 +42,7 @@ const stored = (store) => String(store.get(`${PROFILE}::lifeplanner-personal-v1`
 
 // A Drive file that actually behaves like one: an upload replaces its bytes and moves
 // its modifiedTime, so a save followed by a check reads back what was written.
-function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation }) {
+function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, lastCloudModified = CLOUD_MTIME, auto = false, lastPushedFp, lineMutation, completeMutation, beforeUpload, defaultTab, openedLocalContent }) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
     url: 'https://champban.github.io/dashboard/', pretendToBeVisual: true, runScripts: 'outside-only',
   });
@@ -84,7 +84,9 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     ...(lastPushedStamp === undefined ? {} : { lastPushedStamp }),
     ...(lastPushedFp === undefined ? {} : { lastPushedFp }),
   }));
-  store.set(p('lifeplanner-config-v1'), JSON.stringify({ gsyncConnected: true, gsyncAuto: auto }));
+  store.set(p('lifeplanner-config-v1'), JSON.stringify({
+    gsyncConnected: true, gsyncAuto: auto, ...(defaultTab ? { defaultTab } : {}),
+  }));
 
   const shim = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -101,8 +103,10 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     list: async () => ({ keys: Array.from(store.keys()) }),
   };
 
-  const cloud = { content: cloudContent, modifiedTime: cloudModified };
+  const cloud = { content: cloudContent, modifiedTime: cloudModified, etag: '"drive-rev-1"' };
   const uploads = [];
+  const conflictCopies = [];
+  const uploadEtags = [];
   const metaCalls = { n: 0 };
   window.google = { accounts: { oauth2: {
     initTokenClient: (cfg) => ({ requestAccessToken: () => cfg.callback({ access_token: 'tok', expires_in: 3600 }) }),
@@ -110,17 +114,27 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   } } };
   window.fetch = (url, opts = {}) => {
     const u = String(url);
-    const json = (b) => Promise.resolve({ ok: true, status: 200, json: async () => b, text: async () => JSON.stringify(b) });
+    const json = (b, etag = '') => Promise.resolve({ ok: true, status: 200,
+      headers: { get: (name) => String(name).toLowerCase() === 'etag' ? etag : null },
+      json: async () => b, text: async () => JSON.stringify(b) });
     if (u.includes('oauth2/v3/userinfo')) return json({ email: 'champbanyat@gmail.com' });
     if (u.includes('uploadType=multipart')) {
+      conflictCopies.push(String(opts.body || ''));
       return json({ id: 'COPY-1', name: 'conflict copy.json', modifiedTime: new Date(NOW).toISOString() });
     }
     if (u.includes('upload/drive/v3/files')) {
+      if(beforeUpload)beforeUpload(cloud,uploadEtags.length);
+      uploadEtags.push(opts.headers?.['If-Match'] || '');
+      if (opts.headers?.['If-Match'] && opts.headers['If-Match'] !== cloud.etag) {
+        return Promise.resolve({ ok: false, status: 412, text: async () => 'Precondition Failed',
+          json: async () => ({}) });
+      }
       // A real overwrite: the file becomes what was sent, and its clock moves.
       const body = String(opts.body || '');
       uploads.push(body);
       cloud.content = body;
       cloud.modifiedTime = new Date(NOW + uploads.length * 1000).toISOString();
+      cloud.etag = `"drive-rev-${uploads.length + 1}"`;
       return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', modifiedTime: cloud.modifiedTime });
     }
     if (u.includes(`drive/v3/files/${FILE_ID}?alt=media`)) {
@@ -129,11 +143,17 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
     if (/drive\/v3\/files\/[^?]+\?fields=/.test(u)) {
       metaCalls.n += 1;
       return json({ id: FILE_ID, name: 'My-Todo-Planner1.json', trashed: false, parents: ['FOLDER-1'],
-        modifiedTime: cloud.modifiedTime });
+        modifiedTime: cloud.modifiedTime }, cloud.etag);
     }
     if (u.includes('drive/v3/files?q=')) return json({ files: [] });
     return Promise.resolve({ ok: false, status: 404, text: async () => 'not stubbed', json: async () => ({}) });
   };
+  if (openedLocalContent) {
+    window.showOpenFilePicker = async () => [{
+      name: 'opened-local.json',
+      getFile: async () => ({ text: async () => openedLocalContent }),
+    }];
+  }
 
   const RealDate = window.Date;
   class FrozenDate extends RealDate {
@@ -146,11 +166,17 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   // Only set when a test passes lineMutation — every other test leaves
   // window.__MTP_LINE__ undefined, so prepareLineMutations() takes its own
   // no-op fallback ({payload, mutationIds:[]}) and behaves exactly as before.
-  const lineCalls = { completeMutations: [] };
+  const lineCalls = { prepareMutations: [], completeMutations: [] };
   if (lineMutation) {
     window.__MTP_LINE__ = {
-      prepareMutations: async (payload) => lineMutation(payload),
-      completeMutations: async (ids) => { lineCalls.completeMutations.push(ids); },
+      prepareMutations: async (payload) => {
+        lineCalls.prepareMutations.push(payload);
+        return lineMutation(payload);
+      },
+      completeMutations: async (ids) => {
+        lineCalls.completeMutations.push(ids);
+        if(completeMutation)await completeMutation(ids,lineCalls.completeMutations.length);
+      },
     };
   }
 
@@ -159,7 +185,8 @@ function boot({ cloudContent, cloudModified = CLOUD_MTIME, lastPushedStamp, last
   const real = console.error;
   console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 200)); };
   window.eval(bundle);
-  return { window, store, cloud, uploads, metaCalls, errors, lineCalls, restore: () => { console.error = real; } };
+  return { window, store, cloud, uploads, conflictCopies, uploadEtags, metaCalls, errors, lineCalls,
+    restore: () => { console.error = real; } };
 }
 
 // Opens the Sync Manager and signs in, pressing nothing else.
@@ -279,7 +306,7 @@ let savedBytes = null;
     payload: { ...payload, personal: payload.personal.filter((t) => t.title !== 'OnTheOtherDevice') },
     mutationIds: ['line-mutation-1'], rejected: [],
   });
-  const { window, store, uploads, errors, lineCalls, restore } = boot({
+  const { window, store, uploads, uploadEtags, errors, lineCalls, restore } = boot({
     cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
     lastPushedStamp: LOCAL_EDIT, lineMutation });
   await settle();
@@ -295,6 +322,237 @@ let savedBytes = null;
   check('completeMutations was called with the applied id',
     lineCalls.completeMutations.some((ids) => ids.includes('line-mutation-1')),
     JSON.stringify(lineCalls.completeMutations));
+  check('the mutation PATCH pins the downloaded Drive revision',
+    uploadEtags.length === 1 && uploadEtags[0] === '"drive-rev-1"',
+    JSON.stringify(uploadEtags));
+}
+
+// A successful Drive PATCH followed by an ambiguous queue-completion response
+// must resume the exact checkpoint. Re-preparing an `add` here would allocate a
+// second task id and duplicate it in the master file.
+{
+  console.log('\n--- ambiguous completion: refreshed focus closure retries IDs without a second upload ---');
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: [...(payload.personal || []),
+      { id: 'line-added-once', title: 'LINE add once', status: 'todo' }] },
+    mutationIds: ['line-add-1'], rejected: [],
+  });
+  const { window, store, uploads, uploadEtags, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation, auto: true,
+    completeMutation: async (_ids,attempt) => {
+      if(attempt === 1)throw new Error('ambiguous completion response');
+    },
+  });
+  await settle(); restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i);
+  const pending=JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion;
+  check('uploaded checkpoint survives the ambiguous completion',
+    pending?.phase === 'uploaded' && pending?.mutationIds?.[0] === 'line-add-1',
+    JSON.stringify(pending));
+  window.dispatchEvent(new window.Event('focus'));
+  await settle(1200);
+  check('focus retry never re-prepares the mutation',lineCalls.prepareMutations.length === 1,
+    `${lineCalls.prepareMutations.length} preparations`);
+  check('refreshed focus closure completes the stored id without uploading again',
+    uploads.length === 1 && lineCalls.completeMutations.length === 2,
+    `${uploads.length} uploads / ${lineCalls.completeMutations.length} completions`);
+  check('the only mutation upload remained revision-conditioned',
+    uploadEtags[0] === '"drive-rev-1"',JSON.stringify(uploadEtags));
+  check('the checkpoint clears only after strict adoption succeeds',
+    !JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion
+      && /LINE add once/.test(stored(store)));
+}
+
+// A user can keep working while an already-uploaded LINE mutation waits for its
+// completion acknowledgement. Preservation must read the latest committed React
+// render, not the render that started Check now, or the edit is overwritten without
+// ever reaching the safety copy.
+{
+  console.log('\n--- completion wait: a live task edit is preserved before strict adoption ---');
+  let signalComplete;
+  const completeStarted = new Promise((resolve) => { signalComplete = () => resolve(true); });
+  let releaseComplete;
+  const completeGate = new Promise((resolve) => { releaseComplete = resolve; });
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: [...(payload.personal || []),
+      { id: 'line-during-live-edit', title: 'LINE result', status: 'todo' }] },
+    mutationIds: ['line-live-edit-1'], rejected: [],
+  });
+  const { window, store, uploads, conflictCopies, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation, defaultTab: 'personal',
+    completeMutation: async () => { signalComplete(); await completeGate; },
+  });
+  await settle(); restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i, 80);
+  const completionIsWaiting = await Promise.race([
+    completeStarted, settle(2500).then(() => false),
+  ]);
+  check('the completion acknowledgement is held in flight', completionIsWaiting === true);
+
+  await press(window, /👤Personal/i, 220);
+  const taskTitle = [...window.document.querySelectorAll('.lp-scale-data')]
+    .find((el) => (el.textContent || '').trim() === 'OnThisDevice');
+  const taskToggle = taskTitle?.parentElement?.parentElement?.parentElement?.querySelector('button');
+  check('the real Personal task control is available during the wait', !!taskToggle);
+  taskToggle?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await settle(250);
+  const edited = JSON.parse(stored(store) || '[]').find((task) => task.id === 't1');
+  check('the user edit reached live state and browser storage', edited?.status === 'done',
+    JSON.stringify(edited));
+
+  releaseComplete();
+  await settle(1200);
+  check('exactly one safety copy preserves the later edit', conflictCopies.length === 1,
+    `${conflictCopies.length} conflict copy upload(s)`);
+  check('the safety copy contains the live completed task',
+    conflictCopies.some((copy) => /"id": "t1"[\s\S]*"status": "done"/.test(copy)),
+    conflictCopies[0]?.slice(0, 240) || 'no safety copy');
+  check('the recovery mutation is prepared, uploaded and completed only once',
+    lineCalls.prepareMutations.length === 1 && uploads.length === 1
+      && lineCalls.completeMutations.length === 1,
+    `${lineCalls.prepareMutations.length} preparations / ${uploads.length} uploads / ${lineCalls.completeMutations.length} completions`);
+  const finalSync = JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`) || '{}');
+  check('strict target adoption clears the checkpoint after preservation',
+    !finalSync.lineCompletion && /LINE result/.test(stored(store)), JSON.stringify(finalSync));
+}
+
+// Choosing Drive is an async destructive adoption. The decision surface must remain
+// a blocking, disabled modal for the whole operation, and the Local/Cancel handlers
+// must independently reject entry even if a stale DOM event reaches them.
+{
+  console.log('\n--- import cloud adoption: Local and Cancel stay locked while prepare waits ---');
+  const OPENED_LOCAL = JSON.stringify({
+    version: 7, savedAt: '2026-07-26T13:00:00.000Z', dataLastUpdated: '2026-07-26T13:00:00.000Z',
+    personal: [{ id: 'opened-1', title: 'OpenedFromDisk', status: 'todo' }], work: [],
+  }, null, 2);
+
+  const runLockedAttempt = async (attempt) => {
+    let signalPrepare;
+    const prepareStarted = new Promise((resolve) => { signalPrepare = () => resolve(true); });
+    let rejectPrepare;
+    const env = boot({
+      cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+      lastPushedStamp: LOCAL_EDIT,
+      openedLocalContent: OPENED_LOCAL,
+      lineMutation: async () => {
+        signalPrepare();
+        return new Promise((_, reject) => { rejectPrepare = reject; });
+      },
+    });
+    await settle(); env.restore();
+    if (env.errors.length) check('no runtime errors', false, env.errors[0]);
+    await openPanel(env.window);
+    await press(env.window, /Open a file/i, 350);
+    check(`${attempt}: the differing-file chooser opened`,
+      /These two copies differ/.test(body(env.window)), body(env.window).slice(0, 220));
+    await press(env.window, /Keep what is on Drive/i, 100);
+    await press(env.window, /Yes, overwrite this device/i, 50);
+    const preparing = await Promise.race([prepareStarted, settle(2500).then(() => false)]);
+    check(`${attempt}: cloud adoption reached the held preparation`, preparing === true);
+    await settle(80);
+
+    let local = [...env.window.document.querySelectorAll('button')]
+      .find((button) => /Use the local file/i.test(button.textContent || ''));
+    let cancel = [...env.window.document.querySelectorAll('button')]
+      .find((button) => /Cancel — change nothing/i.test(button.textContent || ''));
+    check(`${attempt}: the chooser remains a blocking busy modal`,
+      !!local && !!cancel && !!local.closest('[aria-busy="true"]'));
+    check(`${attempt}: Local and Cancel are visibly disabled`,
+      local?.disabled === true && cancel?.disabled === true,
+      `local=${local?.disabled} cancel=${cancel?.disabled}`);
+    local?.closest('[aria-busy="true"]')?.dispatchEvent(
+      new env.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle(80);
+    check(`${attempt}: backdrop dismissal respects the busy lock`,
+      /These two copies differ/.test(body(env.window)));
+
+    // Removing the HTML disabled bit simulates a stale/crafted event. Correctness
+    // still belongs to the App-level single-flight guard, not only to presentation.
+    const target = attempt === 'Local' ? local : cancel;
+    if (target) {
+      target.disabled = false;
+      target.dispatchEvent(new env.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      await settle(80);
+      if (attempt === 'Local') {
+        const confirmLocal = [...env.window.document.querySelectorAll('button')]
+          .find((button) => /Yes, overwrite Google Drive/i.test(button.textContent || ''));
+        if (confirmLocal) {
+          confirmLocal.disabled = false;
+          confirmLocal.dispatchEvent(new env.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+          await settle(120);
+        }
+      }
+    }
+    check(`${attempt}: the guarded action cannot replace browser data`,
+      /OnThisDevice/.test(stored(env.store)) && !/OpenedFromDisk/.test(stored(env.store)),
+      stored(env.store));
+    check(`${attempt}: the chooser cannot be dismissed during adoption`,
+      /These two copies differ/.test(body(env.window)), body(env.window).slice(0, 220));
+    env.window.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(100);
+    check(`${attempt}: Escape also respects the busy lock`,
+      /These two copies differ/.test(body(env.window)));
+
+    rejectPrepare?.(new Error('focused preparation gate released'));
+    await settle(700);
+    local = [...env.window.document.querySelectorAll('button')]
+      .find((button) => /Use the local file/i.test(button.textContent || ''));
+    check(`${attempt}: a failed adoption restores an enabled chooser for retry`,
+      !!local && local.disabled === false);
+    const failedSync = JSON.parse(
+      env.store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`) || '{}');
+    check(`${attempt}: no PATCH, completion or adoption occurred`,
+      env.uploads.length === 0 && env.lineCalls.completeMutations.length === 0
+        && env.lineCalls.prepareMutations.length === 1 && !failedSync.lineCompletion
+        && /OnThisDevice/.test(stored(env.store)),
+      `${env.lineCalls.prepareMutations.length} preparations / ${env.uploads.length} uploads / ${env.lineCalls.completeMutations.length} completions`);
+  };
+
+  await runLockedAttempt('Local');
+  await runLockedAttempt('Cancel');
+}
+
+// Drive may advance after the recovery download but before PATCH. If-Match must
+// reject the stale bytes and retain a blocked checkpoint; no mutation may be
+// completed or adopted until the user explicitly reconciles the newer copy.
+{
+  console.log('\n--- Drive advances before mutation PATCH: 412 blocks stale overwrite ---');
+  const lineMutation = async (payload) => ({
+    payload: { ...payload, personal: [...(payload.personal || []),
+      { id: 'stale-line-add', title: 'Must not overwrite newer Drive', status: 'todo' }] },
+    mutationIds: ['line-stale-1'], rejected: [],
+  });
+  const newer=JSON.stringify({version:7,dataLastUpdated:'2026-07-26T14:28:30.000Z',
+    personal:[{id:'newer',title:'Newer concurrent Drive task',status:'todo'}],work:[]},null,2);
+  const { window, store, cloud, uploads, uploadEtags, errors, lineCalls, restore } = boot({
+    cloudContent: OTHER_DEVICE, cloudModified: new Date(NOW - 60000).toISOString(),
+    lastPushedStamp: LOCAL_EDIT, lineMutation,
+    beforeUpload: (current,attempt) => {
+      if(attempt!==0)return;
+      current.content=newer;
+      current.modifiedTime='2026-07-26T14:28:30.000Z';
+      current.etag='"drive-rev-concurrent"';
+    },
+  });
+  await settle(); restore();
+  if (errors.length) check('no runtime errors', false, errors[0]);
+  await openPanel(window);
+  await press(window, /Check now/i);
+  const blocked=JSON.parse(store.get(`${PROFILE}::lifeplanner-gdrive-sync-v1`)||'{}').lineCompletion;
+  check('the stale PATCH supplied its original ETag',uploadEtags[0] === '"drive-rev-1"',
+    JSON.stringify(uploadEtags));
+  check('the 412 wrote no stale mutation bytes',uploads.length === 0 && cloud.content === newer,
+    `${uploads.length} uploads`);
+  check('the exact recovery remains blocked',blocked?.phase === 'blocked'
+    && blocked?.mutationIds?.[0] === 'line-stale-1',JSON.stringify(blocked));
+  check('the stale mutation was neither completed nor adopted',
+    lineCalls.completeMutations.length === 0 && !/Must not overwrite/.test(stored(store)));
 }
 
 // ── both moved: the existing conflict dialog, unchanged ────────────────────────
@@ -436,6 +694,120 @@ let savedBytes = null;
   }
   await press(window, /Yes — save to Google Drive/i, 1200);
   check('"Yes" uploads', uploads.length >= 1, `${uploads.length} upload(s)`);
+}
+
+// ── Stage 5A: durable retries, strict storage and exact reconciliation ────────
+{
+  console.log('\n--- Stage 5A Full durable checkpoint contracts ---');
+  const full=fs.readFileSync('src/App.jsx','utf8');
+  const strictAt=full.indexOf('const writeStorageExact = async');
+  const persistAt=full.indexOf('const persistGsyncStrict = async');
+  const prepareAt=full.indexOf('const prepareLineMutations = async');
+  const finishAt=full.indexOf('const finishFullLineCompletion = async',prepareAt);
+  const finishEnd=full.indexOf('const refreshLineStatus',finishAt);
+  const finish=full.slice(finishAt,finishEnd);
+  const preserveAt=full.indexOf('const preserveFullLocalEdits = async',prepareAt);
+  const preserveEnd=full.indexOf('const reopenFullLineCompletionConflict',preserveAt);
+  const preserve=full.slice(preserveAt,preserveEnd);
+  const dialogAt=full.indexOf('function DirectionDialog({');
+  const dialogEnd=full.indexOf('// N107 wrapper:',dialogAt);
+  const directionDialog=full.slice(dialogAt,dialogEnd);
+  const importLocalAt=full.indexOf('const importUseLocal = async');
+  const importAt=full.indexOf('const importUseCloud = async');
+  const importEnd=full.indexOf('// ── N104:',importAt);
+  const cloud=full.slice(importAt,importEnd);
+  check('Full strict storage rejects a null result',strictAt>=0&&/!result \|\| result\.key !== key/.test(full.slice(strictAt,persistAt)));
+  check('Full strict storage verifies exact read-back',/window\.storage\.get\(key\)[\s\S]*roundTrip\.value !== serialized/.test(full.slice(strictAt,persistAt)));
+  check('Full durable sync write uses the strict helper',/writeStorageExact\(pk\(GSYNC_KEY\)/.test(full.slice(persistAt,prepareAt)));
+  check('Full stores prepared checkpoint before finishing',cloud.indexOf('persistFullLineCompletion(checkpoint)')<cloud.indexOf('finishFullLineCompletion(checkpoint)'));
+  check('Full checkpoint pins exact base and target payloads',/baseCanonical:canonicalJSON\(latestPayload\)/.test(cloud)&&/targetCanonical:canonicalJSON\(payload\)/.test(cloud));
+  check('Full recovery compares complete canonical payloads',/classifyLineRecoveryPayload\(currentPayload,checkpoint\)/.test(finish)&&/currentCanonical,targetCanonical,baseCanonical/.test(finish));
+  check('Full prepared recovery requires an ETag precondition',/const expectedEtag=meta\.etag\|\|checkpoint\.baseEtag\|\|""[\s\S]*if\(!expectedEtag\)throw new Error[\s\S]*GDrive\.updateFile[\s\S]*expectedEtag/.test(finish));
+  check('Full ambiguous recovery retains a blocked checkpoint',/phase:"blocked"/.test(full)&&/persistFullLineCompletion\(blocked\)/.test(full)&&!/persistFullLineCompletion\(null\)/.test(full.slice(full.indexOf('const reopenFullLineCompletionConflict'),finishAt)));
+  check('Full uploaded retry completes without preparation',/await complete\(checkpoint\.mutationIds\)/.test(finish)&&! /prepareLineMutations/.test(finish.slice(finish.indexOf('await complete'))));
+  check('Full strict adoption precedes checkpoint clear',/applyPayloadLive\(checkpoint\.payload,\{strict:true\}\)/.test(finish)&&finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})')<finish.indexOf('delete next.lineCompletion'));
+  check('Full keeps both before explicit blocked reconciliation',/saveConflictCopy\(currentText,"Google Drive before LINE recovery"\)/.test(full)&&/Keep both and finish LINE recovery/.test(full));
+  check('Full stale/412 recovery retains rejection notice',/noteLineSaveResult\(rejected,message,rejected\.length\?"partial":"later"\)/.test(full));
+  check('Full checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(buildSavePayload\(\)\)/.test(cloud));
+  check('Full preserves later local edits before and after completion',finish.indexOf('preserveFullLocalEdits(checkpoint)')>=0&&finish.indexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')>finish.indexOf('await complete(checkpoint.mutationIds)')&&finish.lastIndexOf('preserveFullLocalEdits(checkpoint)')<finish.indexOf('applyPayloadLive(checkpoint.payload,{strict:true})'));
+  check('Full preservation reads the latest committed application render',
+    /useLayoutEffect\(\(\)=>\{ fullLivePayloadRef\.current=buildSavePayload; \}\)/.test(full)
+      &&(preserve.match(/readFullLivePayload\(\)/g)||[]).length===2
+      &&!/buildSavePayload\(\)/.test(preserve));
+  check('Full cloud-choice shares the checker exclusion',/const importUseCloud = async \(\) => \{[\s\S]*if\(gsyncBusy\.current\|\|gsyncChecking\.current\)[\s\S]*gsyncBusy\.current=true;[\s\S]*finally\{[\s\S]*gsyncBusy\.current=false/.test(cloud)&&cloud.indexOf('gsyncBusy.current=true')<cloud.indexOf('prepareLineMutations(latestPayload)'));
+  const localAndCloud=full.slice(importLocalAt,importEnd);
+  check('Full import choice owns a visible busy lock for the entire cloud adoption',
+    /setImportDecisionBusy\(true\)/.test(cloud)&&/finally\{[\s\S]*setImportDecisionBusy\(false\)/.test(cloud)
+      &&/busy=\{importDecisionBusy\}/.test(full));
+  check('Full Local and Cancel handlers independently reject the recovery lock',
+    /const importUseLocal = async \(\) => \{\s*if\(gsyncBusy\.current\|\|gsyncChecking\.current\|\|importDecisionBusy\)/.test(localAndCloud)
+      &&/const cancelImportConflict = \(\) => \{\s*if\(gsyncBusy\.current\|\|gsyncChecking\.current\|\|importDecisionBusy\)/.test(localAndCloud));
+  check('Full import chooser disables actions, Escape and backdrop while busy',
+    /aria-busy=\{busy\}/.test(directionDialog)
+      &&(directionDialog.match(/disabled=\{busy\}/g)||[]).length>=5
+      &&/e\.key==="Escape"&&!busy/.test(directionDialog)
+      &&/onClick=\{\(\)=>\{ if\(busy\)return;/.test(directionDialog));
+  check('Full poll pauses while recovery exists',/gsyncChecking\.current \|\| gsyncBusy\.current \|\| gsync\.lineCompletion/.test(full)&&/gsyncBusy\.current \|\| gsyncChecking\.current \|\| gsync\.lineCompletion/.test(full));
+  const autoSyncAt=full.indexOf('// B: debounced auto-SYNC');
+  const autoSync=full.slice(autoSyncAt,full.indexOf('const buildSavePayload',autoSyncAt));
+  check('Full automatic sync closures refresh when recovery changes',
+    /\[personal, work, events, notes, gsyncAuto, gsync\.lineCompletion\]/.test(autoSync)
+      && /\[gsyncAuto, gsync\.fileId, gsync\.lineCompletion\]/.test(autoSync)
+      && /addEventListener\("focus", onFocus\)/.test(autoSync)
+      && /addEventListener\("visibilitychange", onVis\)/.test(autoSync));
+  const linkGuardAt=full.indexOf('const blockFullLinkChangeDuringRecovery = () => {');
+  const relinkAt=full.indexOf('const gsyncRelink = async',linkGuardAt);
+  const unlinkAt=full.indexOf('const gsyncUnlink = async',relinkAt);
+  const linkGuard=full.slice(linkGuardAt,relinkAt);
+  const relink=full.slice(relinkAt,full.indexOf('const gsyncOpenFolder',relinkAt));
+  const unlink=full.slice(unlinkAt,full.indexOf('const gsyncNow = async',unlinkAt));
+  check('Full relink and unlink retain the original recovery file',/gsyncBusy\.current/.test(linkGuard)&&/gsync\.lineCompletion/.test(linkGuard)&&relink.indexOf('blockFullLinkChangeDuringRecovery()')<relink.indexOf('persistGsync')&&unlink.indexOf('blockFullLinkChangeDuringRecovery()')<unlink.indexOf('persistGsync'));
+  const switchAt=full.indexOf('const switchProfile = (newId) => {');
+  const profileSwitch=full.slice(switchAt,full.indexOf('const toggleLang',switchAt));
+  const deleteProfileAt=full.indexOf('const handleDelete = (id) => {');
+  const deleteProfile=full.slice(deleteProfileAt,full.indexOf('const inp =',deleteProfileAt));
+  check('Full keeps recovery bound to the active profile',profileSwitch.indexOf('blockFullLinkChangeDuringRecovery()')<profileSwitch.indexOf('setActiveProfileId')&&deleteProfile.indexOf('onBeforeActiveProfileDelete?.()')<deleteProfile.indexOf('Object.keys(localStorage)')&&/onBeforeActiveProfileDelete=\{blockFullLinkChangeDuringRecovery\}/.test(full));
+  check('Every Full mutation upload uses the durable entry point',
+    (full.match(/startFullLineCompletion\(/g)||[]).length===12
+      &&!/completeMutations\?\.\(prepared\.mutationIds\)/.test(full));
+}
+
+{
+  console.log('\n--- Stage 5A Mobile exact recovery contracts ---');
+  const mobile=fs.readFileSync('mobile/index.html','utf8');
+  const showAt=mobile.indexOf('function showConflict(meta){');
+  const pullAt=mobile.indexOf('  const pull=async()=>{',showAt);
+  const pullEnd=mobile.indexOf('\n  const push=async()=>{',pullAt);
+  const pull=mobile.slice(pullAt,pullEnd);
+  const resumeAt=mobile.indexOf('async function resumeLineCompletion(');
+  const resumeEnd=mobile.indexOf('async function syncNow(',resumeAt);
+  const resume=mobile.slice(resumeAt,resumeEnd);
+  check('Mobile uses complete canonical payload comparison',/function canonicalJSON\(v\)/.test(mobile)&&/classifyLineRecoveryPayload\(current,checkpoint\)/.test(resume)&&/currentCanonical,targetCanonical/.test(resume));
+  check('Mobile final decision pins exact base and target',/baseCanonical:canonicalJSON\(downloaded\)/.test(pull)&&/targetCanonical:canonicalJSON\(payload\)/.test(pull));
+  check('Mobile recovery refuses PATCH without a non-empty precondition',/const expectedEtag=String\(currentMeta\.etag\|\|''\)\.trim\(\)\|\|String\(checkpoint\.baseEtag\|\|''\)\.trim\(\);[\s\S]*if\(!expectedEtag\)throw Error[\s\S]*driveUpdate\(checkpoint\.fileId[\s\S]*expectedEtag/.test(resume)&&resume.indexOf('if(!expectedEtag)')<resume.indexOf('driveUpdate(checkpoint.fileId'));
+  check('Mobile ambiguous recovery persists blocked state',/phase:'blocked'/.test(mobile)&&/persistLineCompletion\(blocked\)/.test(mobile));
+  check('Mobile blocked recovery keeps both first',/driveCreate\(lineRecoveryCopyName\(\),currentText/.test(mobile)&&/Keep both and finish LINE recovery/.test(mobile));
+  check('Mobile uploaded retry never prepares again',! /prepareMutations/.test(resume));
+  check('Mobile completion precedes exact adoption',resume.indexOf('await complete(checkpoint.mutationIds)')<resume.indexOf('state.data=normalizeProfile'));
+  check('Mobile checkpoint clears only after durable local save',resume.indexOf('saveLocal(false,true)')<resume.indexOf('persistLineCompletion(null)'));
+  check('Mobile rejection survives stale/failure recovery',/lineSaveToastText\(rejected,message\)/.test(mobile)&&/lineSaveToastText\(rejected,state\.driveError\)/.test(resume));
+  check('Mobile checkpoint records the local baseline',/localBaselineCanonical:recoveryLocalCanonical\(state\.data\)/.test(pull));
+  check('Mobile preserves later local edits before and after completion',resume.indexOf('preserveMobileLocalEdits(checkpoint)')>=0&&resume.indexOf('preserveMobileLocalEdits(checkpoint)')<resume.indexOf('await complete(checkpoint.mutationIds)')&&resume.lastIndexOf('preserveMobileLocalEdits(checkpoint)')>resume.indexOf('await complete(checkpoint.mutationIds)')&&resume.lastIndexOf('preserveMobileLocalEdits(checkpoint)')<resume.indexOf('state.data=normalizeProfile'));
+  check('Mobile conflict pull is single-flight',/const pull=async\(\)=>\{[\s\S]*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/.test(pull));
+  const fileGuardAt=mobile.indexOf('function blockCloudFileChangeDuringRecovery(id=null){');
+  const deleteAt=mobile.indexOf('async function deleteCloudFile(id,name){',fileGuardAt);
+  const linkAt=mobile.indexOf('async function linkCloudFile(id,name){',deleteAt);
+  const createAt=mobile.indexOf('async function createCloudFile(folderTab=null){',linkAt);
+  const syncAt=mobile.indexOf('async function syncNow(silent=false){',createAt);
+  const fileGuard=mobile.slice(fileGuardAt,mobile.indexOf('async function connectDrive',fileGuardAt));
+  const deleteFile=mobile.slice(deleteAt,linkAt),linkFile=mobile.slice(linkAt,createAt);
+  const createFile=mobile.slice(createAt,mobile.indexOf('function syncTimestamp',createAt));
+  check('Mobile file identity stays bound to pending recovery',/state\.sync\.lineCompletion/.test(fileGuard)&&linkFile.indexOf('blockCloudFileChangeDuringRecovery()')<linkFile.indexOf('driveDownload')&&createFile.indexOf('blockCloudFileChangeDuringRecovery()')<createFile.indexOf('driveCreate')&&deleteFile.indexOf('blockCloudFileChangeDuringRecovery(id)')<deleteFile.indexOf('driveDelete'));
+  check('Mobile sync entry respects the Drive recovery lock',/async function syncNow\(silent=false\)\{\s*if\(state\.driveBusy\)return;/.test(mobile.slice(syncAt,mobile.indexOf('function showConflict(meta){',syncAt))));
+  const lockOwners=['connectDrive','showCloudFiles','renameCloudFile'];
+  const guardedOwners=lockOwners.every(name=>new RegExp(`async function ${name}\\([^)]*\\)\\{if\\(state\\.driveBusy\\)return;[\\s\\S]*?setDriveBusy\\(true\\)`).test(mobile));
+  const pushAt=mobile.indexOf('  const push=async()=>{',showAt),push=mobile.slice(pushAt,mobile.indexOf("  $('#conflictPull')",pushAt));
+  check('Every Mobile Drive UI owner rejects concurrent entry',guardedOwners&&/const push=async\(\)=>\{\s*if\(state\.driveBusy\)return;[\s\S]*setDriveBusy\(true\)[\s\S]*finally\{setDriveBusy\(false\)\}/.test(push));
 }
 
 console.log(fails.length ? `\nFAIL (${fails.length}): ${fails.join('; ')}` : '\nPASS');

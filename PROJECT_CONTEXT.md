@@ -3,6 +3,39 @@
 Shared context for whichever assistant (Claude / ChatGPT / Codex) picks up this
 project. Update this file whenever architecture, decisions, or open bugs change.
 
+## 2026-09-05 current-main qualification checkpoint
+
+- PR #107 is merged as `6ac363373f282aed7cbf6e8f5e32cdb5fce28028`, tree
+  `f36432f45618117bb8eef5fe9d31e6da50fb6077`. Verify `33906386946` passed
+  all six jobs and Pages `33906386307` deployed that SHA. Fresh unauthenticated
+  Full/Mobile smoke returned HTTP 200 and byte-identical deployed artifacts;
+  both sign-in routes rendered with no application console errors. This does
+  not attest signed-in recovery or Production data flows.
+- The subsequently alleged Full strict-storage-await P1 is **not reproduced
+  in the shipped adapter**. `build/storage-shim.js` executes localStorage
+  operations synchronously and returns already-fulfilled promises. An actual-
+  shim scheduling probe drained all 20 set/get await pairs before a queued
+  task; focused sync regressions passed. A delayed adapter injected only in a
+  test is a hardening scenario, not evidence of that claimed Pages P1. No
+  exceptional source patch or duplicate hotfix PR was created. This bounded
+  conclusion does not exclude a separately demonstrated race.
+- Existing Draft PR #96 is being integrated with that exact main without
+  rewriting history or changing its reviewed SQL, Storage operation, proof
+  workflow, or dependency bytes. Previous head `e8094dfcf04ecee37f019418ff3618f17812809b`
+  had verify `33270242608` PASS 6/6, proof `33270242615` PASS and clean Codex
+  comment `5464351383`, with all 13 review threads resolved. Those results
+  qualified the old base only; final new-head CI/proof/review are recorded on
+  PR #96 and must not be inferred from the historical results.
+- Owner's fresh B-1/B-2 waiver is **OWNER-WAIVED / RISK ACCEPTED**,
+  NICE-TO-HAVE, roadmap weight 0%, and not a Stage 5–6 blocker. This overrides
+  older fresh-backup requirements in historical records; it is never recovery
+  PASS. No backup/restore operation is authorized or performed.
+- PR #96 remains Draft, unmerged, and not approved for Production mutation by
+  this source checkpoint. Exact L1A, L1B and private Storage operations remain
+  separately gated. No raw Production data is read, no client activation or
+  Drive demotion occurs, and no branch deletion or destructive rollback is
+  permitted. Browser + Google Drive remain authoritative.
+
 ## Current release
 
 - Packet A Production apply base was
@@ -1222,11 +1255,52 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 |---|---|---|---|---|
 | LINE-AUTH-1 | Signed-in UI but LINE link-code creation says to sign in again | Generic localStorage secret redaction erased Supabase Auth access/refresh tokens | Exact allow-list for `sb-qjaywadzvwvcspdsjxth-auth-token` in Full and Mobile; all other keys still redact secrets | `build/auth-storage-security.test.mjs`; `npm test`; `npm run verify`; post-deploy sign-in + link-code DB row + LINE acceptance |
 | LINE-WEBHOOK-1 | LINE redelivery or partial batch failure could duplicate drafts and reprocess completed events | No persistent webhook event identity/state, batch-level failure handling, and an 8-second gateway timeout | Service-role-only `mtp_line_events` ledger, atomic claim/finalize RPCs, per-event isolation, 30-second lease, `source_event_id` mutation idempotency, and provider redelivery enabled | Final review PASS at `73ad8b6`; CI #104/#116; isolated replay/timeout PASS; migration `20260818154406`; v22 live smoke: 5 processed, 0 failed/processing, max attempt 1, no new mutation |
+| LINE-CLOUD-ADOPT-1 | A cloud-wins decision could overwrite a pending confirmed LINE mutation or newer Drive revision, duplicate an `add` after reload, lose a one-time mutation after a local-storage failure, or silently replace newer non-task profile fields | Final cloud payloads were not atomically preconditioned; completion state and local adoption were not proven durable; recovery presence used the ordinary partial sync fingerprint | Full/Mobile persist exact prepared/uploaded/blocked checkpoints with exact read-back, use complete canonical base/target/current comparison plus mandatory ETag `If-Match`, retry only stored completion IDs, and require an explicit keep-both conflict copy before resolving an ambiguous PATCH result; all twelve Full mutation-upload paths share that durable primitive and Full clears the checkpoint only after exact local payload and sync metadata are durable | `build/sync-content-check.test.mjs`; `build/line-contract.test.mjs`; `npm test`; `npm run verify`; `npm run scan-secrets` |
 | PACKET-A-B2-1 | Pinned logical backup failed in the data phase on the disposable CLI target | Supabase CLI `2.111.0` bootstrapped Storage through migration 60 while the Production-shaped dump expected migration-62 columns; zero-row COPY headers still resolve every named column | Fail-closed network-isolated compatibility bridge pins reviewed upstream migrations 61-62, exact pre/post catalog state and immutable source hashes; it never edits the dump or records false Storage migration history | PR #79 exact head `796b42a`; source-safety and restore run `32577304437` PASS; no output artifact or Production connection |
 | PACKET-A-B2-2 | Post-Packet-A restore reached catalog verification but failed closed before publishing raw diagnostics | Restoring into a fresh target did not reproduce the source database's reviewed `postgres` default-ACL precondition; deleted private logs prevented overstating a unique first failing assertion | Reconstruct only the frozen Packet A default-ACL precondition inside the disposable transaction, restore schema as `postgres`, reset before data, and publish only nonce-bound allowlisted assertion group + SQLSTATE; raw logs remain private and cleanup-scoped | PR #83 exact remote head `48aaa796`; verify/source run `32616039132`/`32616039104` PASS; restore run `32618003121`, jobs `97141728425`/`97141748031` PASS; zero output artifacts and no Production write |
 | PACKET-A-ACL-1 | Broad existing LINE grants and `postgres` future defaults exposed privileges beyond the reviewed contract | Historical Supabase defaults plus explicit existing object grants were broader than RLS alone controls | Exact hash-pinned targeted ACL migration; never use `db push`; freeze before/after ledger, count, ACL/RLS and unrelated canaries | Migration `20260822162710`; catalog/default/RLS/count/canary PASS; functional smoke Owner-waived / NOT EXECUTED |
 | L1-DEPENDENCY-LOCK-1 | Direct dependency UPDATE could reverse the RPC lock order; shared/session locks and a forged custom GUC could impersonate transaction-owned provenance; delete/reinsert could reset lifecycle history | A row-level UPDATE trigger runs after the tuple lock, `pg_locks` does not reveal advisory-lock lifetime, custom GUCs are caller-writable, and a naive reinsert resets row defaults | Remove marker/lock inspection entirely. Direct inactive-to-active UPDATE fails `L1D02`; RPC takes `pg_advisory_xact_lock`, deletes an inactive tombstone, then recreates the edge through the serialized INSERT guard with original `created_at` and `version + 1` | Byte parity; mixed reactivation/RPC, shared-lock and forged-GUC/session-lock negative proofs; public RPC history-preservation proof; no `40P01`; exact-head CI and independent review |
 | L1-ARTIFACT-PATH-1 | A consumed proof input could change while the dedicated artifact parity/failure-safety workflow was skipped | The workflow path filter initially omitted the Storage source contract, L0b prerequisite migration and L1B SQL test that the proof reads/executes | Inventory every file consumed by `ops/l1b-promotion-artifact-proof.sh` and list all migrations, contracts, SQL tests, operation and the proof/workflow files in `pull_request.paths`; keep exact contract/operation parity inside the proof | Exact input inventory against script references; exact-head dedicated proof and independent review |
+
+- **Stage 5A pending-recovery identity and concurrency guards:** Full relink/unlink,
+  profile switch and active-profile deletion, plus Mobile link/create/delete-active-file,
+  refuse to change the recovery context while the Full busy lock or durable
+  `lineCompletion` checkpoint exists. Full
+  cloud-choice/Check Now share synchronous exclusions, and every Mobile Drive UI
+  owner rejects entry before acquiring the shared `driveBusy` lock.
+  The exact mutation IDs remain bound to their original file until completion or
+  reconciliation, preventing cross-file loss, duplicate preparation/upload, or
+  duplicate queue completion.
+- **Stage 5A final-review upload closure:** all twelve Full paths that prepare a
+  pending LINE mutation now persists the same exact base/target checkpoint before
+  the mutation reaches Drive. Recovery re-reads the base, requires its ETag on
+  PATCH, blocks on 412, and completes only stored IDs after an uploaded checkpoint
+  is durable. The first-file path creates only its unmutated base until the new
+  file identity is stored in that checkpoint.
+- **Stage 5A Mobile missing-ETag fail-closed guard:** prepared Mobile recovery
+  trims and prefers the current Drive ETag, then falls back to the checkpoint
+  base ETag. If neither is non-empty, it stops before `driveUpdate`, queue
+  completion, local adoption or checkpoint clearing and rewrites the unchanged
+  checkpoint for a later retry. The executable contract asserts zero PATCH,
+  completion, adoption and publish side effects while the exact checkpoint
+  remains present.
+- **Stage 5A Full automatic-retry closure guard:** both the 15-second timer and
+  the shared focus/visibility listener effect depend on `gsync.lineCompletion`.
+  A prepared-to-uploaded checkpoint transition therefore cancels stale timer
+  callbacks and recreates every automatic `gsyncNow` entry with the current
+  recovery state. The focused browser regression forces an ambiguous completion,
+  dispatches `focus`, and permits one preparation/upload plus an ID-only retry;
+  any second preparation or upload fails the suite.
+- **Stage 5A Full live-state recovery guard:** asynchronous recovery preservation
+  reads a payload function refreshed by `useLayoutEffect` after every committed
+  render, rather than the closure that began the operation. A runtime regression
+  holds queue completion, completes a real Personal task, and requires the later
+  edit in a same-folder conflict copy before strict target adoption.
+- **Stage 5A Full import-decision lock:** Cloud adoption exposes the synchronous
+  recovery lock to the import chooser. The modal remains blocking and disables
+  every decision/dismissal path; Local and Cancel also enforce the lock in their
+  App handlers. A runtime regression holds preparation and proves Local, Cancel,
+  Escape and crafted stale events cannot adopt data or dismiss the decision.
 
 ## Open backlog
 
@@ -1252,7 +1326,7 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | — | ~~LINE \`edit\`: shorter syntax~~ | **Closed 2026-08-11.** `edit <title>, DD-MM-YYYY` now works when only the date changes, alongside the existing `edit <old title>, <new title>, DD-MM-YYYY` form. Merged in PR #56, deployed. |
 | — | ~~\`BUILD-MANIFEST.json\` mobile hash is stale~~ | **Closed 2026-08-11.** `build/pipeline.mjs` now recalculates `mobile.sha256`/`mobile.bytes` on every package run, alongside the existing `full.*` fields, so the two can no longer drift apart. Merged in PR #56. |
 | — | Desktop Save to Cloud button — owner acceptance | Added in PR #59 (2026-08-11): a header-level Save to Cloud button for desktop (≥1024px), mirroring the existing mobile/tablet one — the action was previously three clicks deep in the Profile+Sync dropdown on desktop. `npm run verify` passed and it was checked in a headless browser, but the owner has not yet eyeballed it on a real signed-in session with Drive linked. |
-| — | `importUseCloud` can still skip a pending LINE mutation | Same class of bug fixed 2026-08-11 across 8 sync entry points (see the confirmed-mutations release record above), but deliberately not fixed there too: `importUseCloud` is part of the rare "open a conflicting local file from disk, keep the cloud copy" flow, not the core Drive sync loop. Low priority — needs both a disk-file import *and* a pending LINE mutation at the same time. |
+| — | ~~`importUseCloud` can still skip a pending LINE mutation~~ | **Stage 5A release control.** Full/Mobile use exact durable checkpoints and complete canonical comparison; null/mismatched storage writes fail closed, ambiguous PATCH results stay blocked until a keep-both conflict copy is created, and completion retries never re-prepare or duplicate an `add`. The post-merge Full hotfix additionally reads committed live state during preservation and locks Local/Cancel/dismissal throughout Cloud adoption. The exact hotfix PR is the authority for final CI/review/Pages/smoke evidence. |
 
 Unbuilt idea list: bulk actions in List, duplicate a saved view, export
 Timeline/Gantt as PNG, `.ics` export, dependency arrows, workload heatmap,

@@ -4,6 +4,48 @@ Status: **DRAFT / NO-GO FOR PRODUCTION APPLY**
 
 Evidence date: `2026-08-29` (`Asia/Bangkok`)
 
+## Current-main requalification — 2026-09-05
+
+This addendum supersedes the freshness and backup-gate status of the historical
+sections below, not their frozen operation hashes or the Production authority
+boundary.
+
+| Field | Current checkpoint |
+|---|---|
+| STATUS | SOURCE REQUALIFICATION / DRAFT / NO PRODUCTION MUTATION |
+| PROGRESS | Source integration prepared; final CI/proof/review pending |
+| AGENT / ACTIVE WRITER | Codex coordinator only; parallel agents read-only |
+| TASK / LANE | Existing PR #96, no new PR |
+| BRANCH | `ops/l1b-promotion-artifact-candidate` |
+| BASE SHA | `6ac363373f282aed7cbf6e8f5e32cdb5fce28028` |
+| PREVIOUS HEAD SHA | `e8094dfcf04ecee37f019418ff3618f17812809b` |
+| NEW HEAD SHA | Immutable final SHA is recorded on PR #96 after commit |
+| COMPLETED | Main/Stage 5A deployment revalidated; previous PR96 evidence reconciled; non-force main integration |
+| PENDING | New exact-head verify 6/6, transactional failure-safety proof, one independent review, exact Production gate |
+| CHANGED FILES | Integrated Stage 5A files plus existing qualification documents; no SQL/Storage/workflow/dependency byte changes from previous PR96 head |
+| VERIFICATION | Prior head verify `33270242608` 6/6 and proof `33270242615` PASS; 13/13 review threads resolved; clean comment `5464351383`; not new-head evidence |
+| BLOCKERS / RISKS | Production freshness and exact merge/apply mechanism must be revalidated at its own gate |
+| NEXT OWNER | Codex coordinator for source qualification; Owner at Production Critical Gate |
+| NEXT TASK | Final CI/proof/review then bind each exact operation to its target, impact and rollback limitation |
+| HANDOVER | Retain this PR/branch; use final immutable PR evidence before continuing |
+| OWNER ACTION | No routine continue needed; exact Production gate remains reserved |
+
+The existing SQL/Storage operation bytes and manifest provenance remain frozen.
+Both current-main Stage 5A fixes and their focused regressions are retained.
+The old PR body reporting an unresolved dependency-cycle finding is stale: final
+review closed that candidate's findings. Integration still requires fresh
+evidence; a historical PASS does not qualify the current-main tree.
+
+Fresh B-1 backup/B-2 restore are **OWNER-WAIVED / RISK ACCEPTED**,
+NICE-TO-HAVE, roadmap weight 0%, and do not block Stage 5–6. Neither is recovery
+PASS, and no new backup/restore is performed. Historical expiry dates and failed
+or skipped restore runs below are historical only.
+
+Full roadmap planning remains `4/6 = 66.7%`, delta `+0` percentage points:
+L0a, L0b, L1A source and L1B source each remain 100%; Stage 5 Production remains
+`0/3`; Stage 6 remains `0/4`. All delivery stages are MUST-HAVE and block their
+dependent next stage until qualified; the waived backup lane does not.
+
 This PR materializes the exact L1A/L1B database migration files and the separate
 private Storage operation generated under Owner-approved `Q-L1B-003`. It is an
 evidence and review package only. `Q-L1B-004` and `Q-L1B-005` deliberately reserve

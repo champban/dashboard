@@ -1,5 +1,39 @@
 # L1B Promotion Artifact — Targeted Security 6D Review
 
+## Current-main integration addendum — 2026-09-05
+
+Decision: **SOURCE REQUALIFICATION ONLY; NO PRODUCTION MERGE/APPLY AUTHORITY.**
+This addendum supersedes historical freshness/backup requirements below.
+It does not recast old Production observations as current observations.
+
+Integration combines prior PR #96 head
+`e8094dfcf04ecee37f019418ff3618f17812809b` with main
+`6ac363373f282aed7cbf6e8f5e32cdb5fce28028` (tree
+`f36432f45618117bb8eef5fe9d31e6da50fb6077`) without SQL, Storage-operation,
+workflow, dependency, Auth/provider or environment changes from the prior PR
+candidate. Main's released Full/Mobile Stage 5A bytes remain intact.
+
+| Dimension | Integration disposition |
+|---|---|
+| Identity/access | Reviewed SQL/RLS/ACL operation bytes unchanged; fresh exact-head SQL gates still required |
+| Secrets/data | No credentials or Production payload added; exact-head secret scan required; no live data operation |
+| Input/content | Existing artifact allowlists/limits unchanged; Stage 5A regressions retained |
+| Browser/network | Current-main artifacts retained exactly; L1 client remains disabled; no activation or Drive demotion |
+| Supply chain/deployment | No dependency/workflow change; final new-head verify 6/6 and existing proof required; no generic db push |
+| Operations/recovery | Fresh B-1/B-2 OWNER-WAIVED / RISK ACCEPTED, not recovery PASS; exact Production target/impact/rollback gate still mandatory |
+
+Prior exact-head review comment `5464351383` is clean, all 13 threads are
+resolved, verify `33270242608` passed 6/6 and proof `33270242615` passed against
+the previous integration base. One fresh independent review and new-head
+evidence must be recorded on the same PR before advancing. This implementing-
+agent addendum is not the independent review.
+
+No current Production SQL/catalog/aggregate/advisor query was executed for this
+integration. The historical Production observations below require fresh
+read-only revalidation before the exact Owner gate. A source publication/revert
+does not roll back applied database units, Storage state, or user data; no
+cross-operation atomicity or verified fresh restore anchor is claimed.
+
 Audit timestamp: `2026-08-30T02:10:26+07:00` (`Asia/Bangkok`)
 
 Auditor: ChatGPT/Codex using GitHub and Supabase read-only evidence. This is a
