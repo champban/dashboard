@@ -1,0 +1,54 @@
+name: L1B promotion artifact failure-safety proof
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260820032749_l0b_data_foundation.sql'
+      - 'supabase/migrations/20260825011714_l1a_direct_todo.sql'
+      - 'supabase/contracts/l1a_direct_todo.sql'
+      - 'supabase/tests/l1a_direct_todo.test.sql'
+      - 'supabase/migrations/20260825011716_l1b_planner_parity.sql'
+      - 'supabase/contracts/l1b_planner_parity.sql'
+      - 'supabase/tests/l1b_planner_parity.test.sql'
+      - 'supabase/operations/l1b_private_storage.sql'
+      - 'supabase/contracts/l1b_private_storage.sql'
+      - 'ops/l1b-promotion-artifact-proof.sh'
+      - '.github/workflows/l1b-promotion-artifact-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  transactional-fail-closed-proof:
+    name: L1A -> L1B -> Storage transactional/fail-closed proof
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17@sha256:e38411452a464af89e5adadb8d223bf53b898d47d6ef918b2d58c08707350449
+        env:
+          POSTGRES_DB: l1b_promotion_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d l1b_promotion_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/l1b_promotion_test
+    steps:
+      - name: Checkout exact PR merge ref
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Ensure PostgreSQL client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+      - name: Prove exact artifacts, rollback on injected failure, and fail-closed rerun
+        run: bash ops/l1b-promotion-artifact-proof.sh

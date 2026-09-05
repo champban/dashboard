@@ -3,6 +3,39 @@
 Shared context for whichever assistant (Claude / ChatGPT / Codex) picks up this
 project. Update this file whenever architecture, decisions, or open bugs change.
 
+## 2026-09-05 current-main qualification checkpoint
+
+- PR #107 is merged as `6ac363373f282aed7cbf6e8f5e32cdb5fce28028`, tree
+  `f36432f45618117bb8eef5fe9d31e6da50fb6077`. Verify `33906386946` passed
+  all six jobs and Pages `33906386307` deployed that SHA. Fresh unauthenticated
+  Full/Mobile smoke returned HTTP 200 and byte-identical deployed artifacts;
+  both sign-in routes rendered with no application console errors. This does
+  not attest signed-in recovery or Production data flows.
+- The subsequently alleged Full strict-storage-await P1 is **not reproduced
+  in the shipped adapter**. `build/storage-shim.js` executes localStorage
+  operations synchronously and returns already-fulfilled promises. An actual-
+  shim scheduling probe drained all 20 set/get await pairs before a queued
+  task; focused sync regressions passed. A delayed adapter injected only in a
+  test is a hardening scenario, not evidence of that claimed Pages P1. No
+  exceptional source patch or duplicate hotfix PR was created. This bounded
+  conclusion does not exclude a separately demonstrated race.
+- Existing Draft PR #96 is being integrated with that exact main without
+  rewriting history or changing its reviewed SQL, Storage operation, proof
+  workflow, or dependency bytes. Previous head `e8094dfcf04ecee37f019418ff3618f17812809b`
+  had verify `33270242608` PASS 6/6, proof `33270242615` PASS and clean Codex
+  comment `5464351383`, with all 13 review threads resolved. Those results
+  qualified the old base only; final new-head CI/proof/review are recorded on
+  PR #96 and must not be inferred from the historical results.
+- Owner's fresh B-1/B-2 waiver is **OWNER-WAIVED / RISK ACCEPTED**,
+  NICE-TO-HAVE, roadmap weight 0%, and not a Stage 5–6 blocker. This overrides
+  older fresh-backup requirements in historical records; it is never recovery
+  PASS. No backup/restore operation is authorized or performed.
+- PR #96 remains Draft, unmerged, and not approved for Production mutation by
+  this source checkpoint. Exact L1A, L1B and private Storage operations remain
+  separately gated. No raw Production data is read, no client activation or
+  Drive demotion occurs, and no branch deletion or destructive rollback is
+  permitted. Browser + Google Drive remain authoritative.
+
 ## Current release
 
 - Packet A Production apply base was
@@ -333,6 +366,12 @@ project. Update this file whenever architecture, decisions, or open bugs change.
   default-deny LINE INFO and one pre-existing Auth warning; no new Critical or
   High issue appeared. Browser + Google Drive remain authoritative. M6b closes
   first-import acceptance only and does not authorize a second import or L1.
+
+### Q-L1B-003 dependency-cycle concurrency remediation — Draft, not Production
+
+- The candidate enters the owner-scoped transaction advisory lock helper at the `task.children.replace` RPC before any per-task row lock. Direct INSERT uses the same helper from its trigger. Direct inactive-to-active UPDATE always fails immediately with `L1D02 dependency_lock_required`; the RPC deletes the tombstone only after taking the transaction lock and recreates the edge through the serialized INSERT path while preserving `created_at` and incrementing the prior `version`. Active-to-active metadata changes do not alter topology, and no caller-writable marker or advisory-lock-lifetime heuristic is trusted.
+- The PostgreSQL 17 proof covers five paths: raced trigger-cycle rejection; owner-lock-before-row RPC ordering with a third-session `NOWAIT` probe; mixed direct reactivation-versus-RPC reverse ordering with immediate `L1D02`, no `40P01`, and successful serialized RPC reactivation; shared-lock rejection; and forged-GUC plus session-lock rejection. FIFO driver signals remove fixed-duration release races. The graph remains acyclic and distinct owners still complete independently. The dedicated workflow paths include every migration, contract, SQL test, operation and proof script consumed by the job.
+- L1A migration/contract are byte-identical at SHA-256 `6e2df4dba24376a34acab308f20022bab9fb011efc12a7c0efb6568d618931a7`, Git blob `49f2a9554be55cfb32eb972f890526b9ce59e32f`, 36,483 bytes. L1B migration/contract are byte-identical at SHA-256 `264ea46b0706071bd30db5063453b5d41735d4cf71e9bfb84859d1e438c8e778`, Git blob `1a36536058b84b1ef4a11d5125ea9cde11c09b4e`, 49,087 bytes, pinned by source provenance commit `37772e2f0117e79726ab72bb09569d29cc45944c` (parent `6c80f180557538d23c699d02cc9bc23282090e3b`, `2026-08-29T19:10:26Z`). Historical ZIP evidence is superseded for both changed L1A/L1B bytes. PR #96 remains Draft/no-go pending final exact-head CI and independent review. Fresh B-1 artifact `9709317492` is valid through `2026-08-30T04:28:13Z`, but exact B-2 restore PASS is still absent; no Production action is authorized.
 
 ### L1A direct Todo source contract — merged/published, not Production
 
@@ -1220,6 +1259,8 @@ pill across this corner at `z-index:2147482000`. The fallback is styled to be ha
 | PACKET-A-B2-1 | Pinned logical backup failed in the data phase on the disposable CLI target | Supabase CLI `2.111.0` bootstrapped Storage through migration 60 while the Production-shaped dump expected migration-62 columns; zero-row COPY headers still resolve every named column | Fail-closed network-isolated compatibility bridge pins reviewed upstream migrations 61-62, exact pre/post catalog state and immutable source hashes; it never edits the dump or records false Storage migration history | PR #79 exact head `796b42a`; source-safety and restore run `32577304437` PASS; no output artifact or Production connection |
 | PACKET-A-B2-2 | Post-Packet-A restore reached catalog verification but failed closed before publishing raw diagnostics | Restoring into a fresh target did not reproduce the source database's reviewed `postgres` default-ACL precondition; deleted private logs prevented overstating a unique first failing assertion | Reconstruct only the frozen Packet A default-ACL precondition inside the disposable transaction, restore schema as `postgres`, reset before data, and publish only nonce-bound allowlisted assertion group + SQLSTATE; raw logs remain private and cleanup-scoped | PR #83 exact remote head `48aaa796`; verify/source run `32616039132`/`32616039104` PASS; restore run `32618003121`, jobs `97141728425`/`97141748031` PASS; zero output artifacts and no Production write |
 | PACKET-A-ACL-1 | Broad existing LINE grants and `postgres` future defaults exposed privileges beyond the reviewed contract | Historical Supabase defaults plus explicit existing object grants were broader than RLS alone controls | Exact hash-pinned targeted ACL migration; never use `db push`; freeze before/after ledger, count, ACL/RLS and unrelated canaries | Migration `20260822162710`; catalog/default/RLS/count/canary PASS; functional smoke Owner-waived / NOT EXECUTED |
+| L1-DEPENDENCY-LOCK-1 | Direct dependency UPDATE could reverse the RPC lock order; shared/session locks and a forged custom GUC could impersonate transaction-owned provenance; delete/reinsert could reset lifecycle history | A row-level UPDATE trigger runs after the tuple lock, `pg_locks` does not reveal advisory-lock lifetime, custom GUCs are caller-writable, and a naive reinsert resets row defaults | Remove marker/lock inspection entirely. Direct inactive-to-active UPDATE fails `L1D02`; RPC takes `pg_advisory_xact_lock`, deletes an inactive tombstone, then recreates the edge through the serialized INSERT guard with original `created_at` and `version + 1` | Byte parity; mixed reactivation/RPC, shared-lock and forged-GUC/session-lock negative proofs; public RPC history-preservation proof; no `40P01`; exact-head CI and independent review |
+| L1-ARTIFACT-PATH-1 | A consumed proof input could change while the dedicated artifact parity/failure-safety workflow was skipped | The workflow path filter initially omitted the Storage source contract, L0b prerequisite migration and L1B SQL test that the proof reads/executes | Inventory every file consumed by `ops/l1b-promotion-artifact-proof.sh` and list all migrations, contracts, SQL tests, operation and the proof/workflow files in `pull_request.paths`; keep exact contract/operation parity inside the proof | Exact input inventory against script references; exact-head dedicated proof and independent review |
 
 - **Stage 5A pending-recovery identity and concurrency guards:** Full relink/unlink,
   profile switch and active-profile deletion, plus Mobile link/create/delete-active-file,
