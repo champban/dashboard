@@ -1,0 +1,342 @@
+# Qualification source only. First dispatch requires separate default-branch
+# registration, production-l1 configuration, and exact-run Owner approval.
+# Never merge/dispatch this file merely because its local tests pass.
+name: L1 bounded read-only Production preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l1-production-preflight-qjaywadzvwvcspdsjxth
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: >-
+      github.repository == 'champban/dashboard' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/ops/l1-production-preflight-qualification' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-l1
+      deployment: false
+    steps:
+      - name: Require exact Owner-approved workflow revision
+        env:
+          EXECUTION_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          APPROVED_SHA: ${{ vars.L1_PREFLIGHT_APPROVED_SHA }}
+          DISPATCH_ACTOR: ${{ github.actor }}
+          APPROVED_ACTOR: ${{ vars.L1_PREFLIGHT_DISPATCH_ACTOR }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          approved = os.environ['APPROVED_SHA']
+          if (not re.fullmatch(r'[0-9a-f]{40}', approved)
+              or approved != os.environ['EXECUTION_SHA']
+              or approved != os.environ['WORKFLOW_SHA']
+              or not os.environ['APPROVED_ACTOR']
+              or os.environ['DISPATCH_ACTOR'] != os.environ['APPROVED_ACTOR']):
+              raise SystemExit('L1_PREFLIGHT_REFUSED:workflow_binding')
+          print('L1_PREFLIGHT_WORKFLOW_BINDING:PASS')
+          PY
+
+      - name: Checkout frozen qualification source without stored credentials
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: champban/dashboard
+          ref: 3e32c9812bf95b39737c231280cf5e9aa286b5f1
+          path: frozen
+          persist-credentials: false
+
+      - name: Define fixed preflight and run offline qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "$RUNNER_TEMP/l1-preflight.py" <<'PY'
+          import copy
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import ssl
+          import subprocess
+          import sys
+          import tempfile
+
+          SOURCE = '3e32c9812bf95b39737c231280cf5e9aa286b5f1'
+          TREE = '9665068437bd704c10e4b938b24f8df1178a6c13'
+          PROJECT = 'qjaywadzvwvcspdsjxth'
+          USER = 'postgres.' + PROJECT
+          CLIENT = '/usr/lib/postgresql/16/bin/psql'
+          VERSION = 'psql (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)'
+          CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}
+          FILES = {
+              'ops/l1-targeted-apply.sh': 'c0c4c8bd63b5aef43e54f3153938ddd372e0c6cae1af2bfec8e9fc8c4b50af1e',
+              'ops/l1b-promotion-artifact-proof.sh': 'f55c9eea250a7410e3c08222053a6e2a43ca7e6ed69f2f3522d533c0a49f3484',
+              'supabase/migrations/20260825011714_l1a_direct_todo.sql': '6e2df4dba24376a34acab308f20022bab9fb011efc12a7c0efb6568d618931a7',
+              'supabase/migrations/20260825011716_l1b_planner_parity.sql': '264ea46b0706071bd30db5063453b5d41735d4cf71e9bfb84859d1e438c8e778',
+              'supabase/operations/l1b_private_storage.sql': '9b80f536de31f79d1138b16b40dfd5794f09ad03883efd365738475259e8a93e',
+          }
+          PACKETS = {
+              'l1a': '8af58299188511b8a1eeb8e51e476f0cfe6a5e91e56c5395a53b272dcdea926f',
+              'l1b': 'fa92fe30658df4be65cd807eab00329db37f0fe73e815161d510edbd35852eda',
+              'storage': '02577daff324c2f55494beafd5d9a306768c454cb43540d2eb1a8a2d9e932f5d',
+          }
+          # Fixed SELECTs only. No arbitrary SQL, migration mode, RPC invocation,
+          # temporary object, export, DDL/DML or manual migration-ledger write.
+          # Baseline: 2026-09-05T06:00:34Z. Any mismatch stops, including legitimate
+          # new activity; a PASS covers these checks, not full catalog/data parity.
+          SQL = r"""
+          begin transaction isolation level repeatable read read only;
+          set local statement_timeout='10s';
+          set local lock_timeout='1s';
+          set local idle_in_transaction_session_timeout='15s';
+          set local search_path=pg_catalog;
+          select json_build_object(
+            'identity', current_database()='postgres' and current_user='postgres'
+              and session_user='postgres' and current_setting('server_version_num')::int/10000=17
+              and current_setting('transaction_read_only')='on'
+              and current_setting('transaction_isolation')='repeatable read'
+              and coalesce((select ssl from pg_stat_ssl where pid=pg_backend_pid()),false),
+            'ledger', (select count(*)=7 and
+              encode(sha256(convert_to(coalesce(string_agg(to_jsonb(m)::text,E'\n' order by version),''),'UTF8')),'hex')
+                ='a07a9e0437ff95b694196cf0fcceeba8b547002a4455b8d0cc1c7a562cbb6096'
+              from supabase_migrations.schema_migrations m),
+            'planner', array[
+              (select count(*) from public.mtp_tasks),
+              (select count(*) from public.mtp_subtasks),
+              (select count(*) from public.mtp_events),
+              (select count(*) from public.mtp_event_windows),
+              (select count(*) from public.mtp_task_attachments)] = array[105,17,6,15,0]::bigint[],
+            'tombstones', not exists(select 1 from public.mtp_tasks where not is_active)
+              and not exists(select 1 from public.mtp_subtasks where not is_active)
+              and not exists(select 1 from public.mtp_events where not is_active)
+              and not exists(select 1 from public.mtp_event_windows where not is_active)
+              and not exists(select 1 from public.mtp_task_attachments where not is_active),
+            'imports', (select count(*)=1 and bool_and(status='succeeded' and hashes_compared
+                and payload_hash is not distinct from stored_hash and traversal_complete)
+                from public.mtp_import_batches)
+              and (select count(*)=4 from public.mtp_import_chunks)
+              and not exists(select 1 from public.mtp_import_staging)
+              and not exists(select 1 from public.mtp_import_rejects),
+            'line', array[
+              (select count(*) from public.mtp_line_accounts),
+              (select count(*) from public.mtp_line_events),
+              (select count(*) from public.mtp_line_link_codes),
+              (select count(*) from public.mtp_line_mutations),
+              (select count(*) from public.mtp_line_snapshots)] = array[1,9,1,18,1]::bigint[]
+              and not exists(select 1 from public.mtp_line_events
+                where status<>'processed' or last_error_code is not null or attempt_count>1)
+              and not exists(select 1 from public.mtp_line_mutations
+                where status in ('draft','confirmed') and expires_at>now()),
+            'l1_absent', not exists(select 1 from pg_namespace where nspname='private')
+              and not exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname='public' and c.relname=any(array['mtp_task_dependencies',
+                  'mtp_task_external_refs','mtp_mutation_receipts','mtp_notes','mtp_note_assets','mtp_planner_settings']))
+              and not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                where n.nspname='public' and p.proname=any(array['mtp_task_create_v1','mtp_task_update_v1',
+                  'mtp_task_delete_v1','mtp_task_children_replace_v1','mtp_event_put_v1','mtp_event_delete_v1',
+                  'mtp_note_put_v1','mtp_note_delete_v1','mtp_settings_update_v1',
+                  'mtp_attachment_put_v1','mtp_attachment_delete_v1'])),
+            'storage_absent', not exists(select 1 from storage.buckets where id='mtp-private' or name='mtp-private')
+              and not exists(select 1 from pg_policies where schemaname='storage'
+                and tablename='objects' and policyname like 'mtp_private_%'),
+            'l0b_rls', (select count(*)=9 and bool_and(c.relrowsecurity)
+              from pg_class c join pg_namespace n on n.oid=c.relnamespace
+              where n.nspname='public' and c.relname=any(array['mtp_tasks','mtp_subtasks','mtp_events',
+                'mtp_event_windows','mtp_task_attachments','mtp_import_batches','mtp_import_chunks',
+                'mtp_import_staging','mtp_import_rejects']))
+          );
+          rollback;
+          """
+          CHECKS = {'identity','ledger','planner','tombstones','imports','line','l1_absent','storage_absent','l0b_rls'}
+
+          class Refused(Exception):
+              pass
+
+          def need(ok, code):
+              if not ok:
+                  raise Refused(code)
+
+          def sha(data):
+              return hashlib.sha256(data).hexdigest()
+
+          def frozen(root):
+              for suffix, expected in [('', SOURCE), ('^{tree}', TREE)]:
+                  result = subprocess.run(['/usr/bin/git','rev-parse','HEAD'+suffix], cwd=root,
+                      env=CLEAN, capture_output=True, check=True, timeout=10)
+                  need(result.stdout.decode().strip()==expected, 'source_revision')
+              for path, expected in FILES.items():
+                  need(sha((root/path).read_bytes())==expected, 'source_hash')
+              for unit, expected in PACKETS.items():
+                  # Render only, with no credential/libpq environment inherited.
+                  result = subprocess.run(['/bin/bash','ops/l1-targeted-apply.sh','--render',unit],
+                      cwd=root, env=CLEAN, capture_output=True, check=True, timeout=15)
+                  need(sha(result.stdout)==expected, 'packet_hash')
+
+          def binding(env):
+              need(not any(k.startswith('PG') or k in ('DATABASE_URL','SUPABASE_DB_URL') for k in env), 'connection_override')
+              host = env.get('L1_HOST','')
+              need(bool(re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*\.pooler\.supabase\.com', host)), 'host')
+              digest = env.get('L1_CA_SHA256','')
+              need(bool(re.fullmatch(r'[0-9a-f]{64}', digest)), 'ca_pin')
+              password = env.get('L1_PASSWORD','')
+              need(bool(password) and not any(c in password for c in '\r\n\x00'), 'password')
+              pem = env.get('L1_CA_PEM','').encode()
+              need(bool(pem) and len(pem)<=65536 and sha(pem)==digest, 'ca_hash')
+              return host, password, pem
+
+          def connection(host, password, pem, folder):
+              ca, passfile = folder/'root.crt', folder/'pgpass'
+              ca.write_bytes(pem)
+              ssl.create_default_context(cafile=str(ca))
+              escaped = password.replace('\\','\\\\').replace(':','\\:')
+              passfile.write_text(f'{host}:5432:postgres:{USER}:{escaped}\n')
+              passfile.chmod(0o600)
+              args = [CLIENT,'-X','-w','-qAt','-v','ON_ERROR_STOP=1',
+                      '-h',host,'-p','5432','-U',USER,'-d','postgres','-f','-']
+              env = dict(CLEAN, PGPASSFILE=str(passfile), PGSSLROOTCERT=str(ca),
+                  PGSSLMODE='verify-full', PGGSSENCMODE='disable', PGCONNECT_TIMEOUT='5',
+                  PGAPPNAME='l1-bounded-readonly-preflight',
+                  PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=10000 -c lock_timeout=1000')
+              return args, env
+
+          def result_check(raw):
+              need(len(raw)<=4096, 'result_size')
+              result = json.loads(raw)
+              need(isinstance(result,dict) and set(result)==CHECKS, 'result_shape')
+              need(all(v is True for v in result.values()), 'baseline_mismatch')
+
+          def execute(env, run=subprocess.run):
+              host, password, pem = binding(env)
+              version = run([CLIENT,'--version'], env=CLEAN, capture_output=True, timeout=5, check=True)
+              need(version.stdout.decode().strip()==VERSION, 'client_version')
+              with tempfile.TemporaryDirectory(prefix='l1-readonly-') as directory:
+                  args, clean = connection(host,password,pem,Path(directory))
+                  result = run(args, env=clean, input=SQL.encode(), capture_output=True, timeout=40, check=False)
+                  need(result.returncode==0, 'connection_or_query')
+                  result_check(result.stdout)
+              # Print only fixed text, never server values, stderr, SQL, or credentials.
+              print('L1_BOUNDED_READONLY_PREFLIGHT:PASS (9 fixed checks; not Production apply/recovery qualification)')
+
+          def self_test():
+              from unittest.mock import patch
+              pem = Path('/etc/ssl/certs/ca-certificates.crt').read_text()
+              # Nonsecret synthetic values. No network or real psql call in tests.
+              valid = {'L1_HOST':'test-only.pooler.supabase.com','L1_PASSWORD':'synthetic:pass\\word',
+                  'L1_CA_PEM':pem,'L1_CA_SHA256':sha(pem.encode())}
+              # A system trust bundle may exceed the bounded Production PEM limit;
+              # use one certificate from it solely for offline parser verification.
+              valid['L1_CA_PEM'] = pem.split('-----END CERTIFICATE-----')[0]+'-----END CERTIFICATE-----\n'
+              valid['L1_CA_SHA256'] = sha(valid['L1_CA_PEM'].encode())
+              calls = []
+              private_files = []
+              def fake(args, **kw):
+                  calls.append((args,kw))
+                  if args==[CLIENT,'--version']:
+                      return subprocess.CompletedProcess(args,0,VERSION.encode(),b'')
+                  need(kw['input']==SQL.encode(), 'test_sql')
+                  need(kw['env']['PGSSLMODE']=='verify-full', 'test_tls')
+                  need(kw['env']['PGOPTIONS'].startswith('-c default_transaction_read_only=on'), 'test_readonly')
+                  need('L1_PASSWORD' not in kw['env'] and 'PGPASSWORD' not in kw['env'], 'test_secret_env')
+                  need(valid['L1_PASSWORD'] not in ' '.join(args), 'test_secret_argv')
+                  path = Path(kw['env']['PGPASSFILE'])
+                  private_files.append(path)
+                  need(path.stat().st_mode & 0o777 == 0o600, 'test_passfile_mode')
+                  need(path.read_text().endswith('synthetic\\:pass\\\\word\n'), 'test_password_escape')
+                  return subprocess.CompletedProcess(args,0,json.dumps(dict.fromkeys(CHECKS,True)).encode(),b'')
+              cases = [dict(valid, L1_HOST=x) for x in ('','localhost','evil.example','x.pooler.supabase.com?sslmode=disable',
+                  'x.pooler.supabase.com,evil.example','db.'+PROJECT+'.supabase.co')]
+              cases += [dict(valid, **{key:value}) for key,value in [
+                  ('L1_PASSWORD',''),('L1_PASSWORD','x\ny'),('L1_CA_SHA256',''),
+                  ('L1_CA_SHA256','0'*64),('L1_CA_PEM',''),('PGHOST','evil.example'),
+                  ('PGSERVICE','other'),('PGOPTIONS','-c default_transaction_read_only=off'),
+                  ('DATABASE_URL','postgresql://unapproved')]]
+              for case in cases:
+                  calls.clear()
+                  try:
+                      execute(case, fake)
+                  except Refused:
+                      pass
+                  else:
+                      raise Refused('test_missing_refusal')
+                  need(not calls, 'test_connected_before_refusal')
+              with patch('builtins.print'):
+                  execute(valid, fake)
+              need(all(not path.exists() for path in private_files), 'test_credential_cleanup')
+              for raw in [b'null',b'{}',b'[]',b'not-json',b'x'*4097,
+                  json.dumps(dict.fromkeys(CHECKS,1)).encode(),
+                  json.dumps(dict.fromkeys(CHECKS,False)).encode()]:
+                  try:
+                      result_check(raw)
+                  except (Refused,ValueError):
+                      pass
+                  else:
+                      raise Refused('test_bad_result_accepted')
+              for failure in ['client_version','query','timeout','drift']:
+                  calls.clear()
+                  def failed(args, **kw):
+                      result = fake(args, **kw)
+                      if args==[CLIENT,'--version']:
+                          if failure=='client_version':
+                              result.stdout=b'psql (PostgreSQL) 17.11'
+                      elif failure=='query':
+                          result.returncode=1
+                          result.stderr=b'synthetic secret-like diagnostic MUST NOT PRINT'
+                      elif failure=='timeout':
+                          raise subprocess.TimeoutExpired(args,40)
+                      elif failure=='drift':
+                          result.stdout=json.dumps(dict.fromkeys(CHECKS,False)).encode()
+                      return result
+                  try:
+                      execute(valid, failed)
+                  except (Refused,subprocess.TimeoutExpired):
+                      pass
+                  else:
+                      raise Refused('test_failure_accepted')
+                  need(len(calls)==(1 if failure=='client_version' else 2), 'test_retry')
+                  need(all(not path.exists() for path in private_files), 'test_failure_cleanup')
+              need(SQL.strip().lower().startswith('begin transaction isolation level repeatable read read only;'), 'test_begin')
+              need(SQL.strip().lower().endswith('rollback;'), 'test_rollback')
+              need(not re.search(r'\b(insert|update|delete|create|alter|drop|truncate|commit|copy|call|do)\b',SQL,re.I), 'test_sql_write')
+              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; result, TLS, cleanup, no-retry checks)')
+
+          if __name__=='__main__':
+              try:
+                  need(len(sys.argv)==2, 'mode')
+                  if sys.argv[1]=='--self-test':
+                      self_test()
+                  elif sys.argv[1]=='--verify-source':
+                      frozen(Path('frozen'))
+                      print('L1_FROZEN_SOURCE_AND_PACKETS:PASS')
+                  elif sys.argv[1]=='--preflight':
+                      execute(dict(os.environ))
+                  else:
+                      raise Refused('mode')
+              except Refused as error:
+                  print('L1_PREFLIGHT_REFUSED:'+str(error), file=sys.stderr)
+                  sys.exit(1)
+              except Exception:
+                  # Never echo libpq stderr, malformed server output or a secret
+                  # embedded in an exception. Failure is not automatically retried.
+                  print('L1_PREFLIGHT_REFUSED:execution_error', file=sys.stderr)
+                  sys.exit(1)
+          PY
+          python3 "$RUNNER_TEMP/l1-preflight.py" --self-test
+          python3 "$RUNNER_TEMP/l1-preflight.py" --verify-source
+
+      - name: Single bounded read-only connection after protected Owner gate
+        env:
+          L1_HOST: ${{ vars.L1_PREFLIGHT_DB_HOST }}
+          L1_CA_SHA256: ${{ vars.L1_PREFLIGHT_CA_SHA256 }}
+          L1_PASSWORD: ${{ secrets.L1_PREFLIGHT_DB_PASSWORD }}
+          L1_CA_PEM: ${{ secrets.L1_PREFLIGHT_CA_PEM }}
+        run: python3 "$RUNNER_TEMP/l1-preflight.py" --preflight
