@@ -157,7 +157,8 @@ jobs:
           );
           rollback;
           """
-          CHECKS = {'identity','ledger','planner','tombstones','imports','line','l1_absent','storage_absent','l0b_rls'}
+          CHECKS = ('identity','ledger','planner','tombstones','imports','line',
+              'l1_absent','storage_absent','l0b_rls')
 
           class Refused(Exception):
               pass
@@ -212,8 +213,17 @@ jobs:
           def result_check(raw):
               need(len(raw)<=4096, 'result_size')
               result = json.loads(raw)
-              need(isinstance(result,dict) and set(result)==CHECKS, 'result_shape')
-              need(all(v is True for v in result.values()), 'baseline_mismatch')
+              need(isinstance(result,dict) and set(result)==set(CHECKS), 'result_shape')
+              flags = []
+              for name in CHECKS:
+                  value = result[name]
+                  # bool identity is intentional: Python considers 1 == True.
+                  need(value is True or value is False or value is None, 'result_type')
+                  literal = 'true' if value is True else 'false' if value is False else 'null'
+                  flags.append(name+'='+literal)
+              # Names are constants and values are fixed literals; raw JSON stays suppressed.
+              print('L1_PREFLIGHT_FLAGS:'+';'.join(flags), file=sys.stderr)
+              need(all(result[name] is True for name in CHECKS), 'baseline_mismatch')
 
           def error_category(raw):
               # Inspect captured bytes in memory only. Categories are diagnostic
@@ -260,7 +270,6 @@ jobs:
           def self_test():
               from contextlib import redirect_stderr, redirect_stdout
               from io import StringIO
-              from unittest.mock import patch
               pem = Path('/etc/ssl/certs/ca-certificates.crt').read_text()
               # Nonsecret synthetic values. No network or real psql call in tests.
               valid = {'L1_HOST':'test-only.pooler.supabase.com','L1_PASSWORD':'synthetic:pass\\word',
@@ -301,18 +310,65 @@ jobs:
                   else:
                       raise Refused('test_missing_refusal')
                   need(not calls, 'test_connected_before_refusal')
-              with patch('builtins.print'):
+              stdout, stderr = StringIO(), StringIO()
+              with redirect_stdout(stdout), redirect_stderr(stderr):
                   execute(valid, fake)
+              expected_true = 'L1_PREFLIGHT_FLAGS:'+';'.join(name+'=true' for name in CHECKS)+'\n'
+              need(stdout.getvalue()=='L1_BOUNDED_READONLY_PREFLIGHT:PASS (9 fixed checks; not Production apply/recovery qualification)\n',
+                  'test_success_output')
+              need(stderr.getvalue()==expected_true, 'test_success_flags')
               need(all(not path.exists() for path in private_files), 'test_credential_cleanup')
-              for raw in [b'null',b'{}',b'[]',b'not-json',b'x'*4097,
-                  json.dumps(dict.fromkeys(CHECKS,1)).encode(),
-                  json.dumps(dict.fromkeys(CHECKS,False)).encode()]:
+              malformed = [b'null',b'{}',b'[]',b'not-json',b'x'*4097]
+              missing = dict.fromkeys(CHECKS,True)
+              missing.pop('identity')
+              extra = dict.fromkeys(CHECKS,True)
+              extra['SYNTHETIC_PRIVATE_SENTINEL'] = True
+              malformed += [json.dumps(missing).encode(),json.dumps(extra).encode()]
+              for raw in malformed:
+                  stdout, stderr = StringIO(), StringIO()
                   try:
-                      result_check(raw)
+                      with redirect_stdout(stdout), redirect_stderr(stderr):
+                          result_check(raw)
                   except (Refused,ValueError):
                       pass
                   else:
                       raise Refused('test_bad_result_accepted')
+                  need(stdout.getvalue()=='' and stderr.getvalue()=='', 'test_bad_result_disclosure')
+              for value in [1,0,'true',[],{},'SYNTHETIC_PRIVATE_SENTINEL\n::error::INJECTED']:
+                  payload = dict.fromkeys(CHECKS,True)
+                  payload['identity'] = value
+                  stdout, stderr = StringIO(), StringIO()
+                  try:
+                      with redirect_stdout(stdout), redirect_stderr(stderr):
+                          result_check(json.dumps(payload).encode())
+                  except Refused as error:
+                      need(str(error)=='result_type', 'test_result_type_category')
+                  else:
+                      raise Refused('test_bad_result_type_accepted')
+                  need(stdout.getvalue()=='' and stderr.getvalue()=='', 'test_result_type_disclosure')
+              mixed = dict.fromkeys(CHECKS,True)
+              mixed['ledger'] = False
+              mixed['planner'] = None
+              calls.clear()
+              def mixed_failure(args, **kw):
+                  result = fake(args, **kw)
+                  if args!=[CLIENT,'--version']:
+                      result.stdout = json.dumps(mixed).encode()
+                  return result
+              stdout, stderr = StringIO(), StringIO()
+              try:
+                  with redirect_stdout(stdout), redirect_stderr(stderr):
+                      execute(valid, mixed_failure)
+              except Refused as error:
+                  need(str(error)=='baseline_mismatch', 'test_mixed_refusal')
+              else:
+                  raise Refused('test_mixed_accepted')
+              expected_mixed = ('L1_PREFLIGHT_FLAGS:identity=true;ledger=false;planner=null;'
+                  'tombstones=true;imports=true;line=true;l1_absent=true;'
+                  'storage_absent=true;l0b_rls=true\n')
+              need(stdout.getvalue()=='' and stderr.getvalue()==expected_mixed, 'test_mixed_flags')
+              need(len(calls)==2, 'test_mixed_retry')
+              need(all(not path.exists() for path in private_files), 'test_mixed_cleanup')
               for failure in ['client_version','query','timeout','drift']:
                   calls.clear()
                   def failed(args, **kw):
@@ -328,13 +384,21 @@ jobs:
                       elif failure=='drift':
                           result.stdout=json.dumps(dict.fromkeys(CHECKS,False)).encode()
                       return result
+                  failure_stdout, failure_stderr = StringIO(), StringIO()
                   try:
-                      with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                      with redirect_stdout(failure_stdout), redirect_stderr(failure_stderr):
                           execute(valid, failed)
-                  except (Refused,subprocess.TimeoutExpired):
-                      pass
+                  except Refused as error:
+                      if failure=='drift':
+                          need(str(error)=='baseline_mismatch', 'test_drift_refusal')
+                  except subprocess.TimeoutExpired:
+                      need(failure=='timeout', 'test_unexpected_timeout')
                   else:
                       raise Refused('test_failure_accepted')
+                  if failure=='drift':
+                      expected_false = 'L1_PREFLIGHT_FLAGS:'+';'.join(name+'=false' for name in CHECKS)+'\n'
+                      need(failure_stdout.getvalue()=='' and failure_stderr.getvalue()==expected_false,
+                          'test_drift_flags')
                   need(len(calls)==(1 if failure=='client_version' else 2), 'test_retry')
                   need(all(not path.exists() for path in private_files), 'test_failure_cleanup')
               # Exercise real execute/refusal flow with synthetic subprocess
@@ -379,7 +443,7 @@ jobs:
               need(SQL.strip().lower().startswith('begin transaction isolation level repeatable read read only;'), 'test_begin')
               need(SQL.strip().lower().endswith('rollback;'), 'test_rollback')
               need(not re.search(r'\b(insert|update|delete|create|alter|drop|truncate|commit|copy|call|do)\b',SQL,re.I), 'test_sql_write')
-              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; 13 sanitized diagnostics; result, TLS, cleanup, no-retry checks)')
+              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; 13 sanitized diagnostics; fixed-flag result/type, TLS, cleanup, no-retry checks)')
 
           if __name__=='__main__':
               try:
