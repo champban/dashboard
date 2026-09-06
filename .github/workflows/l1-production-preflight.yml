@@ -106,6 +106,13 @@ jobs:
               and current_setting('transaction_read_only')='on'
               and current_setting('transaction_isolation')='repeatable read'
               and coalesce((select ssl from pg_stat_ssl where pid=pg_backend_pid()),false),
+            'identity_database', current_database()='postgres',
+            'identity_current_user', current_user='postgres',
+            'identity_session_user', session_user='postgres',
+            'identity_pg17', current_setting('server_version_num')::int/10000=17,
+            'identity_read_only', current_setting('transaction_read_only')='on',
+            'identity_isolation', current_setting('transaction_isolation')='repeatable read',
+            'identity_backend_ssl', coalesce((select ssl from pg_stat_ssl where pid=pg_backend_pid()),false),
             'ledger', (select count(*)=7 and
               encode(sha256(convert_to(coalesce(string_agg(to_jsonb(m)::text,E'\n' order by version),''),'UTF8')),'hex')
                 ='a07a9e0437ff95b694196cf0fcceeba8b547002a4455b8d0cc1c7a562cbb6096'
@@ -158,7 +165,9 @@ jobs:
           rollback;
           """
           CHECKS = ('identity','ledger','planner','tombstones','imports','line',
-              'l1_absent','storage_absent','l0b_rls')
+              'l1_absent','storage_absent','l0b_rls',
+              'identity_database','identity_current_user','identity_session_user',
+              'identity_pg17','identity_read_only','identity_isolation','identity_backend_ssl')
 
           class Refused(Exception):
               pass
@@ -265,7 +274,7 @@ jobs:
                   need(result.returncode==0, 'connection_or_query')
                   result_check(result.stdout)
               # Print only fixed text, never server values, stderr, SQL, or credentials.
-              print('L1_BOUNDED_READONLY_PREFLIGHT:PASS (9 fixed checks; not Production apply/recovery qualification)')
+              print('L1_BOUNDED_READONLY_PREFLIGHT:PASS (16 fixed checks; not Production apply/recovery qualification)')
 
           def self_test():
               from contextlib import redirect_stderr, redirect_stdout
@@ -314,7 +323,7 @@ jobs:
               with redirect_stdout(stdout), redirect_stderr(stderr):
                   execute(valid, fake)
               expected_true = 'L1_PREFLIGHT_FLAGS:'+';'.join(name+'=true' for name in CHECKS)+'\n'
-              need(stdout.getvalue()=='L1_BOUNDED_READONLY_PREFLIGHT:PASS (9 fixed checks; not Production apply/recovery qualification)\n',
+              need(stdout.getvalue()=='L1_BOUNDED_READONLY_PREFLIGHT:PASS (16 fixed checks; not Production apply/recovery qualification)\n',
                   'test_success_output')
               need(stderr.getvalue()==expected_true, 'test_success_flags')
               need(all(not path.exists() for path in private_files), 'test_credential_cleanup')
@@ -363,9 +372,9 @@ jobs:
                   need(str(error)=='baseline_mismatch', 'test_mixed_refusal')
               else:
                   raise Refused('test_mixed_accepted')
-              expected_mixed = ('L1_PREFLIGHT_FLAGS:identity=true;ledger=false;planner=null;'
-                  'tombstones=true;imports=true;line=true;l1_absent=true;'
-                  'storage_absent=true;l0b_rls=true\n')
+              expected_mixed = 'L1_PREFLIGHT_FLAGS:'+';'.join(
+                  name+'='+('null' if mixed[name] is None else 'true' if mixed[name] is True else 'false')
+                  for name in CHECKS)+'\n'
               need(stdout.getvalue()=='' and stderr.getvalue()==expected_mixed, 'test_mixed_flags')
               need(len(calls)==2, 'test_mixed_retry')
               need(all(not path.exists() for path in private_files), 'test_mixed_cleanup')
