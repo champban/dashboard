@@ -5,6 +5,15 @@ name: L1 bounded read-only Production preflight
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'network-only: TLS without DB authentication; preflight: separately approved SQL'
+        type: choice
+        required: true
+        default: network-only
+        options:
+          - network-only
+          - preflight
 
 permissions:
   contents: read
@@ -33,6 +42,7 @@ jobs:
           APPROVED_SHA: ${{ vars.L1_PREFLIGHT_APPROVED_SHA }}
           DISPATCH_ACTOR: ${{ github.actor }}
           APPROVED_ACTOR: ${{ vars.L1_PREFLIGHT_DISPATCH_ACTOR }}
+          EXECUTION_MODE: ${{ inputs.mode || 'network-only' }}
         run: |
           python3 - <<'PY'
           import os, re
@@ -43,7 +53,10 @@ jobs:
               or not os.environ['APPROVED_ACTOR']
               or os.environ['DISPATCH_ACTOR'] != os.environ['APPROVED_ACTOR']):
               raise SystemExit('L1_PREFLIGHT_REFUSED:workflow_binding')
+          if os.environ['EXECUTION_MODE'] not in ('network-only', 'preflight'):
+              raise SystemExit('L1_PREFLIGHT_REFUSED:mode')
           print('L1_PREFLIGHT_WORKFLOW_BINDING:PASS')
+          print('L1_EXECUTION_MODE:'+os.environ['EXECUTION_MODE'])
           PY
 
       - name: Checkout frozen qualification source without stored credentials
@@ -519,7 +532,196 @@ jobs:
           python3 "$RUNNER_TEMP/l1-preflight.py" --self-test
           python3 "$RUNNER_TEMP/l1-preflight.py" --verify-source
 
+      - name: Define credential-free TLS probe and run offline qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "$RUNNER_TEMP/l1-network.py" <<'PY'
+          import hashlib
+          import ipaddress
+          import signal
+          import socket
+          import ssl
+          import struct
+          import sys
+
+          HOST = 'db.qjaywadzvwvcspdsjxth.supabase.co'
+          CA_SHA256 = '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7'
+          # Public certificate downloaded from the Dashboard certificate link:
+          # https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt
+          # Embedded exact bytes avoid a second runtime network dependency. Not a secret.
+          CA_PEM = '-----BEGIN CERTIFICATE-----\nMIIDxDCCAqygAwIBAgIUbLxMod62P2ktCiAkxnKJwtE9VPYwDQYJKoZIhvcNAQEL\nBQAwazELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB0RlbHdhcmUxEzARBgNVBAcMCk5l\ndyBDYXN0bGUxFTATBgNVBAoMDFN1cGFiYXNlIEluYzEeMBwGA1UEAwwVU3VwYWJh\nc2UgUm9vdCAyMDIxIENBMB4XDTIxMDQyODEwNTY1M1oXDTMxMDQyNjEwNTY1M1ow\nazELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB0RlbHdhcmUxEzARBgNVBAcMCk5ldyBD\nYXN0bGUxFTATBgNVBAoMDFN1cGFiYXNlIEluYzEeMBwGA1UEAwwVU3VwYWJhc2Ug\nUm9vdCAyMDIxIENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqQXW\nQyHOB+qR2GJobCq/CBmQ40G0oDmCC3mzVnn8sv4XNeWtE5XcEL0uVih7Jo4Dkx1Q\nDmGHBH1zDfgs2qXiLb6xpw/CKQPypZW1JssOTMIfQppNQ87K75Ya0p25Y3ePS2t2\nGtvHxNjUV6kjOZjEn2yWEcBdpOVCUYBVFBNMB4YBHkNRDa/+S4uywAoaTWnCJLUi\ncvTlHmMw6xSQQn1UfRQHk50DMCEJ7Cy1RxrZJrkXXRP3LqQL2ijJ6F4yMfh+Gyb4\nO4XajoVj/+R4GwywKYrrS8PrSNtwxr5StlQO8zIQUSMiq26wM8mgELFlS/32Uclt\nNaQ1xBRizkzpZct9DwIDAQABo2AwXjALBgNVHQ8EBAMCAQYwHQYDVR0OBBYEFKjX\nuXY32CztkhImng4yJNUtaUYsMB8GA1UdIwQYMBaAFKjXuXY32CztkhImng4yJNUt\naUYsMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAB8spzNn+4VU\ntVxbdMaX+39Z50sc7uATmus16jmmHjhIHz+l/9GlJ5KqAMOx26mPZgfzG7oneL2b\nVW+WgYUkTT3XEPFWnTp2RJwQao8/tYPXWEJDc0WVQHrpmnWOFKU/d3MqBgBm5y+6\njB81TU/RG2rVerPDWP+1MMcNNy0491CTL5XQZ7JfDJJ9CCmXSdtTl4uUQnSuv/Qx\nCea13BX2ZgJc7Au30vihLhub52De4P/4gonKsNHYdbWjg7OWKwNv/zitGDVDB9Y2\nCMTyZKG3XEu5Ghl1LEnI3QmEKsqaCLv12BnVjbkSeZsMnevJPs1Ye6TjjJwdik5P\no/bKiIz+Fq8=\n-----END CERTIFICATE-----\n'
+          SSL_REQUEST = struct.pack('!II', 8, 80877103)
+          FLAGS = ('ca_pin', 'dns_ipv6', 'tcp', 'ssl_response', 'tls_verified')
+
+          class Refused(Exception):
+              pass
+
+          def need(ok, category):
+              if not ok:
+                  raise Refused(category)
+
+          def tls_context(pem):
+              need(hashlib.sha256(pem.encode('ascii')).hexdigest() == CA_SHA256, 'ca_pin')
+              context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+              context.minimum_version = ssl.TLSVersion.TLSv1_2
+              context.load_verify_locations(cadata=pem)
+              need(context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname, 'tls_policy')
+              return context
+
+          def tls_wrap(context, connection, hostname):
+              return context.wrap_socket(connection, server_hostname=hostname)
+
+          def probe(pem=CA_PEM, resolve=socket.getaddrinfo, make_socket=socket.socket, wrap=tls_wrap):
+              flags = dict.fromkeys(FLAGS, False)
+              stage = 'ca_pin'
+              try:
+                  context = tls_context(pem)
+                  flags['ca_pin'] = True
+                  stage = 'dns_ipv6'
+                  addresses = resolve(HOST, 5432, socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+                  need(bool(addresses), 'dns_ipv6')
+                  family, kind, protocol, _, address = addresses[0]
+                  # One IPv6 address only, with no IPv4/tunnel/second-address fallback.
+                  need(family == socket.AF_INET6 and kind == socket.SOCK_STREAM
+                      and protocol == socket.IPPROTO_TCP and address[1] == 5432
+                      and ipaddress.ip_address(address[0]).is_global, 'dns_ipv6')
+                  flags['dns_ipv6'] = True
+                  stage = 'tcp'
+                  with make_socket(family, kind, protocol) as connection:
+                      connection.settimeout(8)
+                      connection.connect(address)
+                      flags['tcp'] = True
+                      stage = 'ssl_response'
+                      connection.sendall(SSL_REQUEST)
+                      # Read exactly the one protocol byte; untrusted errors stay suppressed.
+                      need(connection.recv(1) == b'S', 'ssl_response')
+                      flags['ssl_response'] = True
+                      stage = 'tls_verified'
+                      with wrap(context, connection, HOST):
+                          flags['tls_verified'] = True
+                          # No StartupMessage, authentication, user/database name or SQL.
+              except Refused:
+                  raise
+              except Exception:
+                  raise Refused(stage) from None
+              finally:
+                  print('L1_NETWORK_FLAGS:'+';'.join(k+'='+str(flags[k]).lower() for k in FLAGS))
+              print('L1_NETWORK_ONLY:PASS (verified TLS; no database authentication or SQL)')
+
+          def self_test():
+              from contextlib import redirect_stdout
+              from io import StringIO
+              context = tls_context(CA_PEM)
+              need(context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED, 'test_real_tls_policy')
+              # Synthetic IPv6 route; no real DNS, socket, subprocess or credential access.
+              address = ('2606:4700::1111', 5432, 0, 0)
+              cases = ('success', 'ca_pin', 'dns_error', 'dns_empty', 'dns_private', 'tcp',
+                  'ssl_no', 'ssl_error', 'ssl_eof', 'tls_verified', 'timeout')
+              for case in cases:
+                  calls, sent, closed = [], [], []
+                  def resolve(*args):
+                      calls.append('dns')
+                      need(args == (HOST,5432,socket.AF_INET6,socket.SOCK_STREAM,socket.IPPROTO_TCP), 'test_dns_binding')
+                      if case == 'dns_error':
+                          raise socket.gaierror('PRIVATE_SENTINEL')
+                      if case == 'dns_empty':
+                          return []
+                      chosen = ('::1',5432,0,0) if case == 'dns_private' else address
+                      # A second address proves that failures do not trigger fallback.
+                      return [(socket.AF_INET6,socket.SOCK_STREAM,socket.IPPROTO_TCP,'',chosen)]*2
+                  class Connection:
+                      def __enter__(self):
+                          return self
+                      def __exit__(self, *args):
+                          closed.append('socket')
+                      def settimeout(self, value):
+                          need(value == 8, 'test_timeout')
+                      def connect(self, target):
+                          calls.append('connect')
+                          need(target == address, 'test_address')
+                          if case == 'tcp':
+                              raise OSError('PRIVATE_SENTINEL')
+                          if case == 'timeout':
+                              raise TimeoutError('PRIVATE_SENTINEL')
+                      def sendall(self, data):
+                          sent.append(data)
+                          need(data == bytes.fromhex('0000000804d2162f'), 'test_ssl_request')
+                      def recv(self, size):
+                          need(size == 1, 'test_single_byte')
+                          return {'ssl_no':b'N','ssl_error':b'E','ssl_eof':b''}.get(case,b'S')
+                  def make_socket(*args):
+                      calls.append('socket')
+                      need(args == (socket.AF_INET6,socket.SOCK_STREAM,socket.IPPROTO_TCP), 'test_socket')
+                      return Connection()
+                  class TLS:
+                      def __enter__(self):
+                          return self
+                      def __exit__(self, *args):
+                          closed.append('tls')
+                  def wrap(context, connection, hostname):
+                      calls.append('tls')
+                      need(hostname == HOST and context.check_hostname
+                          and context.verify_mode == ssl.CERT_REQUIRED
+                          and context.minimum_version >= ssl.TLSVersion.TLSv1_2, 'test_tls_binding')
+                      if case == 'tls_verified':
+                          raise ssl.SSLCertVerificationError('PRIVATE_SENTINEL')
+                      return TLS()
+                  output = StringIO()
+                  try:
+                      with redirect_stdout(output):
+                          probe(CA_PEM+'x' if case == 'ca_pin' else CA_PEM, resolve, make_socket, wrap)
+                  except Refused as error:
+                      expected = {'dns_error':'dns_ipv6','dns_empty':'dns_ipv6','dns_private':'dns_ipv6',
+                          'ssl_no':'ssl_response','ssl_error':'ssl_response','ssl_eof':'ssl_response',
+                          'timeout':'tcp'}.get(case,case)
+                      need(case != 'success' and str(error) == expected, 'test_refusal')
+                  else:
+                      need(case == 'success', 'test_missing_refusal')
+                  need('PRIVATE_SENTINEL' not in output.getvalue() and HOST not in output.getvalue(), 'test_disclosure')
+                  need(calls.count('connect') <= 1 and calls.count('socket') <= 1, 'test_no_retry')
+                  need(len(sent) <= 1 and all(x == SSL_REQUEST for x in sent), 'test_no_startup_or_sql')
+                  need(closed.count('socket') == calls.count('socket'), 'test_cleanup')
+                  if case == 'ca_pin':
+                      need(not calls, 'test_ca_before_network')
+                  if case == 'success':
+                      expected = 'L1_NETWORK_FLAGS:'+';'.join(k+'=true' for k in FLAGS)+'\n'
+                      expected += 'L1_NETWORK_ONLY:PASS (verified TLS; no database authentication or SQL)\n'
+                      need(output.getvalue() == expected and closed == ['tls','socket'], 'test_success')
+              print('L1_NETWORK_OFFLINE_SELF_TEST:PASS (11 cases; CA, DNS, TLS policy, no auth/SQL/retry, cleanup, redaction)')
+
+          if __name__ == '__main__':
+              try:
+                  need(len(sys.argv)==2, 'mode')
+                  if sys.argv[1] == '--self-test':
+                      self_test()
+                  elif sys.argv[1] == '--probe':
+                      def deadline(*args):
+                          raise Refused('deadline')
+                      signal.signal(signal.SIGALRM, deadline)
+                      signal.alarm(35)  # Includes DNS, TCP and TLS; no retry on timeout.
+                      try:
+                          probe()
+                      finally:
+                          signal.alarm(0)
+                  else:
+                      raise Refused('mode')
+              except Refused as error:
+                  print('L1_NETWORK_REFUSED:'+str(error), file=sys.stderr)
+                  sys.exit(1)
+              except Exception:
+                  print('L1_NETWORK_REFUSED:execution_error', file=sys.stderr)
+                  sys.exit(1)
+          PY
+          python3 "$RUNNER_TEMP/l1-network.py" --self-test
+
+      - name: Single network-only TLS probe after protected Owner gate
+        if: ${{ (inputs.mode || 'network-only') == 'network-only' }}
+        run: env -i PATH=/usr/bin:/bin LC_ALL=C /usr/bin/python3 "$RUNNER_TEMP/l1-network.py" --probe
+
       - name: Single bounded read-only connection after protected Owner gate
+        if: ${{ inputs.mode == 'preflight' }}
         env:
           L1_HOST: ${{ vars.L1_PREFLIGHT_DB_HOST }}
           L1_CA_SHA256: ${{ vars.L1_PREFLIGHT_CA_SHA256 }}
