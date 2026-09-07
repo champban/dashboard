@@ -5,6 +5,15 @@ name: L1 bounded read-only Production preflight
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'network-only: TLS without DB authentication; preflight: separately approved SQL'
+        type: choice
+        required: true
+        default: network-only
+        options:
+          - network-only
+          - preflight
 
 permissions:
   contents: read
@@ -33,6 +42,7 @@ jobs:
           APPROVED_SHA: ${{ vars.L1_PREFLIGHT_APPROVED_SHA }}
           DISPATCH_ACTOR: ${{ github.actor }}
           APPROVED_ACTOR: ${{ vars.L1_PREFLIGHT_DISPATCH_ACTOR }}
+          EXECUTION_MODE: ${{ inputs.mode || 'network-only' }}
         run: |
           python3 - <<'PY'
           import os, re
@@ -43,7 +53,10 @@ jobs:
               or not os.environ['APPROVED_ACTOR']
               or os.environ['DISPATCH_ACTOR'] != os.environ['APPROVED_ACTOR']):
               raise SystemExit('L1_PREFLIGHT_REFUSED:workflow_binding')
+          if os.environ['EXECUTION_MODE'] not in ('network-only', 'preflight'):
+              raise SystemExit('L1_PREFLIGHT_REFUSED:mode')
           print('L1_PREFLIGHT_WORKFLOW_BINDING:PASS')
+          print('L1_EXECUTION_MODE:'+os.environ['EXECUTION_MODE'])
           PY
 
       - name: Checkout frozen qualification source without stored credentials
@@ -74,7 +87,7 @@ jobs:
           SOURCE = '3e32c9812bf95b39737c231280cf5e9aa286b5f1'
           TREE = '9665068437bd704c10e4b938b24f8df1178a6c13'
           PROJECT = 'qjaywadzvwvcspdsjxth'
-          USER = 'postgres.' + PROJECT
+          DIRECT_HOST = 'db.' + PROJECT + '.supabase.co'
           CLIENT = '/usr/lib/postgresql/16/bin/psql'
           VERSION = 'psql (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)'
           CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}
@@ -106,6 +119,13 @@ jobs:
               and current_setting('transaction_read_only')='on'
               and current_setting('transaction_isolation')='repeatable read'
               and coalesce((select ssl from pg_stat_ssl where pid=pg_backend_pid()),false),
+            'identity_database', current_database()='postgres',
+            'identity_current_user', current_user='postgres',
+            'identity_session_user', session_user='postgres',
+            'identity_pg17', current_setting('server_version_num')::int/10000=17,
+            'identity_read_only', current_setting('transaction_read_only')='on',
+            'identity_isolation', current_setting('transaction_isolation')='repeatable read',
+            'identity_backend_ssl', coalesce((select ssl from pg_stat_ssl where pid=pg_backend_pid()),false),
             'ledger', (select count(*)=7 and
               encode(sha256(convert_to(coalesce(string_agg(to_jsonb(m)::text,E'\n' order by version),''),'UTF8')),'hex')
                 ='a07a9e0437ff95b694196cf0fcceeba8b547002a4455b8d0cc1c7a562cbb6096'
@@ -157,7 +177,10 @@ jobs:
           );
           rollback;
           """
-          CHECKS = {'identity','ledger','planner','tombstones','imports','line','l1_absent','storage_absent','l0b_rls'}
+          CHECKS = ('identity','ledger','planner','tombstones','imports','line',
+              'l1_absent','storage_absent','l0b_rls',
+              'identity_database','identity_current_user','identity_session_user',
+              'identity_pg17','identity_read_only','identity_isolation','identity_backend_ssl')
 
           class Refused(Exception):
               pass
@@ -185,7 +208,10 @@ jobs:
           def binding(env):
               need(not any(k.startswith('PG') or k in ('DATABASE_URL','SUPABASE_DB_URL') for k in env), 'connection_override')
               host = env.get('L1_HOST','')
-              need(bool(re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*\.pooler\.supabase\.com', host)), 'host')
+              # Exact project direct endpoint is opt-in via the protected host binding.
+              # Keep session-pooler compatibility; never retry on another route.
+              need(host == DIRECT_HOST or bool(re.fullmatch(
+                  r'[a-z0-9]+(?:-[a-z0-9]+)*\.pooler\.supabase\.com', host)), 'host')
               digest = env.get('L1_CA_SHA256','')
               need(bool(re.fullmatch(r'[0-9a-f]{64}', digest)), 'ca_pin')
               password = env.get('L1_PASSWORD','')
@@ -195,14 +221,15 @@ jobs:
               return host, password, pem
 
           def connection(host, password, pem, folder):
+              user = 'postgres' if host == DIRECT_HOST else 'postgres.' + PROJECT
               ca, passfile = folder/'root.crt', folder/'pgpass'
               ca.write_bytes(pem)
               ssl.create_default_context(cafile=str(ca))
               escaped = password.replace('\\','\\\\').replace(':','\\:')
-              passfile.write_text(f'{host}:5432:postgres:{USER}:{escaped}\n')
+              passfile.write_text(f'{host}:5432:postgres:{user}:{escaped}\n')
               passfile.chmod(0o600)
               args = [CLIENT,'-X','-w','-qAt','-v','ON_ERROR_STOP=1',
-                      '-h',host,'-p','5432','-U',USER,'-d','postgres','-f','-']
+                      '-h',host,'-p','5432','-U',user,'-d','postgres','-f','-']
               env = dict(CLEAN, PGPASSFILE=str(passfile), PGSSLROOTCERT=str(ca),
                   PGSSLMODE='verify-full', PGGSSENCMODE='disable', PGCONNECT_TIMEOUT='5',
                   PGAPPNAME='l1-bounded-readonly-preflight',
@@ -212,8 +239,43 @@ jobs:
           def result_check(raw):
               need(len(raw)<=4096, 'result_size')
               result = json.loads(raw)
-              need(isinstance(result,dict) and set(result)==CHECKS, 'result_shape')
-              need(all(v is True for v in result.values()), 'baseline_mismatch')
+              need(isinstance(result,dict) and set(result)==set(CHECKS), 'result_shape')
+              flags = []
+              for name in CHECKS:
+                  value = result[name]
+                  # bool identity is intentional: Python considers 1 == True.
+                  need(value is True or value is False or value is None, 'result_type')
+                  literal = 'true' if value is True else 'false' if value is False else 'null'
+                  flags.append(name+'='+literal)
+              # Names are constants and values are fixed literals; raw JSON stays suppressed.
+              print('L1_PREFLIGHT_FLAGS:'+';'.join(flags), file=sys.stderr)
+              need(all(result[name] is True for name in CHECKS), 'baseline_mismatch')
+
+          def error_category(raw):
+              # Inspect captured bytes in memory only. Categories are diagnostic
+              # hints, not proof of a root cause; never return a matched excerpt.
+              message = raw.lower()
+              for category, phrases in (
+                  ('DNS', (b'could not translate host name', b'name or service not known',
+                      b'temporary failure in name resolution', b'nodename nor servname provided')),
+                  ('TLS', (b'certificate verify failed', b'does not match host name',
+                      b'root certificate file', b'server does not support ssl', b'ssl error',
+                      b'ssl syscall error', b'ssl connection has been closed unexpectedly')),
+                  ('AUTH', (b'password authentication failed', b'no password supplied',
+                      b'no pg_hba.conf entry', b'tenant or user not found',
+                      b'sasl authentication failed', b'scram authentication requires')),
+                  ('SQL_PERMISSION', (b'permission denied for', b'must be owner of', b'must be superuser')),
+              ):
+                  if any(phrase in message for phrase in phrases):
+                      return category
+              if re.search(rb'\b(relation|column|schema|function|type|operator) [^\r\n]+ does not exist\b', message):
+                  return 'SQL_CATALOG'
+              if any(phrase in message for phrase in (b'connection refused', b'connection timed out',
+                  b'timeout expired', b'network is unreachable', b'no route to host',
+                  b'could not connect to server', b'server closed the connection unexpectedly',
+                  b'connection to server was lost')):
+                  return 'CONNECTIVITY'
+              return 'UNKNOWN'
 
           def execute(env, run=subprocess.run):
               host, password, pem = binding(env)
@@ -222,13 +284,18 @@ jobs:
               with tempfile.TemporaryDirectory(prefix='l1-readonly-') as directory:
                   args, clean = connection(host,password,pem,Path(directory))
                   result = run(args, env=clean, input=SQL.encode(), capture_output=True, timeout=40, check=False)
+                  if result.returncode != 0:
+                      # Only subprocess's numeric status and an allowlisted label
+                      # leave memory. Raw stderr/stdout stay suppressed.
+                      print(f'L1_PREFLIGHT_DIAGNOSTIC:exit_code={int(result.returncode)};category={error_category(result.stderr)}', file=sys.stderr)
                   need(result.returncode==0, 'connection_or_query')
                   result_check(result.stdout)
               # Print only fixed text, never server values, stderr, SQL, or credentials.
-              print('L1_BOUNDED_READONLY_PREFLIGHT:PASS (9 fixed checks; not Production apply/recovery qualification)')
+              print('L1_BOUNDED_READONLY_PREFLIGHT:PASS (16 fixed checks; not Production apply/recovery qualification)')
 
           def self_test():
-              from unittest.mock import patch
+              from contextlib import redirect_stderr, redirect_stdout
+              from io import StringIO
               pem = Path('/etc/ssl/certs/ca-certificates.crt').read_text()
               # Nonsecret synthetic values. No network or real psql call in tests.
               valid = {'L1_HOST':'test-only.pooler.supabase.com','L1_PASSWORD':'synthetic:pass\\word',
@@ -254,7 +321,9 @@ jobs:
                   need(path.read_text().endswith('synthetic\\:pass\\\\word\n'), 'test_password_escape')
                   return subprocess.CompletedProcess(args,0,json.dumps(dict.fromkeys(CHECKS,True)).encode(),b'')
               cases = [dict(valid, L1_HOST=x) for x in ('','localhost','evil.example','x.pooler.supabase.com?sslmode=disable',
-                  'x.pooler.supabase.com,evil.example','db.'+PROJECT+'.supabase.co')]
+                  'x.pooler.supabase.com,evil.example','db.other-project.supabase.co',
+                  DIRECT_HOST+'.evil.example',DIRECT_HOST+'?sslmode=disable',
+                  DIRECT_HOST+',evil.example',DIRECT_HOST+':5432')]
               cases += [dict(valid, **{key:value}) for key,value in [
                   ('L1_PASSWORD',''),('L1_PASSWORD','x\ny'),('L1_CA_SHA256',''),
                   ('L1_CA_SHA256','0'*64),('L1_CA_PEM',''),('PGHOST','evil.example'),
@@ -269,18 +338,100 @@ jobs:
                   else:
                       raise Refused('test_missing_refusal')
                   need(not calls, 'test_connected_before_refusal')
-              with patch('builtins.print'):
+              stdout, stderr = StringIO(), StringIO()
+              with redirect_stdout(stdout), redirect_stderr(stderr):
                   execute(valid, fake)
+              expected_true = 'L1_PREFLIGHT_FLAGS:'+';'.join(name+'=true' for name in CHECKS)+'\n'
+              need(stdout.getvalue()=='L1_BOUNDED_READONLY_PREFLIGHT:PASS (16 fixed checks; not Production apply/recovery qualification)\n',
+                  'test_success_output')
+              need(stderr.getvalue()==expected_true, 'test_success_flags')
               need(all(not path.exists() for path in private_files), 'test_credential_cleanup')
-              for raw in [b'null',b'{}',b'[]',b'not-json',b'x'*4097,
-                  json.dumps(dict.fromkeys(CHECKS,1)).encode(),
-                  json.dumps(dict.fromkeys(CHECKS,False)).encode()]:
+              # Both routes must bind the same identity in argv and pgpass.
+              # Synthetic subprocesses only: no DNS, sockets or database queries.
+              for route_host, route_user in [(valid['L1_HOST'], 'postgres.'+PROJECT),
+                  (DIRECT_HOST, 'postgres')]:
+                  for route_failure in (False, True):
+                      calls.clear()
+                      def route_fake(args, **kw):
+                          result = fake(args, **kw)
+                          if args != [CLIENT,'--version']:
+                              need(args[args.index('-h')+1] == route_host, 'test_route_host')
+                              need(args[args.index('-U')+1] == route_user, 'test_route_user')
+                              need(Path(kw['env']['PGPASSFILE']).read_text().startswith(
+                                  f'{route_host}:5432:postgres:{route_user}:'), 'test_route_passfile')
+                              need(kw['env']['PGGSSENCMODE']=='disable', 'test_route_gss')
+                              need(Path(kw['env']['PGSSLROOTCERT']).read_bytes()==valid['L1_CA_PEM'].encode(),
+                                  'test_route_ca')
+                              if route_failure:
+                                  result.returncode = 2
+                                  result.stderr = b'network is unreachable SYNTHETIC_PRIVATE_SENTINEL'
+                          return result
+                      stdout, stderr = StringIO(), StringIO()
+                      try:
+                          with redirect_stdout(stdout), redirect_stderr(stderr):
+                              execute(dict(valid, L1_HOST=route_host), route_fake)
+                      except Refused as error:
+                          need(route_failure and str(error)=='connection_or_query', 'test_route_failure')
+                      else:
+                          need(not route_failure, 'test_route_failure_accepted')
+                      if route_failure:
+                          need(stdout.getvalue()=='' and stderr.getvalue()==
+                              'L1_PREFLIGHT_DIAGNOSTIC:exit_code=2;category=CONNECTIVITY\n', 'test_route_disclosure')
+                      else:
+                          need(stderr.getvalue()==expected_true, 'test_route_flags')
+                      need(len(calls)==2, 'test_route_retry_or_fallback')
+                      need(all(not path.exists() for path in private_files), 'test_route_cleanup')
+              malformed = [b'null',b'{}',b'[]',b'not-json',b'x'*4097]
+              missing = dict.fromkeys(CHECKS,True)
+              missing.pop('identity')
+              extra = dict.fromkeys(CHECKS,True)
+              extra['SYNTHETIC_PRIVATE_SENTINEL'] = True
+              malformed += [json.dumps(missing).encode(),json.dumps(extra).encode()]
+              for raw in malformed:
+                  stdout, stderr = StringIO(), StringIO()
                   try:
-                      result_check(raw)
+                      with redirect_stdout(stdout), redirect_stderr(stderr):
+                          result_check(raw)
                   except (Refused,ValueError):
                       pass
                   else:
                       raise Refused('test_bad_result_accepted')
+                  need(stdout.getvalue()=='' and stderr.getvalue()=='', 'test_bad_result_disclosure')
+              for value in [1,0,'true',[],{},'SYNTHETIC_PRIVATE_SENTINEL\n::error::INJECTED']:
+                  payload = dict.fromkeys(CHECKS,True)
+                  payload['identity'] = value
+                  stdout, stderr = StringIO(), StringIO()
+                  try:
+                      with redirect_stdout(stdout), redirect_stderr(stderr):
+                          result_check(json.dumps(payload).encode())
+                  except Refused as error:
+                      need(str(error)=='result_type', 'test_result_type_category')
+                  else:
+                      raise Refused('test_bad_result_type_accepted')
+                  need(stdout.getvalue()=='' and stderr.getvalue()=='', 'test_result_type_disclosure')
+              mixed = dict.fromkeys(CHECKS,True)
+              mixed['ledger'] = False
+              mixed['planner'] = None
+              calls.clear()
+              def mixed_failure(args, **kw):
+                  result = fake(args, **kw)
+                  if args!=[CLIENT,'--version']:
+                      result.stdout = json.dumps(mixed).encode()
+                  return result
+              stdout, stderr = StringIO(), StringIO()
+              try:
+                  with redirect_stdout(stdout), redirect_stderr(stderr):
+                      execute(valid, mixed_failure)
+              except Refused as error:
+                  need(str(error)=='baseline_mismatch', 'test_mixed_refusal')
+              else:
+                  raise Refused('test_mixed_accepted')
+              expected_mixed = 'L1_PREFLIGHT_FLAGS:'+';'.join(
+                  name+'='+('null' if mixed[name] is None else 'true' if mixed[name] is True else 'false')
+                  for name in CHECKS)+'\n'
+              need(stdout.getvalue()=='' and stderr.getvalue()==expected_mixed, 'test_mixed_flags')
+              need(len(calls)==2, 'test_mixed_retry')
+              need(all(not path.exists() for path in private_files), 'test_mixed_cleanup')
               for failure in ['client_version','query','timeout','drift']:
                   calls.clear()
                   def failed(args, **kw):
@@ -296,18 +447,66 @@ jobs:
                       elif failure=='drift':
                           result.stdout=json.dumps(dict.fromkeys(CHECKS,False)).encode()
                       return result
+                  failure_stdout, failure_stderr = StringIO(), StringIO()
                   try:
-                      execute(valid, failed)
-                  except (Refused,subprocess.TimeoutExpired):
-                      pass
+                      with redirect_stdout(failure_stdout), redirect_stderr(failure_stderr):
+                          execute(valid, failed)
+                  except Refused as error:
+                      if failure=='drift':
+                          need(str(error)=='baseline_mismatch', 'test_drift_refusal')
+                  except subprocess.TimeoutExpired:
+                      need(failure=='timeout', 'test_unexpected_timeout')
                   else:
                       raise Refused('test_failure_accepted')
+                  if failure=='drift':
+                      expected_false = 'L1_PREFLIGHT_FLAGS:'+';'.join(name+'=false' for name in CHECKS)+'\n'
+                      need(failure_stdout.getvalue()=='' and failure_stderr.getvalue()==expected_false,
+                          'test_drift_flags')
                   need(len(calls)==(1 if failure=='client_version' else 2), 'test_retry')
                   need(all(not path.exists() for path in private_files), 'test_failure_cleanup')
+              # Exercise real execute/refusal flow with synthetic subprocess
+              # outcomes, including hostile output and secret-like sentinels.
+              diagnostics = [
+                  (2, b'could not translate host name "test": Name or service not known', 'DNS'),
+                  (2, b'connection to server failed: Connection refused', 'CONNECTIVITY'),
+                  (2, b'connection timed out', 'CONNECTIVITY'),
+                  (2, b'SSL error: certificate verify failed', 'TLS'),
+                  (2, b'server certificate does not match host name "test"', 'TLS'),
+                  (2, b'FATAL: password authentication failed for user "test"', 'AUTH'),
+                  (2, b'FATAL: Tenant or user not found', 'AUTH'),
+                  (3, b'ERROR: permission denied for schema test', 'SQL_PERMISSION'),
+                  (3, b'ERROR: column "test" does not exist', 'SQL_CATALOG'),
+                  (3, b'ERROR: function test(integer) does not exist', 'SQL_CATALOG'),
+                  (1, b'ERROR: unrecognized diagnostic', 'UNKNOWN'),
+                  (-9, b'', 'UNKNOWN'),
+                  (2, b'\xff\x00::error::INJECTED\ncategory=AUTH\n', 'UNKNOWN'),
+              ]
+              for returncode, diagnostic, category in diagnostics:
+                  calls.clear()
+                  sentinel = b'SYNTHETIC_PRIVATE_SENTINEL'
+                  def diagnostic_failure(args, **kw):
+                      result = fake(args, **kw)
+                      if args!=[CLIENT,'--version']:
+                          result.returncode = returncode
+                          result.stdout = sentinel + b'\n::error::UNTRUSTED_STDOUT'
+                          result.stderr = diagnostic + b'\n' + sentinel + valid['L1_PASSWORD'].encode()
+                      return result
+                  stdout, stderr = StringIO(), StringIO()
+                  try:
+                      with redirect_stdout(stdout), redirect_stderr(stderr):
+                          execute(valid, diagnostic_failure)
+                  except Refused as error:
+                      need(str(error)=='connection_or_query', 'test_diagnostic_refusal')
+                  else:
+                      raise Refused('test_diagnostic_accepted')
+                  expected = f'L1_PREFLIGHT_DIAGNOSTIC:exit_code={returncode};category={category}\n'
+                  need(stdout.getvalue()=='' and stderr.getvalue()==expected, 'test_diagnostic_disclosure')
+                  need(len(calls)==2, 'test_diagnostic_retry')
+                  need(all(not path.exists() for path in private_files), 'test_diagnostic_cleanup')
               need(SQL.strip().lower().startswith('begin transaction isolation level repeatable read read only;'), 'test_begin')
               need(SQL.strip().lower().endswith('rollback;'), 'test_rollback')
               need(not re.search(r'\b(insert|update|delete|create|alter|drop|truncate|commit|copy|call|do)\b',SQL,re.I), 'test_sql_write')
-              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; result, TLS, cleanup, no-retry checks)')
+              print('L1_OFFLINE_SELF_TEST:PASS (19 preconnect refusals; 2 routes with no fallback; 13 sanitized diagnostics; fixed-flag result/type, TLS, cleanup, no-retry checks)')
 
           if __name__=='__main__':
               try:
@@ -333,7 +532,205 @@ jobs:
           python3 "$RUNNER_TEMP/l1-preflight.py" --self-test
           python3 "$RUNNER_TEMP/l1-preflight.py" --verify-source
 
+      - name: Define credential-free TLS probe and run offline qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "$RUNNER_TEMP/l1-network.py" <<'PY'
+          import hashlib
+          import ipaddress
+          import signal
+          import socket
+          import ssl
+          import struct
+          import sys
+
+          HOST = 'db.qjaywadzvwvcspdsjxth.supabase.co'
+          CA_SHA256 = '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7'
+          # Public certificate downloaded from the Dashboard certificate link:
+          # https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt
+          # Embedded exact bytes avoid a second runtime network dependency. Not a secret.
+          CA_PEM = '-----BEGIN CERTIFICATE-----\nMIIDxDCCAqygAwIBAgIUbLxMod62P2ktCiAkxnKJwtE9VPYwDQYJKoZIhvcNAQEL\nBQAwazELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB0RlbHdhcmUxEzARBgNVBAcMCk5l\ndyBDYXN0bGUxFTATBgNVBAoMDFN1cGFiYXNlIEluYzEeMBwGA1UEAwwVU3VwYWJh\nc2UgUm9vdCAyMDIxIENBMB4XDTIxMDQyODEwNTY1M1oXDTMxMDQyNjEwNTY1M1ow\nazELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB0RlbHdhcmUxEzARBgNVBAcMCk5ldyBD\nYXN0bGUxFTATBgNVBAoMDFN1cGFiYXNlIEluYzEeMBwGA1UEAwwVU3VwYWJhc2Ug\nUm9vdCAyMDIxIENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqQXW\nQyHOB+qR2GJobCq/CBmQ40G0oDmCC3mzVnn8sv4XNeWtE5XcEL0uVih7Jo4Dkx1Q\nDmGHBH1zDfgs2qXiLb6xpw/CKQPypZW1JssOTMIfQppNQ87K75Ya0p25Y3ePS2t2\nGtvHxNjUV6kjOZjEn2yWEcBdpOVCUYBVFBNMB4YBHkNRDa/+S4uywAoaTWnCJLUi\ncvTlHmMw6xSQQn1UfRQHk50DMCEJ7Cy1RxrZJrkXXRP3LqQL2ijJ6F4yMfh+Gyb4\nO4XajoVj/+R4GwywKYrrS8PrSNtwxr5StlQO8zIQUSMiq26wM8mgELFlS/32Uclt\nNaQ1xBRizkzpZct9DwIDAQABo2AwXjALBgNVHQ8EBAMCAQYwHQYDVR0OBBYEFKjX\nuXY32CztkhImng4yJNUtaUYsMB8GA1UdIwQYMBaAFKjXuXY32CztkhImng4yJNUt\naUYsMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAB8spzNn+4VU\ntVxbdMaX+39Z50sc7uATmus16jmmHjhIHz+l/9GlJ5KqAMOx26mPZgfzG7oneL2b\nVW+WgYUkTT3XEPFWnTp2RJwQao8/tYPXWEJDc0WVQHrpmnWOFKU/d3MqBgBm5y+6\njB81TU/RG2rVerPDWP+1MMcNNy0491CTL5XQZ7JfDJJ9CCmXSdtTl4uUQnSuv/Qx\nCea13BX2ZgJc7Au30vihLhub52De4P/4gonKsNHYdbWjg7OWKwNv/zitGDVDB9Y2\nCMTyZKG3XEu5Ghl1LEnI3QmEKsqaCLv12BnVjbkSeZsMnevJPs1Ye6TjjJwdik5P\no/bKiIz+Fq8=\n-----END CERTIFICATE-----\n'
+          SSL_REQUEST = struct.pack('!II', 8, 80877103)
+          FLAGS = ('ca_pin', 'dns_ipv4', 'tcp', 'ssl_response', 'tls_verified')
+
+          class Refused(Exception):
+              pass
+
+          def need(ok, category):
+              if not ok:
+                  raise Refused(category)
+
+          def tls_context(pem):
+              need(hashlib.sha256(pem.encode('ascii')).hexdigest() == CA_SHA256, 'ca_pin')
+              context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+              context.minimum_version = ssl.TLSVersion.TLSv1_2
+              context.load_verify_locations(cadata=pem)
+              need(context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname, 'tls_policy')
+              return context
+
+          def tls_wrap(context, connection, hostname):
+              return context.wrap_socket(connection, server_hostname=hostname)
+
+          def probe(pem=CA_PEM, resolve=socket.getaddrinfo, make_socket=socket.socket, wrap=tls_wrap):
+              flags = dict.fromkeys(FLAGS, False)
+              stage = 'ca_pin'
+              try:
+                  context = tls_context(pem)
+                  flags['ca_pin'] = True
+                  stage = 'dns_ipv4'
+                  addresses = resolve(HOST, 5432, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+                  need(bool(addresses), 'dns_ipv4')
+                  family, kind, protocol, _, address = addresses[0]
+                  # Requires separately approved provider IPv4 add-on activation.
+                  # One IPv4 address only; no IPv6/tunnel/second-address fallback.
+                  need(family == socket.AF_INET and kind == socket.SOCK_STREAM
+                      and protocol == socket.IPPROTO_TCP and address[1] == 5432
+                      and ipaddress.ip_address(address[0]).version == 4
+                      and ipaddress.ip_address(address[0]).is_global, 'dns_ipv4')
+                  flags['dns_ipv4'] = True
+                  stage = 'tcp'
+                  with make_socket(family, kind, protocol) as connection:
+                      connection.settimeout(8)
+                      connection.connect(address)
+                      flags['tcp'] = True
+                      stage = 'ssl_response'
+                      connection.sendall(SSL_REQUEST)
+                      # Read exactly the one protocol byte; untrusted errors stay suppressed.
+                      need(connection.recv(1) == b'S', 'ssl_response')
+                      flags['ssl_response'] = True
+                      stage = 'tls_verified'
+                      with wrap(context, connection, HOST):
+                          flags['tls_verified'] = True
+                          # No StartupMessage, authentication, user/database name or SQL.
+              except Refused:
+                  raise
+              except Exception:
+                  raise Refused(stage) from None
+              finally:
+                  print('L1_NETWORK_FLAGS:'+';'.join(k+'='+str(flags[k]).lower() for k in FLAGS))
+              print('L1_NETWORK_ONLY:PASS (verified TLS; no database authentication or SQL)')
+
+          def self_test():
+              from contextlib import redirect_stdout
+              from io import StringIO
+              context = tls_context(CA_PEM)
+              need(context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED, 'test_real_tls_policy')
+              # Synthetic IPv4 route; no real DNS, socket, subprocess or credential access.
+              address = ('1.1.1.1', 5432)
+              cases = ('success', 'ca_pin', 'dns_error', 'dns_empty', 'dns_private',
+                  'dns_family', 'dns_version', 'dns_port', 'tcp',
+                  'ssl_no', 'ssl_error', 'ssl_eof', 'tls_verified', 'timeout')
+              for case in cases:
+                  calls, sent, closed = [], [], []
+                  def resolve(*args):
+                      calls.append('dns')
+                      need(args == (HOST,5432,socket.AF_INET,socket.SOCK_STREAM,socket.IPPROTO_TCP), 'test_dns_binding')
+                      if case == 'dns_error':
+                          raise socket.gaierror('PRIVATE_SENTINEL')
+                      if case == 'dns_empty':
+                          return []
+                      chosen = {'dns_private':('127.0.0.1',5432),
+                          'dns_version':('2606:4700::1111',5432),
+                          'dns_port':('1.1.1.1',6543)}.get(case,address)
+                      family = socket.AF_INET6 if case == 'dns_family' else socket.AF_INET
+                      # A second address proves that failures do not trigger fallback.
+                      return [(family,socket.SOCK_STREAM,socket.IPPROTO_TCP,'',chosen)]*2
+                  class Connection:
+                      def __enter__(self):
+                          return self
+                      def __exit__(self, *args):
+                          closed.append('socket')
+                      def settimeout(self, value):
+                          need(value == 8, 'test_timeout')
+                      def connect(self, target):
+                          calls.append('connect')
+                          need(target == address, 'test_address')
+                          if case == 'tcp':
+                              raise OSError('PRIVATE_SENTINEL')
+                          if case == 'timeout':
+                              raise TimeoutError('PRIVATE_SENTINEL')
+                      def sendall(self, data):
+                          sent.append(data)
+                          need(data == bytes.fromhex('0000000804d2162f'), 'test_ssl_request')
+                      def recv(self, size):
+                          need(size == 1, 'test_single_byte')
+                          return {'ssl_no':b'N','ssl_error':b'E','ssl_eof':b''}.get(case,b'S')
+                  def make_socket(*args):
+                      calls.append('socket')
+                      need(args == (socket.AF_INET,socket.SOCK_STREAM,socket.IPPROTO_TCP), 'test_socket')
+                      return Connection()
+                  class TLS:
+                      def __enter__(self):
+                          return self
+                      def __exit__(self, *args):
+                          closed.append('tls')
+                  def wrap(context, connection, hostname):
+                      calls.append('tls')
+                      need(hostname == HOST and context.check_hostname
+                          and context.verify_mode == ssl.CERT_REQUIRED
+                          and context.minimum_version >= ssl.TLSVersion.TLSv1_2, 'test_tls_binding')
+                      if case == 'tls_verified':
+                          raise ssl.SSLCertVerificationError('PRIVATE_SENTINEL')
+                      return TLS()
+                  output = StringIO()
+                  try:
+                      with redirect_stdout(output):
+                          probe(CA_PEM+'x' if case == 'ca_pin' else CA_PEM, resolve, make_socket, wrap)
+                  except Refused as error:
+                      expected = {'dns_error':'dns_ipv4','dns_empty':'dns_ipv4','dns_private':'dns_ipv4',
+                          'dns_family':'dns_ipv4','dns_version':'dns_ipv4','dns_port':'dns_ipv4',
+                          'ssl_no':'ssl_response','ssl_error':'ssl_response','ssl_eof':'ssl_response',
+                          'timeout':'tcp'}.get(case,case)
+                      need(case != 'success' and str(error) == expected, 'test_refusal')
+                  else:
+                      need(case == 'success', 'test_missing_refusal')
+                  need('PRIVATE_SENTINEL' not in output.getvalue() and HOST not in output.getvalue(), 'test_disclosure')
+                  need(calls.count('connect') <= 1 and calls.count('socket') <= 1, 'test_no_retry')
+                  need(len(sent) <= 1 and all(x == SSL_REQUEST for x in sent), 'test_no_startup_or_sql')
+                  need(closed.count('socket') == calls.count('socket'), 'test_cleanup')
+                  if case == 'ca_pin':
+                      need(not calls, 'test_ca_before_network')
+                  if case.startswith('dns_'):
+                      need(calls == ['dns'] and not sent and not closed, 'test_dns_before_socket')
+                  if case == 'success':
+                      expected = 'L1_NETWORK_FLAGS:'+';'.join(k+'=true' for k in FLAGS)+'\n'
+                      expected += 'L1_NETWORK_ONLY:PASS (verified TLS; no database authentication or SQL)\n'
+                      need(output.getvalue() == expected and closed == ['tls','socket'], 'test_success')
+              print('L1_NETWORK_OFFLINE_SELF_TEST:PASS (14 cases; CA, IPv4 DNS binding, TLS policy, no auth/SQL/retry, cleanup, redaction)')
+
+          if __name__ == '__main__':
+              try:
+                  need(len(sys.argv)==2, 'mode')
+                  if sys.argv[1] == '--self-test':
+                      self_test()
+                  elif sys.argv[1] == '--probe':
+                      def deadline(*args):
+                          raise Refused('deadline')
+                      signal.signal(signal.SIGALRM, deadline)
+                      signal.alarm(35)  # Includes DNS, TCP and TLS; no retry on timeout.
+                      try:
+                          probe()
+                      finally:
+                          signal.alarm(0)
+                  else:
+                      raise Refused('mode')
+              except Refused as error:
+                  print('L1_NETWORK_REFUSED:'+str(error), file=sys.stderr)
+                  sys.exit(1)
+              except Exception:
+                  print('L1_NETWORK_REFUSED:execution_error', file=sys.stderr)
+                  sys.exit(1)
+          PY
+          python3 "$RUNNER_TEMP/l1-network.py" --self-test
+
+      - name: Single network-only TLS probe after protected Owner gate
+        if: ${{ (inputs.mode || 'network-only') == 'network-only' }}
+        run: env -i PATH=/usr/bin:/bin LC_ALL=C /usr/bin/python3 "$RUNNER_TEMP/l1-network.py" --probe
+
       - name: Single bounded read-only connection after protected Owner gate
+        if: ${{ inputs.mode == 'preflight' }}
         env:
           L1_HOST: ${{ vars.L1_PREFLIGHT_DB_HOST }}
           L1_CA_SHA256: ${{ vars.L1_PREFLIGHT_CA_SHA256 }}
