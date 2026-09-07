@@ -74,7 +74,7 @@ jobs:
           SOURCE = '3e32c9812bf95b39737c231280cf5e9aa286b5f1'
           TREE = '9665068437bd704c10e4b938b24f8df1178a6c13'
           PROJECT = 'qjaywadzvwvcspdsjxth'
-          USER = 'postgres.' + PROJECT
+          DIRECT_HOST = 'db.' + PROJECT + '.supabase.co'
           CLIENT = '/usr/lib/postgresql/16/bin/psql'
           VERSION = 'psql (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)'
           CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}
@@ -195,7 +195,10 @@ jobs:
           def binding(env):
               need(not any(k.startswith('PG') or k in ('DATABASE_URL','SUPABASE_DB_URL') for k in env), 'connection_override')
               host = env.get('L1_HOST','')
-              need(bool(re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*\.pooler\.supabase\.com', host)), 'host')
+              # Exact project direct endpoint is opt-in via the protected host binding.
+              # Keep session-pooler compatibility; never retry on another route.
+              need(host == DIRECT_HOST or bool(re.fullmatch(
+                  r'[a-z0-9]+(?:-[a-z0-9]+)*\.pooler\.supabase\.com', host)), 'host')
               digest = env.get('L1_CA_SHA256','')
               need(bool(re.fullmatch(r'[0-9a-f]{64}', digest)), 'ca_pin')
               password = env.get('L1_PASSWORD','')
@@ -205,14 +208,15 @@ jobs:
               return host, password, pem
 
           def connection(host, password, pem, folder):
+              user = 'postgres' if host == DIRECT_HOST else 'postgres.' + PROJECT
               ca, passfile = folder/'root.crt', folder/'pgpass'
               ca.write_bytes(pem)
               ssl.create_default_context(cafile=str(ca))
               escaped = password.replace('\\','\\\\').replace(':','\\:')
-              passfile.write_text(f'{host}:5432:postgres:{USER}:{escaped}\n')
+              passfile.write_text(f'{host}:5432:postgres:{user}:{escaped}\n')
               passfile.chmod(0o600)
               args = [CLIENT,'-X','-w','-qAt','-v','ON_ERROR_STOP=1',
-                      '-h',host,'-p','5432','-U',USER,'-d','postgres','-f','-']
+                      '-h',host,'-p','5432','-U',user,'-d','postgres','-f','-']
               env = dict(CLEAN, PGPASSFILE=str(passfile), PGSSLROOTCERT=str(ca),
                   PGSSLMODE='verify-full', PGGSSENCMODE='disable', PGCONNECT_TIMEOUT='5',
                   PGAPPNAME='l1-bounded-readonly-preflight',
@@ -304,7 +308,9 @@ jobs:
                   need(path.read_text().endswith('synthetic\\:pass\\\\word\n'), 'test_password_escape')
                   return subprocess.CompletedProcess(args,0,json.dumps(dict.fromkeys(CHECKS,True)).encode(),b'')
               cases = [dict(valid, L1_HOST=x) for x in ('','localhost','evil.example','x.pooler.supabase.com?sslmode=disable',
-                  'x.pooler.supabase.com,evil.example','db.'+PROJECT+'.supabase.co')]
+                  'x.pooler.supabase.com,evil.example','db.other-project.supabase.co',
+                  DIRECT_HOST+'.evil.example',DIRECT_HOST+'?sslmode=disable',
+                  DIRECT_HOST+',evil.example',DIRECT_HOST+':5432')]
               cases += [dict(valid, **{key:value}) for key,value in [
                   ('L1_PASSWORD',''),('L1_PASSWORD','x\ny'),('L1_CA_SHA256',''),
                   ('L1_CA_SHA256','0'*64),('L1_CA_PEM',''),('PGHOST','evil.example'),
@@ -327,6 +333,41 @@ jobs:
                   'test_success_output')
               need(stderr.getvalue()==expected_true, 'test_success_flags')
               need(all(not path.exists() for path in private_files), 'test_credential_cleanup')
+              # Both routes must bind the same identity in argv and pgpass.
+              # Synthetic subprocesses only: no DNS, sockets or database queries.
+              for route_host, route_user in [(valid['L1_HOST'], 'postgres.'+PROJECT),
+                  (DIRECT_HOST, 'postgres')]:
+                  for route_failure in (False, True):
+                      calls.clear()
+                      def route_fake(args, **kw):
+                          result = fake(args, **kw)
+                          if args != [CLIENT,'--version']:
+                              need(args[args.index('-h')+1] == route_host, 'test_route_host')
+                              need(args[args.index('-U')+1] == route_user, 'test_route_user')
+                              need(Path(kw['env']['PGPASSFILE']).read_text().startswith(
+                                  f'{route_host}:5432:postgres:{route_user}:'), 'test_route_passfile')
+                              need(kw['env']['PGGSSENCMODE']=='disable', 'test_route_gss')
+                              need(Path(kw['env']['PGSSLROOTCERT']).read_bytes()==valid['L1_CA_PEM'].encode(),
+                                  'test_route_ca')
+                              if route_failure:
+                                  result.returncode = 2
+                                  result.stderr = b'network is unreachable SYNTHETIC_PRIVATE_SENTINEL'
+                          return result
+                      stdout, stderr = StringIO(), StringIO()
+                      try:
+                          with redirect_stdout(stdout), redirect_stderr(stderr):
+                              execute(dict(valid, L1_HOST=route_host), route_fake)
+                      except Refused as error:
+                          need(route_failure and str(error)=='connection_or_query', 'test_route_failure')
+                      else:
+                          need(not route_failure, 'test_route_failure_accepted')
+                      if route_failure:
+                          need(stdout.getvalue()=='' and stderr.getvalue()==
+                              'L1_PREFLIGHT_DIAGNOSTIC:exit_code=2;category=CONNECTIVITY\n', 'test_route_disclosure')
+                      else:
+                          need(stderr.getvalue()==expected_true, 'test_route_flags')
+                      need(len(calls)==2, 'test_route_retry_or_fallback')
+                      need(all(not path.exists() for path in private_files), 'test_route_cleanup')
               malformed = [b'null',b'{}',b'[]',b'not-json',b'x'*4097]
               missing = dict.fromkeys(CHECKS,True)
               missing.pop('identity')
@@ -452,7 +493,7 @@ jobs:
               need(SQL.strip().lower().startswith('begin transaction isolation level repeatable read read only;'), 'test_begin')
               need(SQL.strip().lower().endswith('rollback;'), 'test_rollback')
               need(not re.search(r'\b(insert|update|delete|create|alter|drop|truncate|commit|copy|call|do)\b',SQL,re.I), 'test_sql_write')
-              print('L1_OFFLINE_SELF_TEST:PASS (15 preconnect refusals; 13 sanitized diagnostics; fixed-flag result/type, TLS, cleanup, no-retry checks)')
+              print('L1_OFFLINE_SELF_TEST:PASS (19 preconnect refusals; 2 routes with no fallback; 13 sanitized diagnostics; fixed-flag result/type, TLS, cleanup, no-retry checks)')
 
           if __name__=='__main__':
               try:
